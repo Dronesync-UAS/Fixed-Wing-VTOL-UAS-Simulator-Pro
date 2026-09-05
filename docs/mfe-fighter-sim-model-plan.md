@@ -113,15 +113,27 @@ control inverts.
   and their `<spherical_coordinates>` + magnetic-field blocks — reusable
   as-is; only the vehicle model spawned into them changes.
 
-## Open items before/while building
+## Geometry — RESOLVED from the RealFlight model (6 Sep 2026)
 
-1. CG measurement (distance from a datum, e.g. the wing leading edge).
-2. Wing/tail layout from the CAD `.stp` files — is it conventional
-   tail + separate ailerons/elevator/rudder (the servo map suggests yes),
-   or elevons? Confirm.
-3. Rotor arm positions (X geometry) — measurable from the CAD or a photo
-   with a scale.
-4. Whether the RealFlight model (`fighterVTOL_EA.RFX`) already encodes
-   usable mass/inertia/geometry we can read out rather than approximate.
-5. Rough inertia tensor — approximate first, then tune `Q_A_RAT_*` gains
-   in sim to match a real flight log's rates.
+Item 4 below turned out to be the answer to items 1, 3 and 5: the
+manufacturer's `fighterVTOL_EA.RFX` contains a full mass/geometry model.
+Extracted and documented in
+`sim/models/mfe_fighter/GEOMETRY-from-realflight.md` and applied (mass +
+inertia so far) to `model.sdf`.
+
+Confirmed from the RFX:
+- Conventional layout — separate main wing, horizontal tail, vertical
+  tail; ailerons + elevator + rudder (item 2). Not elevons.
+- 4 lift rotors at X ≈ +0.41 (front) / -0.445 (rear), Y ≈ ±0.50; forward
+  **tractor** at the nose (+0.44 m), not a pusher (item 3).
+- RealFlight total mass 7.27 kg, CG at X ≈ +0.24 m, point-mass inertia
+  Ixx/Iyy/Izz ≈ 0.27 / 0.64 / 0.90 kg·m² (items 1, 5).
+
+## Still open
+
+1. Which mass the param file was tuned to — RealFlight's 7.27 kg or the
+   real aircraft's 11.5 kg MTOW.
+2. The forward-CG vs rotor-centroid asymmetry (CG ~0.26 m ahead of the
+   rotor rectangle centre) — real, or an RFX artefact?
+3. Real flight log to tune `Q_A_RAT_*` gains, motor thrust constants and
+   the lift/drag coefficients against.
