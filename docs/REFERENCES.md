@@ -22,4 +22,5 @@ with a link from here.
 
 ## GitHub
 
-- This repo: https://github.com/Dronesync-UAS/uas-instructor-station
+- This repo: https://github.com/Dronesync-UAS/Fixed-Wing-VTOL-UAS-Simulator-Pro
+  (renamed from `uas-instructor-station` around 5 Sep 2026; old URL still redirects)
