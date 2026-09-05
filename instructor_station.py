@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """
-UAS Academy Ground Control Station - Instructor Station
+UAV Academy GCS Pro
 
-A desktop app for instructors, built around a plugin system so new
-scenarios can be added later by just dropping a new file into the
-plugins/ folder - nothing else needs to change.
+The instructor-only desktop ground control station (renamed from
+"UAS Academy Instructor Station" on 5 Sep 2026). A plainer "UAV Academy
+GCS" for students is planned for later, once this one is tested and
+working.
+
+Built around a plugin system so new scenarios can be added later by just
+dropping a new file into the plugins/ folder - nothing else needs to change.
 
 Run this AFTER the simulator is already running.
 """
@@ -99,7 +103,7 @@ CONNECTING_PAGE = """
 <!DOCTYPE html>
 <html>
 <head>
-<title>UAS Academy - Instructor Station</title>
+<title>UAV Academy GCS Pro</title>
 <style>
   body {
     font-family: -apple-system, 'Segoe UI', sans-serif;
@@ -117,7 +121,7 @@ CONNECTING_PAGE = """
 </style>
 </head>
 <body>
-  <div class="brand">UAS ACADEMY &mdash; INSTRUCTOR STATION</div>
+  <div class="brand">UAV ACADEMY GCS PRO</div>
   <div class="spinner"></div>
   <div id="msg">Connecting to the simulator...</div>
 <script>
@@ -142,7 +146,7 @@ PAGE_TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
-<title>UAS Academy - Instructor Station</title>
+<title>UAV Academy GCS Pro</title>
 <style>
   * {{ box-sizing: border-box; }}
   body {{
@@ -240,7 +244,7 @@ PAGE_TEMPLATE = """
 </head>
 <body>
   <div class="topbar">
-    <div class="brand">UAS ACADEMY</div>
+    <div class="brand">UAV ACADEMY GCS PRO</div>
     <div class="status-item"><div class="k">Vehicle</div><div class="v">STANDARD_VTOL-01</div></div>
     <div class="status-item"><div class="k">Mode</div><div class="v" id="t-mode">-</div></div>
     <div class="status-item"><div class="k">Status</div><div class="v" id="t-armed">-</div></div>
@@ -629,7 +633,7 @@ def run_server():
 if __name__ == "__main__":
     print(f"Loaded {len(plugins)} controls across {len([c for c in categories.values() if c])} categories.")
     threading.Thread(target=run_server, daemon=True).start()
-    print(f"Instructor Station running - open a browser to: http://localhost:{PORT}")
+    print(f"UAV Academy GCS Pro running - open a browser to: http://localhost:{PORT}")
 
     # The instructor window is just a convenience wrapper around the local
     # web server - it is NOT the station itself. Closing it (or a WebKit
@@ -649,7 +653,7 @@ if __name__ == "__main__":
 
     if webview is not None:
         try:
-            webview.create_window("UAS Academy - Instructor Station", f"http://localhost:{PORT}",
+            webview.create_window("UAV Academy GCS Pro", f"http://localhost:{PORT}",
                                    width=1000, height=850, background_color="#0b1017")
             webview.start()
         except Exception as e:
@@ -662,4 +666,4 @@ if __name__ == "__main__":
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
-        print("\nShutting down Instructor Station.")
+        print("\nShutting down UAV Academy GCS Pro.")
