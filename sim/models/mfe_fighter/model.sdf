@@ -5,16 +5,24 @@
 
     <link name="base_link">
       <pose>0 0 0 0 0 0</pose>
+      <!-- Mass + inertia from the manufacturer's RealFlight model - see
+           GEOMETRY-from-realflight.md. RealFlight total is 7.27 kg (the
+           four 0.22 kg lift-motor links + 0.32 kg fwd motor + 0.1 kg
+           control surfaces are separate links, so base_link carries the
+           balance ~6.2 kg). Inertia is the point-mass tensor about the
+           CG, scaled ~1.6x for distributed mass - re-tune against a real
+           flight log. NOTE: real aircraft MTOW is 11.5 kg; if the param
+           file was tuned to the real aircraft not RealFlight, bump this. -->
       <inertial>
-        <pose>-0.1 0 0 0 0 0</pose>
-        <mass>10.5</mass>
+        <pose>0.236 -0.007 -0.028 0 0 0</pose>
+        <mass>6.2</mass>
         <inertia>
-          <ixx>1.05</ixx>
-          <ixy>0</ixy>
-          <ixz>0.06</ixz>
-          <iyy>0.76</iyy>
-          <iyz>0</iyz>
-          <izz>1.75</izz>
+          <ixx>0.43</ixx>
+          <ixy>-0.013</ixy>
+          <ixz>0.008</ixz>
+          <iyy>1.02</iyy>
+          <iyz>0.003</iyz>
+          <izz>1.44</izz>
         </inertia>
       </inertial>
       <collision name="fuselage_collision">
@@ -234,7 +242,7 @@
       <pose>0.399766589 -0.428448099 -0.042066584 -0.052 0 0</pose>
       <inertial>
         <pose>0 0 0 0 0 0</pose>
-        <mass>0.025</mass>
+        <mass>0.221</mass>
         <inertia>
           <ixx>9.75e-06</ixx>
           <ixy>0</ixy>
@@ -293,7 +301,7 @@
       <pose>-0.466782469 0.429388845 0.085456111 0.052 0 0</pose>
       <inertial>
         <pose>0 0 0 0 0 0</pose>
-        <mass>0.025</mass>
+        <mass>0.221</mass>
         <inertia>
           <ixx>9.75e-06</ixx>
           <ixy>0</ixy>
@@ -352,7 +360,7 @@
       <pose>0.399766589 0.428448099 -0.042066584 0.052 0 0</pose>
       <inertial>
         <pose>0 0 0 0 0 0</pose>
-        <mass>0.025</mass>
+        <mass>0.221</mass>
         <inertia>
           <ixx>9.75e-06</ixx>
           <ixy>0</ixy>
@@ -411,7 +419,7 @@
       <pose>-0.466782469 -0.429388845 0.085456111 -0.052 0 0</pose>
       <inertial>
         <pose>0 0 0 0 0 0</pose>
-        <mass>0.025</mass>
+        <mass>0.221</mass>
         <inertia>
           <ixx>9.75e-06</ixx>
           <ixy>0</ixy>
@@ -469,7 +477,7 @@
     <link name="motor_f">
       <pose>-0.462542074 0 -0.014101091 0 -1.570796327 0</pose>
       <inertial>
-        <mass>0.025</mass>
+        <mass>0.323</mass>
         <inertia>
           <ixx>9.75e-06</ixx>
           <ixy>0</ixy>
