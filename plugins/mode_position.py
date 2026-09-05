@@ -1,15 +1,15 @@
-from simulator_link import master, log_instructor_action
-from pymavlink import mavutil
+from simulator_link import set_mode, log_instructor_action
+
+PX4_MAIN_MODE_POSCTL = 3  # px4_custom_mode.h
+
+# FIXED 3 Sep 2026: was sending (3 << 16) as param2 of MAV_CMD_DO_SET_MODE,
+# truncated to 0 by PX4 and ignored. Now uses simulator_link.set_mode().
 
 
 def mode_position():
-    custom_mode = (3 << 16)
-    master.mav.command_long_send(
-        master.target_system, master.target_component,
-        mavutil.mavlink.MAV_CMD_DO_SET_MODE,
-        0, mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, custom_mode, 0, 0, 0, 0, 0)
-    log_instructor_action("mode_change", "mode=position instructor_override=true")
-    return "Switching to Position mode."
+    result = set_mode(PX4_MAIN_MODE_POSCTL, name="Position mode")
+    log_instructor_action("mode_change", f"mode=position instructor_override=true result={result}")
+    return result
 
 
 PLUGIN = {"id": "mode_position", "label": "Position", "category": "Flight Mode", "style": "normal", "handler": mode_position}

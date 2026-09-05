@@ -11,6 +11,7 @@ a "Connecting to the simulator" screen in the app itself until PX4
 answers.
 """
 
+import math
 import threading
 import subprocess
 import time
@@ -41,6 +42,7 @@ def stop_background_script(name):
 
 PX4_MODES = {
     (1, 0): "Manual", (2, 0): "Altitude", (3, 0): "Position",
+    (3, 1): "Orbit", (3, 2): "Position (slow)",
     (4, 1): "Ready", (4, 2): "Takeoff", (4, 3): "Hold / Loiter",
     (4, 4): "Mission", (4, 5): "Return to Launch", (4, 6): "Land",
     (4, 8): "Follow", (5, 0): "Acro", (6, 0): "Offboard",
@@ -52,6 +54,28 @@ telemetry = {
     "altitude_amsl_m": None,
     "groundspeed_ms": 0.0, "battery_pct": None,
     "heading_deg": 0, "satellites": None,
+    # Attitude from the ATTITUDE message (degrees) - added 3 Sep 2026 to
+    # drive the FPV camera's artificial-horizon / gyro overlay.
+    "roll_deg": 0.0, "pitch_deg": 0.0, "yaw_deg": 0.0,
+    "airspeed_ms": 0.0,
+}
+
+# Rolling record of where the aircraft has actually been, for the "Flight
+# Path" plan-view window in the instructor station. Each point is
+# (lat, lon, relative_alt_m, t_monotonic). Capped so a long session can't
+# grow this without bound.
+flight_path = []
+_MAX_PATH_POINTS = 4000
+home_latlon = {"lat": None, "lon": None}
+
+# Last COMMAND_ACK seen for each command id, so a plugin can send a
+# command and then find out whether PX4 actually accepted it (added
+# 3 Sep 2026 - "the button does nothing" is almost always PX4 rejecting
+# the command for a state reason it never surfaced).
+command_acks = {}
+MAV_RESULT_NAMES = {
+    0: "accepted", 1: "temporarily rejected", 2: "denied",
+    3: "unsupported", 4: "failed", 5: "in progress", 6: "cancelled",
 }
 # altitude_amsl_m is the aircraft's real height above sea level, as PX4
 # itself understands it - not height above the ground/spawn point (that's
@@ -205,6 +229,44 @@ def _watch_for_no_response():
 threading.Thread(target=_watch_for_no_response, daemon=True).start()
 
 
+def send_command_and_wait(command, *params, timeout=2.0):
+    """Send a COMMAND_LONG and wait briefly for its COMMAND_ACK.
+
+    Returns (result_code, human_text). result_code is the MAV_RESULT int,
+    or None if PX4 never acknowledged. The telemetry loop is the only
+    thread that reads the MAVLink socket; it stashes COMMAND_ACKs in
+    `command_acks` and this function just polls that dict, so there's no
+    contention over the connection."""
+    params = (list(params) + [0.0] * 7)[:7]
+    command_acks.pop(command, None)
+    sent_at = time.monotonic()
+    master.mav.command_long_send(
+        master.target_system, master.target_component, command, 0, *params)
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        ack = command_acks.get(command)
+        if ack and ack["t"] >= sent_at:
+            return ack["result"], MAV_RESULT_NAMES.get(ack["result"], f"result {ack['result']}")
+        time.sleep(0.05)
+    return None, "no acknowledgement from PX4"
+
+
+def set_mode(main_mode, sub_mode=0, name=None):
+    """Switch PX4 flight mode via MAV_CMD_DO_SET_MODE and report back what
+    PX4 actually did. param2/param3 carry the PX4 custom main/sub mode
+    numbers directly (NOT the bit-shifted HEARTBEAT packing - that only
+    applies to the separate SET_MODE message; see Commander.cpp)."""
+    label = name or f"mode {main_mode}.{sub_mode}"
+    result, text = send_command_and_wait(
+        mavutil.mavlink.MAV_CMD_DO_SET_MODE,
+        mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, main_mode, sub_mode)
+    if result == 0:
+        return f"{label}: accepted by PX4."
+    if result is None:
+        return f"{label}: no response from PX4 (is it connected?)."
+    return f"{label}: PX4 {text} the mode change."
+
+
 def _telemetry_loop():
     while True:
         msg = master.recv_match(blocking=True, timeout=1)
@@ -219,14 +281,35 @@ def _telemetry_loop():
         elif t == "GLOBAL_POSITION_INT":
             telemetry["altitude_m"] = round(msg.relative_alt / 1000.0, 1)
             telemetry["altitude_amsl_m"] = round(msg.alt / 1000.0, 1)
+            lat, lon = msg.lat / 1e7, msg.lon / 1e7
+            if lat or lon:
+                if home_latlon["lat"] is None:
+                    home_latlon["lat"], home_latlon["lon"] = lat, lon
+                if not flight_path or abs(flight_path[-1][0] - lat) + abs(flight_path[-1][1] - lon) > 1e-6:
+                    flight_path.append((lat, lon, telemetry["altitude_m"], time.monotonic()))
+                    if len(flight_path) > _MAX_PATH_POINTS:
+                        del flight_path[0]
+        elif t == "HOME_POSITION":
+            home_latlon["lat"] = msg.latitude / 1e7
+            home_latlon["lon"] = msg.longitude / 1e7
+        elif t == "ATTITUDE":
+            telemetry["roll_deg"] = round(math.degrees(msg.roll), 1)
+            telemetry["pitch_deg"] = round(math.degrees(msg.pitch), 1)
+            telemetry["yaw_deg"] = round(math.degrees(msg.yaw) % 360, 1)
         elif t == "VFR_HUD":
-            telemetry["groundspeed_ms"] = round(msg.groundspeed, 1)
+            # airspeed is NaN until PX4 has a usable airspeed estimate
+            # (e.g. sitting on the ground) - NaN is not valid JSON and
+            # breaks the whole /telemetry parse in the browser, so clamp it.
+            telemetry["groundspeed_ms"] = round(msg.groundspeed, 1) if math.isfinite(msg.groundspeed) else 0.0
+            telemetry["airspeed_ms"] = round(msg.airspeed, 1) if math.isfinite(msg.airspeed) else 0.0
             telemetry["heading_deg"] = msg.heading
         elif t == "GPS_RAW_INT":
             telemetry["satellites"] = msg.satellites_visible
         elif t == "BATTERY_STATUS":
             if msg.battery_remaining >= 0:
                 telemetry["battery_pct"] = msg.battery_remaining
+        elif t == "COMMAND_ACK":
+            command_acks[msg.command] = {"result": msg.result, "t": time.monotonic()}
 
 
 def _connect_then_start_telemetry():
@@ -249,3 +332,4 @@ def _connect_then_start_telemetry():
 
 
 threading.Thread(target=_connect_then_start_telemetry, daemon=True).start()
+

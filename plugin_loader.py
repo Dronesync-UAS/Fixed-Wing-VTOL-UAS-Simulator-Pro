@@ -13,6 +13,16 @@ PLUGIN = {
     "handler": some_function,    # called when the button is clicked
 }
 
+Optionally a plugin may declare "inputs" - a list of number boxes shown
+above its button that the instructor fills in first:
+
+    "inputs": [{"name": "radius_m", "label": "Radius (m)", "default": 150,
+                "min": 10, "step": 10}],
+
+Each input's value is passed to the handler as a keyword argument of the
+same name (as a string), e.g. handler(radius_m="150"). Handlers with
+inputs should validate/convert those values themselves.
+
 REVISED 23 Aug 2026: also keeps a reference to each plugin's loaded
 module (under the "_module" key, not part of the documented PLUGIN
 contract above). This lets instructor_station.py show a live on/off
