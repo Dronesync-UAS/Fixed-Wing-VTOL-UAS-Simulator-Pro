@@ -58,7 +58,15 @@ telemetry = {
     # drive the FPV camera's artificial-horizon / gyro overlay.
     "roll_deg": 0.0, "pitch_deg": 0.0, "yaw_deg": 0.0,
     "airspeed_ms": 0.0,
+    # Straight-line distance from the home/launch point, metres. Added
+    # 6 Sep 2026 for the operational-limit checks (CAP722B 5.3(c)).
+    "range_from_home_m": 0.0,
 }
+
+# Link health, for the "how fresh is this data" readout (CAP722B 5.2(d)).
+# `last_msg_t` is a time.monotonic() stamp updated every time ANY MAVLink
+# message is processed; the instructor station turns it into an age.
+link_health = {"last_msg_t": None}
 
 # Rolling record of where the aircraft has actually been, for the "Flight
 # Path" plan-view window in the instructor station. Each point is
@@ -267,11 +275,23 @@ def set_mode(main_mode, sub_mode=0, name=None):
     return f"{label}: PX4 {text} the mode change."
 
 
+def _range_from_home(lat, lon):
+    """Straight-line ground distance (m) from the home point to (lat, lon),
+    equirectangular approximation - fine for the few-km ranges involved."""
+    hlat, hlon = home_latlon["lat"], home_latlon["lon"]
+    if hlat is None:
+        return 0.0
+    x = math.radians(lon - hlon) * math.cos(math.radians(hlat)) * 6371000.0
+    y = math.radians(lat - hlat) * 6371000.0
+    return round(math.hypot(x, y), 1)
+
+
 def _telemetry_loop():
     while True:
         msg = master.recv_match(blocking=True, timeout=1)
         if msg is None:
             continue
+        link_health["last_msg_t"] = time.monotonic()
         t = msg.get_type()
         if t == "HEARTBEAT":
             telemetry["armed"] = bool(msg.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED)
@@ -285,6 +305,7 @@ def _telemetry_loop():
             if lat or lon:
                 if home_latlon["lat"] is None:
                     home_latlon["lat"], home_latlon["lon"] = lat, lon
+                telemetry["range_from_home_m"] = _range_from_home(lat, lon)
                 if not flight_path or abs(flight_path[-1][0] - lat) + abs(flight_path[-1][1] - lon) > 1e-6:
                     flight_path.append((lat, lon, telemetry["altitude_m"], time.monotonic()))
                     if len(flight_path) > _MAX_PATH_POINTS:

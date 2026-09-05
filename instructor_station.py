@@ -17,6 +17,7 @@ import http.server
 import socketserver
 import json
 import math
+import time
 import threading
 import sys
 import os
@@ -24,11 +25,34 @@ from urllib.parse import urlparse, parse_qs
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from simulator_link import telemetry, connection_status, flight_path, home_latlon
+from simulator_link import telemetry, connection_status, flight_path, home_latlon, link_health
 from plugin_loader import load_plugins
-from video_feed import start_video_capture, mjpeg_generator
+from video_feed import start_video_capture, mjpeg_generator, camera_fps
+import event_logger
 
 PORT = 8080
+
+# ---------------------------------------------------------------------------
+# CAP722B 5.3(c) - operational-limit envelope. The instructor gets an
+# on-screen warning as the aircraft approaches (amber) or exceeds (red)
+# any of these, and every state change is written to the event log.
+# Edit these per training area / airframe - or later, drive them from the
+# environment_selector once that's wired in.
+# ---------------------------------------------------------------------------
+LIMITS = {
+    "ceiling_m": 120.0,          # height above the home/launch point
+    "range_m": 500.0,            # lateral distance from home
+    "groundspeed_ms": 30.0,      # ground speed
+    "battery_warn_pct": 30,      # amber below this
+    "battery_critical_pct": 15,  # red below this
+}
+# "Approaching" a max-type limit = within this fraction of it.
+LIMIT_WARN_FRACTION = 0.9
+
+# Remembered so a transition (ok->warn->breach and back) is logged once,
+# not every poll. metric name -> "ok" | "warn" | "breach".
+_limit_state = {}
+_limit_lock = threading.Lock()
 _video_node = start_video_capture()  # starts listening for camera frames immediately
 plugins = load_plugins()
 plugins_by_id = {p["id"]: p for p in plugins}
@@ -53,6 +77,69 @@ def failure_status():
         if isinstance(state, dict) and "active" in state:
             status[p["id"]] = bool(state["active"])
     return status
+
+
+def _check_one(name, value, limit, kind, label, unit):
+    """Classify one metric as ok / warn / breach against its limit.
+    kind='max' -> high is bad; kind='min' -> low is bad. Returns
+    (level, human_text_or_None)."""
+    if value is None:
+        return "ok", None
+    if kind == "max":
+        if value > limit:
+            return "breach", f"{label} {value:g}{unit} — over the {limit:g}{unit} limit"
+        if value >= limit * LIMIT_WARN_FRACTION:
+            return "warn", f"{label} {value:g}{unit} — approaching the {limit:g}{unit} limit"
+    else:  # min
+        if value < limit:
+            return "breach", f"{label} {value:g}{unit} — below {limit:g}{unit}"
+    return "ok", None
+
+
+def limit_status():
+    """CAP722B 5.3(c) - where the aircraft sits against its operational
+    limits right now. Returns {"level": ok|warn|breach, "items": [text,...]}
+    and logs each metric's transitions to the event log."""
+    checks = [
+        _check_one("ceiling", telemetry.get("altitude_m"), LIMITS["ceiling_m"], "max", "Altitude", " m"),
+        _check_one("range", telemetry.get("range_from_home_m"), LIMITS["range_m"], "max", "Range from home", " m"),
+        _check_one("speed", telemetry.get("groundspeed_ms"), LIMITS["groundspeed_ms"], "max", "Ground speed", " m/s"),
+    ]
+    batt = telemetry.get("battery_pct")
+    if batt is not None:
+        if batt < LIMITS["battery_critical_pct"]:
+            checks.append(("breach", f"Battery {batt}% — below the {LIMITS['battery_critical_pct']}% critical level"))
+        elif batt < LIMITS["battery_warn_pct"]:
+            checks.append(("warn", f"Battery {batt}% — below the {LIMITS['battery_warn_pct']}% warning level"))
+        else:
+            checks.append(("ok", None))
+
+    metric_names = ["ceiling", "range", "speed", "battery"]
+    items, worst = [], "ok"
+    with _limit_lock:
+        for metric, (level, text) in zip(metric_names, checks):
+            if text:
+                items.append(text)
+            if level == "breach" or (level == "warn" and worst != "breach"):
+                worst = level
+            prev = _limit_state.get(metric, "ok")
+            if level != prev:
+                _limit_state[metric] = level
+                if level == "ok":
+                    event_logger.log_event("limit_cleared", f"metric={metric}")
+                else:
+                    event_logger.log_event(
+                        "limit_breach" if level == "breach" else "limit_warning",
+                        f"metric={metric} detail={text}")
+    return {"level": worst, "items": items}
+
+
+def health_status():
+    """CAP722B 5.2(d) - a visible indication of how fresh/responsive the
+    data feeds are: telemetry age and measured camera frame rate."""
+    last = link_health.get("last_msg_t")
+    age = round(time.monotonic() - last, 1) if last is not None else None
+    return {"telemetry_age_s": age, "camera_fps": camera_fps()}
 
 
 def render_buttons():
@@ -240,6 +327,24 @@ PAGE_TEMPLATE = """
   }}
 
   #status {{ margin-top: 16px; font-size: 12px; color: #62708a; }}
+
+  /* CAP722B 5.3(c) - operational-limit warning strip. Sits between the
+     top status bar and the main area so it's impossible to miss. */
+  .limit-banner {{
+    padding: 8px 20px; font-size: 13px; font-weight: 600; flex-shrink: 0;
+    display: flex; gap: 16px; flex-wrap: wrap; align-items: center;
+  }}
+  .limit-banner.warn {{ background: #4a3a12; color: #ffca6b; border-bottom: 1px solid #6b551f; }}
+  .limit-banner.breach {{
+    background: #4a1414; color: #ff8a8a; border-bottom: 1px solid #7a2020;
+    animation: limitpulse 1.1s ease-in-out infinite;
+  }}
+  @keyframes limitpulse {{ 0%, 100% {{ opacity: 1; }} 50% {{ opacity: 0.55; }} }}
+  .limit-banner .tag {{
+    text-transform: uppercase; letter-spacing: 1px; font-size: 11px;
+    padding: 2px 7px; border-radius: 4px; background: rgba(0,0,0,0.3);
+  }}
+  #t-health.stale {{ color: #ff8a8a; }}
 </style>
 </head>
 <body>
@@ -253,7 +358,10 @@ PAGE_TEMPLATE = """
     <div class="status-item"><div class="k">Heading</div><div class="v" id="t-heading">-</div></div>
     <div class="status-item"><div class="k">GPS</div><div class="v" id="t-gps">-</div></div>
     <div class="status-item"><div class="k">Battery</div><div class="v" id="t-batt">-</div></div>
+    <div class="status-item"><div class="k">Feeds</div><div class="v" id="t-health" title="Telemetry age / camera frame rate">-</div></div>
   </div>
+
+  <div id="limit-banner" class="limit-banner" style="display:none;"></div>
 
   <div class="body-row">
     <div class="sidebar">
@@ -532,9 +640,41 @@ EXTRA_SCRIPT = """
     }).catch(function () {});
   }
 
+  // ---------- CAP722B 5.3(c): operational-limit warning banner ----------
+  var banner = document.getElementById('limit-banner');
+  function refreshLimits() {
+    fetch('/limit_status').then(function (r) { return r.json(); }).then(function (d) {
+      if (!d || d.level === 'ok' || !d.items || !d.items.length) {
+        banner.style.display = 'none';
+        banner.className = 'limit-banner';
+        return;
+      }
+      var tag = d.level === 'breach' ? 'LIMIT EXCEEDED' : 'APPROACHING LIMIT';
+      banner.className = 'limit-banner ' + d.level;
+      banner.innerHTML = '<span class="tag">' + tag + '</span>' +
+        d.items.map(function (t) { return '<span>' + t + '</span>'; }).join('');
+      banner.style.display = 'flex';
+    }).catch(function () {});
+  }
+
+  // ---------- CAP722B 5.2(d): feed freshness readout ----------
+  var healthEl = document.getElementById('t-health');
+  function refreshHealth() {
+    fetch('/health').then(function (r) { return r.json(); }).then(function (d) {
+      if (!d) return;
+      var age = d.telemetry_age_s;
+      var ageTxt = (age == null) ? '--' : (age < 1 ? '<1s' : age.toFixed(0) + 's');
+      var fps = (d.camera_fps != null && d.camera_fps > 0) ? d.camera_fps.toFixed(0) : '--';
+      healthEl.innerText = ageTxt + ' \\u00b7 ' + fps + ' fps';
+      healthEl.className = 'v' + ((age != null && age > 2) ? ' stale' : '');
+    }).catch(function () {});
+  }
+
   setInterval(function () { fit(hud); drawHud(); }, 150);
   setInterval(function () { fit(fp); drawPath(); }, 1000);
-  fit(fp); drawPath();
+  setInterval(refreshLimits, 1000);
+  setInterval(refreshHealth, 1000);
+  fit(fp); drawPath(); refreshLimits(); refreshHealth();
 })();
 </script>
 """
@@ -579,6 +719,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-type", "application/json; charset=utf-8")
             self.end_headers()
             self.wfile.write(json.dumps(failure_status()).encode("utf-8"))
+        elif self.path == "/limit_status":
+            self.send_response(200)
+            self.send_header("Content-type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps(limit_status()).encode("utf-8"))
+        elif self.path == "/health":
+            self.send_response(200)
+            self.send_header("Content-type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps(health_status()).encode("utf-8"))
         elif self.path == "/flight_path":
             self.send_response(200)
             self.send_header("Content-type", "application/json; charset=utf-8")
