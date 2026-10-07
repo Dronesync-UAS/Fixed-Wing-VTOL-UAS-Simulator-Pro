@@ -1,0 +1,65 @@
+<!--
+MFE Fighter — inertia tensor and collision geometry, derived virtually (07/10/2026)
+Battery scenario: 2x Tattu 30C 16000mAh 6S (ACTIVE / used for the simulator)
+  Alternative (2x ARES 22000mAh 6S Li-ion) computed too: ixx=2.6172 iyy=0.9269 izz=3.4594
+  ixy=-0.00007 ixz=0.00001 iyz=0.1266 — within 0.2% of the Tattu values below in every
+  component, so the battery choice does not meaningfully affect inertia either way.
+Axes: X = wingspan (lateral), Y = fuselage length (+Y = nose), Z = height
+Origin: this inertial/collision block assumes the link origin is placed at the CG
+        (X=0, Y=+40.997mm from the model's own CAD reference, Z=0)
+
+Mass reconciliation note: total mass below sums to 10.0kg (MTOW 11.5kg minus 1.5kg payload).
+The airframe-only portion (4.179kg) is ~1.48kg heavier than the manual's stated 2.7kg
+"net weight" — likely wiring, fasteners, adhesive, and any reinforcement not itemised
+elsewhere. Not yet resolved; revisit once the real aircraft can be weighed.
+
+Collision geometry is a 6-box primitive approximation (fuselage, 2 booms, 2 wings,
+1 combined tail assembly), sized from the verified CAD model's own bounding boxes —
+standard practice for flight-dynamics sims, far cheaper than full mesh collision.
+-->
+
+<inertial>
+  <pose>0 0.040997 0 0 0 0</pose>  <!-- CG offset from model origin, metres -->
+  <mass>10.0</mass>
+  <inertia>
+    <ixx>2.6204</ixx>
+    <iyy>0.9287</iyy>
+    <izz>3.4642</izz>
+    <ixy>-0.00007</ixy>
+    <ixz>0.00001</ixz>
+    <iyz>0.1269</iyz>
+  </inertia>
+</inertial>
+
+<!-- Collision geometry: 6 primitive boxes, poses given relative to the model's own
+     CAD origin (NOT relative to the CG above) — adjust if your link origin differs -->
+
+<collision name="collision_fuselage">
+  <pose>0 -0.2878 -0.0307 0 0 0</pose>
+  <geometry><box><size>0.2807 1.4404 0.1763</size></box></geometry>
+</collision>
+
+<collision name="collision_boom_left">
+  <pose>-0.5147 -0.0103 -0.0010 0 0 0</pose>
+  <geometry><box><size>0.0334 0.8524 0.0257</size></box></geometry>
+</collision>
+
+<collision name="collision_boom_right">
+  <pose>0.5147 -0.0103 -0.0010 0 0 0</pose>
+  <geometry><box><size>0.0334 0.8524 0.0257</size></box></geometry>
+</collision>
+
+<collision name="collision_wing_left">
+  <pose>-0.6925 -0.0768 0.0157 0 0 0</pose>
+  <geometry><box><size>1.1145 0.3185 0.0492</size></box></geometry>
+</collision>
+
+<collision name="collision_wing_right">
+  <pose>0.6925 -0.0768 0.0157 0 0 0</pose>
+  <geometry><box><size>1.1145 0.3185 0.0491</size></box></geometry>
+</collision>
+
+<collision name="collision_tail_assembly">
+  <pose>0 -0.8950 0.0825 0 0 0</pose>
+  <geometry><box><size>0.644 0.230 0.425</size></box></geometry>
+</collision>
