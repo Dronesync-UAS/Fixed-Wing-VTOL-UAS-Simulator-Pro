@@ -26,3 +26,6 @@ Confirmed 03/09/2026:
 
 ## Corrections Log
 - **[07/10/2026]** Correction: record storage location is **Google Drive**, not OneDrive as previously logged. Per-person folders, UAV Academy personnel access only. Other terms of the 03/09/2026 sign-off (session-code ID scheme, CSV lock mechanism still TBC) unchanged.
+
+## MFE Fighter — MTOW/Payload Conflict Resolved
+- **[07/10/2026]** Two prior dated logs disagreed on MFE Fighter MTOW/payload: one (25/08/2026) cited 13.5kg/2.5kg from MFE's official product page; a later one (06/10/2026) reverted to 11.5kg/1.5kg from the manual + 3dxr.co.uk, without addressing why the manufacturer-page source was set aside. **Tony confirmed 11.5kg / 1.5kg is correct.** This is now the settled figure for all simulator mass/payload configuration.
