@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """
-UAS Academy Ground Control Station - Instructor Station
+UAV Academy GCS Pro
 
-A desktop app for instructors, built around a plugin system so new
-scenarios can be added later by just dropping a new file into the
-plugins/ folder - nothing else needs to change.
+The instructor-only desktop ground control station (renamed from
+"UAS Academy Instructor Station" on 5 Sep 2026). A plainer "UAV Academy
+GCS" for students is planned for later, once this one is tested and
+working.
+
+Built around a plugin system so new scenarios can be added later by just
+dropping a new file into the plugins/ folder - nothing else needs to change.
 
 Run this AFTER the simulator is already running.
 """
@@ -12,17 +16,43 @@ Run this AFTER the simulator is already running.
 import http.server
 import socketserver
 import json
+import math
+import time
 import threading
 import sys
 import os
+from urllib.parse import urlparse, parse_qs
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from simulator_link import telemetry, connection_status
+from simulator_link import telemetry, connection_status, flight_path, home_latlon, link_health
 from plugin_loader import load_plugins
-from video_feed import start_video_capture, mjpeg_generator
+from video_feed import start_video_capture, mjpeg_generator, camera_fps
+import event_logger
 
 PORT = 8080
+
+# ---------------------------------------------------------------------------
+# CAP722B 5.3(c) - operational-limit envelope. The instructor gets an
+# on-screen warning as the aircraft approaches (amber) or exceeds (red)
+# any of these, and every state change is written to the event log.
+# Edit these per training area / airframe - or later, drive them from the
+# environment_selector once that's wired in.
+# ---------------------------------------------------------------------------
+LIMITS = {
+    "ceiling_m": 120.0,          # height above the home/launch point
+    "range_m": 500.0,            # lateral distance from home
+    "groundspeed_ms": 30.0,      # ground speed
+    "battery_warn_pct": 30,      # amber below this
+    "battery_critical_pct": 15,  # red below this
+}
+# "Approaching" a max-type limit = within this fraction of it.
+LIMIT_WARN_FRACTION = 0.9
+
+# Remembered so a transition (ok->warn->breach and back) is logged once,
+# not every poll. metric name -> "ok" | "warn" | "breach".
+_limit_state = {}
+_limit_lock = threading.Lock()
 _video_node = start_video_capture()  # starts listening for camera frames immediately
 plugins = load_plugins()
 plugins_by_id = {p["id"]: p for p in plugins}
@@ -49,6 +79,69 @@ def failure_status():
     return status
 
 
+def _check_one(name, value, limit, kind, label, unit):
+    """Classify one metric as ok / warn / breach against its limit.
+    kind='max' -> high is bad; kind='min' -> low is bad. Returns
+    (level, human_text_or_None)."""
+    if value is None:
+        return "ok", None
+    if kind == "max":
+        if value > limit:
+            return "breach", f"{label} {value:g}{unit} — over the {limit:g}{unit} limit"
+        if value >= limit * LIMIT_WARN_FRACTION:
+            return "warn", f"{label} {value:g}{unit} — approaching the {limit:g}{unit} limit"
+    else:  # min
+        if value < limit:
+            return "breach", f"{label} {value:g}{unit} — below {limit:g}{unit}"
+    return "ok", None
+
+
+def limit_status():
+    """CAP722B 5.3(c) - where the aircraft sits against its operational
+    limits right now. Returns {"level": ok|warn|breach, "items": [text,...]}
+    and logs each metric's transitions to the event log."""
+    checks = [
+        _check_one("ceiling", telemetry.get("altitude_m"), LIMITS["ceiling_m"], "max", "Altitude", " m"),
+        _check_one("range", telemetry.get("range_from_home_m"), LIMITS["range_m"], "max", "Range from home", " m"),
+        _check_one("speed", telemetry.get("groundspeed_ms"), LIMITS["groundspeed_ms"], "max", "Ground speed", " m/s"),
+    ]
+    batt = telemetry.get("battery_pct")
+    if batt is not None:
+        if batt < LIMITS["battery_critical_pct"]:
+            checks.append(("breach", f"Battery {batt}% — below the {LIMITS['battery_critical_pct']}% critical level"))
+        elif batt < LIMITS["battery_warn_pct"]:
+            checks.append(("warn", f"Battery {batt}% — below the {LIMITS['battery_warn_pct']}% warning level"))
+        else:
+            checks.append(("ok", None))
+
+    metric_names = ["ceiling", "range", "speed", "battery"]
+    items, worst = [], "ok"
+    with _limit_lock:
+        for metric, (level, text) in zip(metric_names, checks):
+            if text:
+                items.append(text)
+            if level == "breach" or (level == "warn" and worst != "breach"):
+                worst = level
+            prev = _limit_state.get(metric, "ok")
+            if level != prev:
+                _limit_state[metric] = level
+                if level == "ok":
+                    event_logger.log_event("limit_cleared", f"metric={metric}")
+                else:
+                    event_logger.log_event(
+                        "limit_breach" if level == "breach" else "limit_warning",
+                        f"metric={metric} detail={text}")
+    return {"level": worst, "items": items}
+
+
+def health_status():
+    """CAP722B 5.2(d) - a visible indication of how fresh/responsive the
+    data feeds are: telemetry age and measured camera frame rate."""
+    last = link_health.get("last_msg_t")
+    age = round(time.monotonic() - last, 1) if last is not None else None
+    return {"telemetry_age_s": age, "camera_fps": camera_fps()}
+
+
 def render_buttons():
     html = ""
     status = failure_status()
@@ -62,7 +155,30 @@ def render_buttons():
             if p["id"] in status:
                 dot_class = "dot-active" if status[p["id"]] else "dot-inactive"
                 dot = f'<span class="status-dot {dot_class}" id="dot-{p["id"]}"></span>'
-            html += f'<button class="{p["style"]}" onclick="send(\'{p["id"]}\')">{dot}{p["label"]}</button>'
+            button = f'<button class="{p["style"]}" onclick="send(\'{p["id"]}\')">{dot}{p["label"]}</button>'
+
+            # Plugins may declare an "inputs" list - number boxes the
+            # instructor fills in before pressing the button (e.g. LOITER
+            # radius). Their values are sent as query parameters and passed
+            # to the plugin's handler as keyword arguments.
+            fields = ""
+            for inp in p.get("inputs", []):
+                fid = f'in-{p["id"]}-{inp["name"]}'
+                attrs = f'value="{inp.get("default", "")}"'
+                if "min" in inp:
+                    attrs += f' min="{inp["min"]}"'
+                if "max" in inp:
+                    attrs += f' max="{inp["max"]}"'
+                attrs += f' step="{inp.get("step", "any")}"'
+                fields += (
+                    f'<label class="field"><span>{inp["label"]}</span>'
+                    f'<input type="number" id="{fid}" class="param-input" '
+                    f'data-plugin="{p["id"]}" data-param="{inp["name"]}" {attrs}></label>'
+                )
+            if fields:
+                html += f'<div class="btn-stack">{fields}{button}</div>'
+            else:
+                html += button
         html += '</div></div>'
     return html
 
@@ -74,7 +190,7 @@ CONNECTING_PAGE = """
 <!DOCTYPE html>
 <html>
 <head>
-<title>UAS Academy - Instructor Station</title>
+<title>UAV Academy GCS Pro</title>
 <style>
   body {
     font-family: -apple-system, 'Segoe UI', sans-serif;
@@ -92,7 +208,7 @@ CONNECTING_PAGE = """
 </style>
 </head>
 <body>
-  <div class="brand">UAS ACADEMY &mdash; INSTRUCTOR STATION</div>
+  <div class="brand">UAV ACADEMY GCS PRO</div>
   <div class="spinner"></div>
   <div id="msg">Connecting to the simulator...</div>
 <script>
@@ -117,7 +233,7 @@ PAGE_TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
-<title>UAS Academy - Instructor Station</title>
+<title>UAV Academy GCS Pro</title>
 <style>
   * {{ box-sizing: border-box; }}
   body {{
@@ -173,6 +289,18 @@ PAGE_TEMPLATE = """
   .warning {{ background: #ad1457; color: white; }}
   .experimental {{ background: #1a1a1a; color: #666; border: 1px dashed #333; cursor: not-allowed; }}
 
+  /* Buttons that take an instructor-entered value before firing (e.g.
+     LOITER radius) - the number box(es) sit directly above the button. */
+  .btn-stack {{ display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 110px; }}
+  .btn-stack button {{ width: 100%; flex: none; }}
+  .field {{ display: flex; flex-direction: column; gap: 2px; }}
+  .field span {{ font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; color: #62708a; }}
+  .param-input {{
+    background: #0d1219; border: 1px solid #2c3a4d; border-radius: 7px;
+    color: #eee; font-size: 13px; font-weight: 600; padding: 8px 10px; width: 100%;
+  }}
+  .param-input:focus {{ outline: none; border-color: #4a90d9; }}
+
   /* Small on/off status light for toggle-style failure buttons (GPS, RC
      Signal, Data Link, Motor, Engine) - added 23 Aug 2026 so a failure
      left switched on is impossible to miss, after a live test where
@@ -199,11 +327,29 @@ PAGE_TEMPLATE = """
   }}
 
   #status {{ margin-top: 16px; font-size: 12px; color: #62708a; }}
+
+  /* CAP722B 5.3(c) - operational-limit warning strip. Sits between the
+     top status bar and the main area so it's impossible to miss. */
+  .limit-banner {{
+    padding: 8px 20px; font-size: 13px; font-weight: 600; flex-shrink: 0;
+    display: flex; gap: 16px; flex-wrap: wrap; align-items: center;
+  }}
+  .limit-banner.warn {{ background: #4a3a12; color: #ffca6b; border-bottom: 1px solid #6b551f; }}
+  .limit-banner.breach {{
+    background: #4a1414; color: #ff8a8a; border-bottom: 1px solid #7a2020;
+    animation: limitpulse 1.1s ease-in-out infinite;
+  }}
+  @keyframes limitpulse {{ 0%, 100% {{ opacity: 1; }} 50% {{ opacity: 0.55; }} }}
+  .limit-banner .tag {{
+    text-transform: uppercase; letter-spacing: 1px; font-size: 11px;
+    padding: 2px 7px; border-radius: 4px; background: rgba(0,0,0,0.3);
+  }}
+  #t-health.stale {{ color: #ff8a8a; }}
 </style>
 </head>
 <body>
   <div class="topbar">
-    <div class="brand">UAS ACADEMY</div>
+    <div class="brand">UAV ACADEMY GCS PRO</div>
     <div class="status-item"><div class="k">Vehicle</div><div class="v">STANDARD_VTOL-01</div></div>
     <div class="status-item"><div class="k">Mode</div><div class="v" id="t-mode">-</div></div>
     <div class="status-item"><div class="k">Status</div><div class="v" id="t-armed">-</div></div>
@@ -212,7 +358,10 @@ PAGE_TEMPLATE = """
     <div class="status-item"><div class="k">Heading</div><div class="v" id="t-heading">-</div></div>
     <div class="status-item"><div class="k">GPS</div><div class="v" id="t-gps">-</div></div>
     <div class="status-item"><div class="k">Battery</div><div class="v" id="t-batt">-</div></div>
+    <div class="status-item"><div class="k">Feeds</div><div class="v" id="t-health" title="Telemetry age / camera frame rate">-</div></div>
   </div>
+
+  <div id="limit-banner" class="limit-banner" style="display:none;"></div>
 
   <div class="body-row">
     <div class="sidebar">
@@ -228,12 +377,16 @@ PAGE_TEMPLATE = """
         {buttons}
       </div>
       <div class="panel" style="max-width: 900px; margin-top: 14px;">
-        <div class="panel-title">Live Nose Camera (FPV)</div>
-        <img src="/video_feed" style="width: 100%; border-radius: 10px; display: block; background: #000;"
-             onerror="this.style.display='none'; document.getElementById('video-fallback').style.display='block';">
+        <div class="panel-title">Live Nose Camera (FPV) &mdash; Forward View + Attitude</div>
+        <div class="fpv-wrap">
+          <img src="/video_feed" class="fpv-video"
+               onerror="this.style.display='none'; document.getElementById('video-fallback').style.display='block';">
+          <canvas id="hud" class="fpv-hud" width="960" height="540"></canvas>
+        </div>
         <div id="video-fallback" style="display:none; color:#62708a; font-size:12px; padding:20px; text-align:center;">
           No video signal yet - camera stream starts once the simulator is running.
         </div>
+        <label class="hud-toggle"><input type="checkbox" id="hud-on" checked> Attitude overlay</label>
       </div>
       <div id="status">Ready.</div>
     </div>
@@ -242,7 +395,12 @@ PAGE_TEMPLATE = """
 <script>
 function send(id) {{
   document.getElementById('status').innerText = 'Sending...';
-  fetch('/action/' + id).then(r => r.text()).then(t => {{
+  const params = new URLSearchParams();
+  document.querySelectorAll('.param-input[data-plugin="' + id + '"]').forEach(el => {{
+    params.append(el.dataset.param, el.value);
+  }});
+  const qs = params.toString();
+  fetch('/action/' + id + (qs ? '?' + qs : '')).then(r => r.text()).then(t => {{
     document.getElementById('status').innerText = t;
     refreshFailureStatus();
   }});
@@ -280,6 +438,248 @@ refreshFailureStatus();
 """
 
 
+# ---------------------------------------------------------------------------
+# Extra views bolted onto the page after PAGE_TEMPLATE.format() - kept as
+# plain strings (not format templates) so the JS below doesn't need every
+# brace doubled. Added 3 Sep 2026:
+#   * Flight Path  - a north-up plan view of where the aircraft has flown,
+#                    from GLOBAL_POSITION_INT history (/flight_path).
+#   * FPV overlay  - an artificial-horizon / attitude ("gyro") HUD drawn
+#                    on top of the nose-camera stream, from ATTITUDE.
+# ---------------------------------------------------------------------------
+EXTRA_PANELS = """
+<div class="panel" id="flightpath-panel" style="max-width: 900px; margin-top: 14px;">
+  <div class="panel-title">Flight Path &mdash; Plan View (North Up)</div>
+  <canvas id="flightpath"></canvas>
+  <div class="fp-legend">
+    <span><b id="fp-range">-</b> across</span>
+    <span><b id="fp-dist">-</b> from home</span>
+    <span><b id="fp-alt">-</b> altitude</span>
+    <span><b id="fp-points">0</b> track points</span>
+    <span style="color:#ffd24a">&#9650;</span> aircraft
+    <span style="color:#4caf50">&#9679;</span> home
+  </div>
+</div>
+"""
+
+EXTRA_STYLE = """
+<style>
+  .fpv-wrap { position: relative; width: 100%; border-radius: 10px; overflow: hidden; background: #000; }
+  .fpv-video { width: 100%; display: block; }
+  .fpv-hud { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  .hud-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: #62708a; margin-top: 8px; }
+  #flightpath { width: 100%; height: 420px; display: block; background: #0d1219; border-radius: 10px; }
+  .fp-legend { display: flex; gap: 16px; font-size: 11px; color: #62708a; margin-top: 8px; flex-wrap: wrap; align-items: center; }
+  .fp-legend b { color: #eee; font-weight: 600; }
+</style>
+"""
+
+EXTRA_SCRIPT = """
+<script>
+(function () {
+  var telem = {};
+  function poll() {
+    fetch('/telemetry').then(function (r) { return r.json(); })
+      .then(function (d) { telem = d; }).catch(function () {});
+  }
+  setInterval(poll, 200); poll();
+
+  function fit(cv) {
+    var w = cv.clientWidth, h = cv.clientHeight;
+    if (w && h && (cv.width !== w || cv.height !== h)) { cv.width = w; cv.height = h; }
+  }
+
+  // ---------- FPV artificial-horizon / attitude overlay ----------
+  var hud = document.getElementById('hud');
+  var hctx = hud.getContext('2d');
+  function drawHud() {
+    var w = hud.width, h = hud.height, cx = w / 2, cy = h / 2;
+    hctx.clearRect(0, 0, w, h);
+    if (!w || !h || !document.getElementById('hud-on').checked) return;
+
+    var rollDeg = telem.roll_deg || 0;
+    var pitchDeg = telem.pitch_deg || 0;
+    var pxPerDeg = h / 50;
+
+    hctx.save();
+    hctx.translate(cx, cy);
+    hctx.rotate(-rollDeg * Math.PI / 180);
+    hctx.translate(0, pitchDeg * pxPerDeg);
+    hctx.strokeStyle = 'rgba(120,220,255,0.9)';
+    hctx.fillStyle = 'rgba(120,220,255,0.95)';
+    hctx.lineWidth = 2;
+    hctx.font = '12px -apple-system, sans-serif';
+    hctx.textAlign = 'left';
+    hctx.beginPath(); hctx.moveTo(-w, 0); hctx.lineTo(w, 0); hctx.stroke();
+    for (var d = -40; d <= 40; d += 10) {
+      if (d === 0) continue;
+      var y = -d * pxPerDeg;
+      var half = (d % 20 === 0) ? 74 : 42;
+      var tick = (d < 0) ? -7 : 7;
+      hctx.beginPath();
+      hctx.moveTo(-half, y + tick); hctx.lineTo(-half, y); hctx.lineTo(half, y); hctx.lineTo(half, y + tick);
+      hctx.stroke();
+      hctx.fillText(Math.abs(d), half + 6, y + 4);
+      hctx.fillText(Math.abs(d), -half - 20, y + 4);
+    }
+    hctx.restore();
+
+    // fixed aircraft reference
+    hctx.strokeStyle = '#ffd24a'; hctx.lineWidth = 3;
+    hctx.beginPath();
+    hctx.moveTo(cx - 70, cy); hctx.lineTo(cx - 24, cy); hctx.lineTo(cx - 12, cy + 12);
+    hctx.moveTo(cx + 70, cy); hctx.lineTo(cx + 24, cy); hctx.lineTo(cx + 12, cy + 12);
+    hctx.stroke();
+    hctx.fillStyle = '#ffd24a';
+    hctx.beginPath(); hctx.arc(cx, cy, 3, 0, 7); hctx.fill();
+
+    // roll scale (fixed) + rolling pointer
+    hctx.strokeStyle = 'rgba(255,255,255,0.8)'; hctx.lineWidth = 2;
+    var R = Math.min(w, h) * 0.36;
+    hctx.beginPath(); hctx.arc(cx, cy, R, Math.PI * 1.18, Math.PI * 1.82); hctx.stroke();
+    [-60, -45, -30, -15, 0, 15, 30, 45, 60].forEach(function (a) {
+      var ar = (a - 90) * Math.PI / 180;
+      var inr = (a % 30 === 0) ? R - 13 : R - 8;
+      hctx.beginPath();
+      hctx.moveTo(cx + Math.cos(ar) * R, cy + Math.sin(ar) * R);
+      hctx.lineTo(cx + Math.cos(ar) * inr, cy + Math.sin(ar) * inr);
+      hctx.stroke();
+    });
+    var pa = (-rollDeg - 90) * Math.PI / 180;
+    hctx.fillStyle = '#ff5252';
+    hctx.beginPath();
+    hctx.moveTo(cx + Math.cos(pa) * R, cy + Math.sin(pa) * R);
+    hctx.lineTo(cx + Math.cos(pa - 0.045) * (R + 13), cy + Math.sin(pa - 0.045) * (R + 13));
+    hctx.lineTo(cx + Math.cos(pa + 0.045) * (R + 13), cy + Math.sin(pa + 0.045) * (R + 13));
+    hctx.closePath(); hctx.fill();
+
+    // readout boxes: airspeed (L), altitude (R), heading (top)
+    function box(x, y, txt) {
+      hctx.fillStyle = 'rgba(0,0,0,0.5)';
+      hctx.fillRect(x - 46, y - 14, 92, 28);
+      hctx.strokeStyle = 'rgba(120,220,255,0.9)'; hctx.lineWidth = 1;
+      hctx.strokeRect(x - 46, y - 14, 92, 28);
+      hctx.fillStyle = '#dff6ff'; hctx.font = 'bold 14px -apple-system, sans-serif';
+      hctx.textAlign = 'center'; hctx.fillText(txt, x, y + 5);
+    }
+    var spd = (telem.airspeed_ms != null && telem.airspeed_ms > 0.2) ? telem.airspeed_ms : telem.groundspeed_ms;
+    box(64, cy, (spd != null ? spd.toFixed(0) : '--') + ' m/s');
+    box(w - 64, cy, (telem.altitude_m != null ? telem.altitude_m.toFixed(0) : '--') + ' m');
+    box(cx, 22, (telem.heading_deg != null ? telem.heading_deg : '--') + '\\u00b0');
+
+    hctx.fillStyle = '#9fe6ff'; hctx.font = '11px -apple-system, sans-serif'; hctx.textAlign = 'center';
+    hctx.fillText('BANK ' + rollDeg.toFixed(0) + '\\u00b0   PITCH ' + pitchDeg.toFixed(0) + '\\u00b0', cx, h - 12);
+  }
+
+  // ---------- Flight path plan view ----------
+  var fp = document.getElementById('flightpath');
+  var fctx = fp.getContext('2d');
+  function niceStep(x) {
+    if (x <= 0) return 100;
+    var p = Math.pow(10, Math.floor(Math.log(x) / Math.LN10));
+    var n = x / p;
+    return (n < 1.5 ? 1 : n < 3.5 ? 2 : n < 7.5 ? 5 : 10) * p;
+  }
+  function fmt(m) { return m >= 1000 ? (m / 1000).toFixed(m >= 10000 ? 0 : 1) + ' km' : m.toFixed(0) + ' m'; }
+  function drawPath() {
+    fetch('/flight_path').then(function (r) { return r.json(); }).then(function (data) {
+      var W = fp.width, H = fp.height;
+      fctx.clearRect(0, 0, W, H);
+      if (!W || !H) return;
+      var pts = data.points || [];
+      document.getElementById('fp-points').innerText = pts.length;
+      var home = (data.home && data.home.lat != null) ? data.home
+               : (pts.length ? { lat: pts[0][0], lon: pts[0][1] } : null);
+      if (!home || !pts.length) return;
+
+      var latR = home.lat * Math.PI / 180;
+      var mx = [], my = [], maxAbs = 25;
+      for (var i = 0; i < pts.length; i++) {
+        var ex = (pts[i][1] - home.lon) * Math.cos(latR) * 111320;
+        var ny = (pts[i][0] - home.lat) * 110540;
+        mx.push(ex); my.push(ny);
+        maxAbs = Math.max(maxAbs, Math.abs(ex), Math.abs(ny));
+      }
+      maxAbs *= 1.15;
+      var scale = Math.min(W, H) / (2 * maxAbs);
+      var ox = W / 2, oy = H / 2;
+
+      var step = niceStep(maxAbs / 2.2);
+      fctx.strokeStyle = '#1f2b3a'; fctx.fillStyle = '#3d4b5e';
+      fctx.font = '10px -apple-system, sans-serif'; fctx.textAlign = 'left'; fctx.lineWidth = 1;
+      for (var rr = step; rr <= maxAbs; rr += step) {
+        fctx.beginPath(); fctx.arc(ox, oy, rr * scale, 0, 7); fctx.stroke();
+        fctx.fillText(fmt(rr), ox + 4, oy - rr * scale + 12);
+      }
+      fctx.fillStyle = '#62708a'; fctx.textAlign = 'center';
+      fctx.fillText('N', ox, 12);
+
+      fctx.strokeStyle = '#4ad0ff'; fctx.lineWidth = 2; fctx.beginPath();
+      for (var j = 0; j < pts.length; j++) {
+        var X = ox + mx[j] * scale, Y = oy - my[j] * scale;
+        if (j) fctx.lineTo(X, Y); else fctx.moveTo(X, Y);
+      }
+      fctx.stroke();
+
+      fctx.fillStyle = '#4caf50';
+      fctx.beginPath(); fctx.arc(ox, oy, 5, 0, 7); fctx.fill();
+
+      var last = pts.length - 1;
+      var hx = ox + mx[last] * scale, hy = oy - my[last] * scale;
+      var hdg = (telem.heading_deg || 0) * Math.PI / 180;
+      fctx.save(); fctx.translate(hx, hy); fctx.rotate(hdg);
+      fctx.fillStyle = '#ffd24a';
+      fctx.beginPath(); fctx.moveTo(0, -10); fctx.lineTo(7, 8); fctx.lineTo(0, 3); fctx.lineTo(-7, 8);
+      fctx.closePath(); fctx.fill();
+      fctx.restore();
+
+      var dist = Math.sqrt(mx[last] * mx[last] + my[last] * my[last]);
+      document.getElementById('fp-range').innerText = fmt(maxAbs * 2);
+      document.getElementById('fp-dist').innerText = fmt(dist);
+      document.getElementById('fp-alt').innerText = pts[last][2].toFixed(0) + ' m';
+    }).catch(function () {});
+  }
+
+  // ---------- CAP722B 5.3(c): operational-limit warning banner ----------
+  var banner = document.getElementById('limit-banner');
+  function refreshLimits() {
+    fetch('/limit_status').then(function (r) { return r.json(); }).then(function (d) {
+      if (!d || d.level === 'ok' || !d.items || !d.items.length) {
+        banner.style.display = 'none';
+        banner.className = 'limit-banner';
+        return;
+      }
+      var tag = d.level === 'breach' ? 'LIMIT EXCEEDED' : 'APPROACHING LIMIT';
+      banner.className = 'limit-banner ' + d.level;
+      banner.innerHTML = '<span class="tag">' + tag + '</span>' +
+        d.items.map(function (t) { return '<span>' + t + '</span>'; }).join('');
+      banner.style.display = 'flex';
+    }).catch(function () {});
+  }
+
+  // ---------- CAP722B 5.2(d): feed freshness readout ----------
+  var healthEl = document.getElementById('t-health');
+  function refreshHealth() {
+    fetch('/health').then(function (r) { return r.json(); }).then(function (d) {
+      if (!d) return;
+      var age = d.telemetry_age_s;
+      var ageTxt = (age == null) ? '--' : (age < 1 ? '<1s' : age.toFixed(0) + 's');
+      var fps = (d.camera_fps != null && d.camera_fps > 0) ? d.camera_fps.toFixed(0) : '--';
+      healthEl.innerText = ageTxt + ' \\u00b7 ' + fps + ' fps';
+      healthEl.className = 'v' + ((age != null && age > 2) ? ' stale' : '');
+    }).catch(function () {});
+  }
+
+  setInterval(function () { fit(hud); drawHud(); }, 150);
+  setInterval(function () { fit(fp); drawPath(); }, 1000);
+  setInterval(refreshLimits, 1000);
+  setInterval(refreshHealth, 1000);
+  fit(fp); drawPath(); refreshLimits(); refreshHealth();
+})();
+</script>
+"""
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     def _respond(self, text, code=200):
         self.send_response(code)
@@ -293,7 +693,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-type", "text/html; charset=utf-8")
             self.end_headers()
             if connection_status["connected"]:
-                self.wfile.write(PAGE_TEMPLATE.format(buttons=render_buttons()).encode("utf-8"))
+                page = PAGE_TEMPLATE.format(buttons=render_buttons())
+                page = page.replace('<div id="status">Ready.</div>',
+                                    EXTRA_PANELS + '<div id="status">Ready.</div>')
+                page = page.replace("</body>", EXTRA_STYLE + EXTRA_SCRIPT + "</body>")
+                self.wfile.write(page.encode("utf-8"))
             else:
                 self.wfile.write(CONNECTING_PAGE.encode("utf-8"))
         elif self.path == "/connection_status":
@@ -305,12 +709,35 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-type", "application/json; charset=utf-8")
             self.end_headers()
-            self.wfile.write(json.dumps(telemetry).encode("utf-8"))
+            # NaN / inf are not valid JSON and make JSON.parse() throw in
+            # the browser, taking the whole telemetry panel down with them.
+            safe = {k: (None if isinstance(v, float) and not math.isfinite(v) else v)
+                    for k, v in telemetry.items()}
+            self.wfile.write(json.dumps(safe).encode("utf-8"))
         elif self.path == "/failure_status":
             self.send_response(200)
             self.send_header("Content-type", "application/json; charset=utf-8")
             self.end_headers()
             self.wfile.write(json.dumps(failure_status()).encode("utf-8"))
+        elif self.path == "/limit_status":
+            self.send_response(200)
+            self.send_header("Content-type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps(limit_status()).encode("utf-8"))
+        elif self.path == "/health":
+            self.send_response(200)
+            self.send_header("Content-type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps(health_status()).encode("utf-8"))
+        elif self.path == "/flight_path":
+            self.send_response(200)
+            self.send_header("Content-type", "application/json; charset=utf-8")
+            self.end_headers()
+            payload = {
+                "home": home_latlon,
+                "points": [[round(p[0], 7), round(p[1], 7), p[2]] for p in flight_path],
+            }
+            self.wfile.write(json.dumps(payload).encode("utf-8"))
         elif self.path == "/video_feed":
             self.send_response(200)
             self.send_header("Content-type", "multipart/x-mixed-replace; boundary=frame")
@@ -321,13 +748,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
             except (BrokenPipeError, ConnectionResetError):
                 pass
         elif self.path.startswith("/action/"):
-            action_id = self.path.split("/action/")[1]
+            parsed = urlparse(self.path)
+            action_id = parsed.path.split("/action/")[1]
             plugin = plugins_by_id.get(action_id)
             if plugin is None:
                 self._respond("Unknown action.", 404)
                 return
+            # Any query parameters (from a plugin's "inputs" boxes) are
+            # passed straight through to the handler as keyword arguments,
+            # e.g. /action/loiter?radius_m=200 -> loiter(radius_m="200").
+            kwargs = {k: v[-1] for k, v in parse_qs(parsed.query).items()}
             try:
-                result = plugin["handler"]()
+                result = plugin["handler"](**kwargs)
                 self._respond(result)
             except Exception as e:
                 self._respond(f"Error: {e}", 500)
@@ -351,16 +783,37 @@ def run_server():
 if __name__ == "__main__":
     print(f"Loaded {len(plugins)} controls across {len([c for c in categories.values() if c])} categories.")
     threading.Thread(target=run_server, daemon=True).start()
-    print(f"Instructor Station running - open a browser to: http://localhost:{PORT}")
+    print(f"UAV Academy GCS Pro running - open a browser to: http://localhost:{PORT}")
 
+    # The instructor window is just a convenience wrapper around the local
+    # web server - it is NOT the station itself. Closing it (or a WebKit
+    # backend crash, or pywebview not being installed) must not take the
+    # server down with it, or the instructor silently loses live telemetry,
+    # the camera feed and - most importantly - event logging mid-session.
+    # Added 3 Sep 2026 after the window disappearing was repeatedly
+    # mistaken for the whole station crashing. Whatever happens to the
+    # window, we fall through to the keep-alive loop below and the station
+    # stays reachable in a browser at http://localhost:PORT until Ctrl+C.
     try:
         import webview
-        webview.create_window("UAS Academy - Instructor Station", f"http://localhost:{PORT}",
-                               width=1000, height=850, background_color="#0b1017")
-        webview.start()
     except ImportError:
+        webview = None
         print("\n(pywebview not installed - running in browser mode instead.")
         print(f"Open a browser to http://localhost:{PORT} manually.)\n")
-        import time
+
+    if webview is not None:
+        try:
+            webview.create_window("UAV Academy GCS Pro", f"http://localhost:{PORT}",
+                                   width=1000, height=850, background_color="#0b1017")
+            webview.start()
+        except Exception as e:
+            print(f"\n(Instructor window unavailable: {e} - running in browser mode instead.)")
+        print(f"\nInstructor window closed - station still running at http://localhost:{PORT}")
+        print("Press Ctrl+C in this terminal to shut the station down.\n")
+
+    import time
+    try:
         while True:
             time.sleep(1)
+    except KeyboardInterrupt:
+        print("\nShutting down UAV Academy GCS Pro.")

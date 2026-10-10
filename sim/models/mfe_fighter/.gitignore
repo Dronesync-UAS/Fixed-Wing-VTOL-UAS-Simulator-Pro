@@ -1,0 +1,9 @@
+# The meshes/textures here are borrowed from ArduPilot's alti_transition_quad
+# and are placeholders until the Fighter's own CAD is used. Not worth
+# versioning ~28MB of someone else's art - fetch them with:
+#   cp -r ~/SITL_Models/Gazebo/models/alti_transition_quad/{meshes,materials} \
+#         ~/PX4-Autopilot/gcs_app/sim/models/mfe_fighter/
+# (clone https://github.com/ArduPilot/SITL_Models if you don't have it)
+meshes/
+materials/
+model.sdf.erb

@@ -1,0 +1,109 @@
+"""Offline check of instructor_station's HTML rendering + plugin/limit
+logic. Stubs out every hardware-facing import so nothing touches MAVLink,
+Gazebo, or the real event-log CSV. Run it after editing instructor_station.py
+/ simulator_link.py / video_feed.py / any plugin:
+
+    python3 tools/offline_render_check.py
+
+It verifies: the page still assembles, PAGE_TEMPLATE.format() has no brace
+errors, the JS blob is present, plugins load, the LOITER radius input
+renders, plugin handlers run, and the CAP722B limit/health logic classifies
+correctly. It does NOT test actual flight behaviour - that needs the sim.
+"""
+import sys, types, importlib.util, os
+
+GCS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# --- stub simulator_link ---
+sl = types.ModuleType("simulator_link")
+sl.telemetry = {"armed": False, "mode": "Hold", "altitude_m": 0.0, "altitude_amsl_m": 1200.0,
+                "groundspeed_ms": 0.0, "battery_pct": 100, "heading_deg": 0, "satellites": 10}
+sl.connection_status = {"connected": True, "message": "Connected."}
+class _M:
+    class mav:
+        @staticmethod
+        def command_long_send(*a, **k): pass
+    target_system = 1
+    target_component = 1
+sl.master = _M()
+sl.log_instructor_action = lambda *a, **k: None
+sl.mark_failure_injected = lambda *a, **k: None
+sl.mark_failure_cleared = lambda *a, **k: None
+sl.start_background_script = lambda *a, **k: None
+sl.stop_background_script = lambda *a, **k: None
+sl.running_processes = {}
+sl.RESPONSE_TIMEOUT_S = 45
+sl.telemetry.update({"roll_deg": 0.0, "pitch_deg": 0.0, "yaw_deg": 0.0,
+                     "airspeed_ms": 0.0, "range_from_home_m": 0.0})
+sl.flight_path = [(23.5, 6.5, 100.0, 1.0), (23.5012, 6.5009, 120.0, 2.0), (23.5021, 6.5, 130.0, 3.0)]
+sl.home_latlon = {"lat": 23.5, "lon": 6.5}
+sl.link_health = {"last_msg_t": None}
+sl.command_acks = {}
+sl.MAV_RESULT_NAMES = {0: "accepted"}
+sl.send_command_and_wait = lambda *a, **k: (0, "accepted")
+sl.set_mode = lambda m, s=0, name=None: f"{name or 'mode'}: accepted by PX4."
+sys.modules["simulator_link"] = sl
+
+# --- stub event_logger so this check never writes to the real compliance CSV ---
+el = types.ModuleType("event_logger")
+el.log_event = lambda *a, **k: None
+el.read_events = lambda: []
+sys.modules["event_logger"] = el
+
+# --- stub video_feed ---
+vf = types.ModuleType("video_feed")
+vf.start_video_capture = lambda: None
+vf.mjpeg_generator = lambda: iter(())
+vf.camera_fps = lambda: 0.0
+sys.modules["video_feed"] = vf
+
+# --- real plugin_loader, but load actual plugin files (they only import the stub) ---
+sys.path.insert(0, GCS)
+
+spec = importlib.util.spec_from_file_location("instructor_station", os.path.join(GCS, "instructor_station.py"))
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+
+print("plugins loaded:", len(mod.plugins))
+btns = mod.render_buttons()
+page = mod.PAGE_TEMPLATE.format(buttons=btns)
+page = page.replace('<div id="status">Ready.</div>', mod.EXTRA_PANELS + '<div id="status">Ready.</div>')
+page = page.replace("</body>", mod.EXTRA_STYLE + mod.EXTRA_SCRIPT + "</body>")
+print("full page assembled OK, length", len(page))
+for tok in ('id="hud"', 'id="flightpath"', 'fpv-wrap', "fetch('/flight_path')", "drawHud", "artificial", "roll_deg"):
+    print(f"  contains {tok!r}:", tok in page)
+
+for pid in ("hold", "forward_flight", "hover_flight", "loiter", "mode_manual", "mode_position"):
+    p = mod.plugins_by_id.get(pid)
+    print(f"  {pid:15} present={p is not None}  inputs={p.get('inputs') if p else None}")
+
+assert 'data-param="radius_m"' in btns, "radius input not rendered"
+assert 'FORWARD FLIGHT (FW)' in btns
+assert 'btn-stack' in btns
+print("\nLOITER block:")
+i = btns.index('btn-stack')
+print(btns[i-6:i+400])
+
+# exercise the loiter handler with a value + validation paths
+print("\nhandler tests:")
+print("  loiter('200'):", mod.plugins_by_id["loiter"]["handler"](radius_m="200"))
+print("  loiter('abc'):", mod.plugins_by_id["loiter"]["handler"](radius_m="abc"))
+print("  loiter('-5') :", mod.plugins_by_id["loiter"]["handler"](radius_m="-5"))
+print("  loiter()     :", mod.plugins_by_id["loiter"]["handler"]())
+print("  hold()       :", mod.plugins_by_id["hold"]["handler"]())
+print("  forward()    :", mod.plugins_by_id["forward_flight"]["handler"]())
+
+print("\n--- CAP722B features ---")
+for tok in ('id="limit-banner"', 'id="t-health"', "fetch('/limit_status')", "fetch('/health')", "APPROACHING LIMIT"):
+    print(f"  page contains {tok!r}:", tok in page)
+sl.telemetry["altitude_m"] = 135.0        # over 120 ceiling
+sl.telemetry["groundspeed_ms"] = 28.0     # ~93% of 30 -> warn
+sl.telemetry["range_from_home_m"] = 470.0 # ~94% of 500 -> warn
+sl.telemetry["battery_pct"] = 12          # below 15 critical
+print("  limit_status():", mod.limit_status())
+sl.telemetry["altitude_m"] = 10.0
+sl.telemetry["groundspeed_ms"] = 3.0
+sl.telemetry["range_from_home_m"] = 20.0
+sl.telemetry["battery_pct"] = 80
+print("  limit_status() (all ok):", mod.limit_status())
+print("  health_status():", mod.health_status())

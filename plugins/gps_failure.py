@@ -1,13 +1,20 @@
 """
 GPS failure toggle. This uses the GPS dropout proxy already built and
-confirmed working earlier in this project (~/instructor_panel/gps_dropout_proxy.py).
-This plugin just starts/stops that existing, proven tool - it doesn't
-reimplement it, to avoid duplicating a working solution.
+confirmed working earlier in this project. This plugin just starts/stops
+that existing, proven tool - it doesn't reimplement it, to avoid
+duplicating a working solution.
+
+PATH UPDATED 5 Sep 2026: instructor_panel (the standalone prototype this
+proxy script came from) was archived to
+~/UAS-Academy/Archive/instructor_panel/ during a home-directory cleanup -
+it's superseded by gcs_app but gps_dropout_proxy.py itself is still the
+live, in-use tool, just relocated. Update PROXY_PATH again if it moves.
 """
 
 from simulator_link import start_background_script, stop_background_script, mark_failure_injected, mark_failure_cleared
+import os
 
-PROXY_PATH = "/home/uas-sim/instructor_panel/gps_dropout_proxy.py"
+PROXY_PATH = os.path.expanduser("~/UAS-Academy/Archive/instructor_panel/gps_dropout_proxy.py")
 
 state = {"active": False}
 
