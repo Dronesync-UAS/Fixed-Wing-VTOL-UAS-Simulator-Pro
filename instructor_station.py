@@ -30,6 +30,7 @@ from simulator_link import telemetry, connection_status, flight_path, home_latlo
 from plugin_loader import load_plugins
 from video_feed import start_video_capture, mjpeg_generator, camera_fps
 import event_logger
+import terrain_backdrop
 
 PORT = 8080
 
@@ -682,6 +683,18 @@ EXTRA_SCRIPT = """
   // ---------- Flight path plan view ----------
   var fp = document.getElementById('flightpath');
   var fctx = fp.getContext('2d');
+
+  // Shaded relief of the world's own terrain, under the track. Loaded once;
+  // a world with no heightmap (flat_test) reports available:false and the
+  // plan view stays as it was.
+  var terrainInfo = null, terrainImg = null;
+  fetch('/terrain_info').then(function (r) { return r.json(); }).then(function (d) {
+    terrainInfo = d;
+    if (!d.available) return;
+    var img = new Image();
+    img.onload = function () { terrainImg = img; };
+    img.src = '/terrain.png';
+  }).catch(function () {});
   function niceStep(x) {
     if (x <= 0) return 100;
     var p = Math.pow(10, Math.floor(Math.log(x) / Math.LN10));
@@ -711,6 +724,16 @@ EXTRA_SCRIPT = """
       maxAbs *= 1.15;
       var scale = Math.min(W, H) / (2 * maxAbs);
       var ox = W / 2, oy = H / 2;
+
+      if (terrainImg && terrainInfo && terrainInfo.available) {
+        // The backdrop is positioned in the same metres-from-home axes the
+        // track uses, so it stays registered to the track at every zoom.
+        var bx = ox + terrainInfo.east_min * scale;
+        var by = oy - terrainInfo.north_max * scale;
+        var bw = (terrainInfo.east_max - terrainInfo.east_min) * scale;
+        var bh = (terrainInfo.north_max - terrainInfo.north_min) * scale;
+        fctx.drawImage(terrainImg, bx, by, bw, bh);
+      }
 
       var step = niceStep(maxAbs / 2.2);
       fctx.strokeStyle = '#1f2b3a'; fctx.fillStyle = '#3d4b5e';
@@ -1142,6 +1165,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-type", "application/json; charset=utf-8")
             self.end_headers()
             self.wfile.write(json.dumps(limit_status()).encode("utf-8"))
+        elif self.path == "/terrain_info":
+            self.send_response(200)
+            self.send_header("Content-type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps(terrain_backdrop.info()).encode("utf-8"))
+        elif self.path == "/terrain.png":
+            data = terrain_backdrop.png()
+            if data is None:
+                self.send_response(404)
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header("Content-type", "image/png")
+            self.send_header("Content-Length", str(len(data)))
+            # The terrain does not change while the sim runs, and the image is
+            # ~400 KB - let the browser keep it rather than refetch on reload.
+            self.send_header("Cache-Control", "max-age=3600")
+            self.end_headers()
+            self.wfile.write(data)
         elif self.path == "/layout":
             self.send_response(200)
             self.send_header("Content-type", "application/json; charset=utf-8")
