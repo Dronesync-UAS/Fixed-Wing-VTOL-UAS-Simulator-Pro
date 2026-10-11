@@ -48,6 +48,16 @@ STATION_LOG = os.path.join(LOG_DIR, "gcs.log")
 STATION_URL = "http://localhost:8080"
 STATION_PORT = 8080
 
+# Where the Gazebo camera is put once the window exists. Without this the
+# view starts wherever the world left it, which on these worlds is pointing
+# at empty desert - the aircraft is a few metres across on a 16 km terrain,
+# so "not in view" is the normal case and finding it by hand is the first
+# thing anyone has to do. 12 m matches the console's own Camera panel
+# default, so the launcher and the panel agree.
+CAMERA_VIEW = "rear_above"
+CAMERA_DISTANCE_M = 12
+CAMERA_TIMEOUT_S = 90
+
 # PX4 prints this once its startup script has run; it is the earliest point
 # at which it is listening for MAVLink, which is all the station needs.
 PX4_READY = "Startup script returned successfully"
@@ -245,6 +255,46 @@ def wait_for_station(process, timeout=STATION_TIMEOUT_S):
         STATION_PORT, STATION_LOG)
 
 
+def _gui_services_up():
+    """True once Gazebo's GUI is advertising its camera services.
+
+    The GUI comes up well after PX4 reports ready, and /gui/follow is served
+    by the GUI process rather than the server, so asking too early fails
+    silently - the call returns fine and nothing moves.
+    """
+    try:
+        result = subprocess.run(["gz", "service", "-l"],
+                                capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return "/gui/follow" in result.stdout
+
+
+def point_camera_at_aircraft(timeout=CAMERA_TIMEOUT_S):
+    """Start the Gazebo view already looking at the aircraft.
+
+    Never fatal. A session with the camera in the wrong place is a session;
+    a launcher that refuses to finish because a camera service was slow is
+    not.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if _gui_services_up():
+            break
+        time.sleep(1)
+    else:
+        return "the Gazebo window did not advertise its camera in %ds" % timeout
+
+    try:
+        import gazebo_view
+    except Exception as exc:
+        return "could not load the view helper (%s)" % exc
+    message = gazebo_view.set_view(CAMERA_VIEW, CAMERA_DISTANCE_M)
+    # set_view reports failure in its text rather than by raising, because
+    # its usual caller is a button on a web page.
+    return None if message.startswith("External view") else message
+
+
 def open_front_end():
     """The station opens its own desktop window when pywebview is installed;
     opening a browser as well would just leave a duplicate on screen."""
@@ -308,31 +358,31 @@ def launch(key, open_ui=True):
         print(problem, file=sys.stderr)
         return 2
 
-    say("1/5", "training area: %s" % entry["label"])
+    say("1/6", "training area: %s" % entry["label"])
     problems = check_prerequisites(entry)
     if problems:
         for item in problems:
             print("  cannot start - %s" % item, file=sys.stderr)
         return 2
     if _install_repo_world(entry):
-        say("1/5", "installed %s.sdf into PX4's worlds" % entry["world"])
+        say("1/6", "installed %s.sdf into PX4's worlds" % entry["world"])
 
     cleared = stop_all(quiet=True)
-    say("2/5", "stopped what was already running: %s" % ", ".join(cleared)
+    say("2/6", "stopped what was already running: %s" % ", ".join(cleared)
                 if cleared else "nothing left running to clear")
 
-    say("3/5", "starting PX4 and Gazebo (spawn height %s m)" % entry["spawn_z"])
+    say("3/6", "starting PX4 and Gazebo (spawn height %s m)" % entry["spawn_z"])
     sim = start_simulator(entry)
     ok, detail = wait_for_simulator(sim)
     if not ok:
         print("  simulator did not start - %s" % detail, file=sys.stderr)
         _tail(SIM_LOG)
         return 1
-    say("3/5", "simulator up")
+    say("3/6", "simulator up")
 
-    say("4/5", "starting the instructor station")
+    say("4/6", "starting the instructor station")
     if _station_answering():
-        say("4/5", "a station is already running - reusing it")
+        say("4/6", "a station is already running - reusing it")
         station = None
     else:
         station = start_station(entry)
@@ -345,7 +395,15 @@ def launch(key, open_ui=True):
               file=sys.stderr)
         return 1
 
-    say("5/5", "ready")
+    say("5/6", "pointing the Gazebo camera at the aircraft")
+    problem = point_camera_at_aircraft()
+    if problem:
+        say("5/6", "camera left where it was - %s" % problem)
+        say("5/6", "use Set External View in the console's Camera panel")
+    else:
+        say("5/6", "camera following the aircraft from behind and above")
+
+    say("6/6", "ready")
     where = open_front_end() if open_ui else None
     if where:
         print("\n  Console opening in %s: %s" % (where, STATION_URL))

@@ -154,6 +154,45 @@ with tempfile.TemporaryDirectory() as tmp:
     check("resolved %s" % (chosen or {}).get("key"),
           problem is None and chosen["world"] == L.sim_target.WORLD)
 
+print("10. the Gazebo camera step waits, then gives up without blocking")
+# The GUI advertises /gui/follow well after PX4 says it is ready, so asking
+# too early fails silently: the call succeeds and nothing moves. And a
+# camera that never turns up must not stop the launcher finishing.
+calls = []
+
+
+def fake_gz(cmd, **kwargs):
+    calls.append(cmd)
+    out = type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+    if cmd[:3] == ["gz", "service", "-l"]:
+        out.stdout = "/gui/follow\n/gui/follow/offset\n" if fake_gz.up else "/world/x\n"
+    return out
+
+
+fake_gz.up = False
+L.subprocess.run = fake_gz
+
+started = time.monotonic()
+problem = L.point_camera_at_aircraft(timeout=3)
+check("gives up rather than hanging (%.1fs)" % (time.monotonic() - started),
+      problem is not None and time.monotonic() - started < 10)
+check("says what was not ready: %s" % problem, "camera" in problem)
+check("asked for the service list", any(c[:3] == ["gz", "service", "-l"]
+                                        for c in calls))
+
+fake_gz.up = True
+calls.clear()
+problem = L.point_camera_at_aircraft(timeout=10)
+check("succeeds once the GUI is up (%s)" % (problem or "no problem"),
+      problem is None)
+followed = [c for c in calls if "-s" in c and "/gui/follow" in c]
+check("set the follow target first",
+      followed and followed[0][followed[0].index("-s") + 1] == "/gui/follow")
+check("then sent the offset, which is ignored without a target",
+      any("/gui/follow/offset" in c for c in calls))
+check("aimed from behind and above at the panel's own default distance",
+      L.CAMERA_VIEW == "rear_above" and L.CAMERA_DISTANCE_M == 12)
+
 print()
 print("FAILED: %s" % fails if fails else "all checks passed")
 sys.exit(1 if fails else 0)
