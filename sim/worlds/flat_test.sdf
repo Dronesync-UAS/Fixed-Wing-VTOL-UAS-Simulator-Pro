@@ -44,7 +44,12 @@
       <real_time_factor>1.0</real_time_factor>
     </physics>
     <gravity>0 0 -9.8</gravity>
-    <magnetic_field>6e-06 2.3e-05 -4.2e-05</magnetic_field>
+    <!-- IGRF field at this world's own coordinates (23.2667N, 5.6333E,
+         1400 m) for 2026-10-11, in tesla ENU per the SDF spec. NOT
+         sdformat's default placeholder, which is ~48 uT at 60 deg
+         inclination and would be 32 deg wrong here - enough to stop
+         PX4's EKF converging on a heading once a magnetometer exists. -->
+    <magnetic_field>9.01e-07 3.375e-05 -1.801e-05</magnetic_field>
     <atmosphere type="adiabatic"/>
     <spherical_coordinates>
       <surface_model>EARTH_WGS84</surface_model>
