@@ -155,18 +155,27 @@ BLOCK = """\
 
 
 def world_paths():
-    """Every training world, wherever it actually lives.
+    """Each training world once, from the copy the simulator actually loads.
 
-    flat_test is kept in this repo rather than PX4's tree, so it has to be
-    looked for in both places or it would silently be left without weather.
+    PX4's tree wins where the world exists there, and this repo's copy is
+    used only for a world PX4 has never seen - flat_test, which lives here
+    and is installed into PX4's tree at launch.
+
+    FIXED 11 Oct 2026: this used to return BOTH copies of every world. It
+    did keep them in step, but it edited files under git, so a routine
+    `git pull` then refused with "local changes would be overwritten" - the
+    same trap that cost half an hour earlier the same day. The repo's copies
+    carry the weather cell as committed content instead.
     """
     found = []
     for env in sim_target.ENVIRONMENTS:
         name = env["world"] + ".sdf"
-        for directory in (PX4_WORLDS, REPO_WORLDS):
-            path = os.path.join(directory, name)
-            if os.path.isfile(path):
-                found.append((path, env))
+        px4 = os.path.join(PX4_WORLDS, name)
+        repo = os.path.join(REPO_WORLDS, name)
+        if os.path.isfile(px4):
+            found.append((px4, env))
+        elif os.path.isfile(repo):
+            found.append((repo, env))
     return found
 
 
@@ -197,7 +206,8 @@ def apply(dry_run):
         joined = "".join(lines)
 
         if "weather_cell" in joined or "ParticleEmitter" in joined:
-            print("SKIP  %s: already has a weather cell" % name)
+            print("SKIP  %s: already has a weather cell (%s)"
+                  % (name, os.path.dirname(path)))
             skipped += 1
             continue
 
@@ -237,8 +247,8 @@ def apply(dry_run):
             failed += 1
             continue
 
-        print("OK    %s: weather cell added at %s m (backup at %s)"
-              % (name, ground, os.path.basename(backup)))
+        print("OK    %s: weather cell added at %s m\n        in %s"
+              % (name, ground, os.path.dirname(path)))
         edited += 1
 
     print()

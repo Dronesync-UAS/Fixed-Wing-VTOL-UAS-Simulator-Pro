@@ -159,5 +159,71 @@
         </noise>
       </vertical>
     </plugin>
+    <!-- Weather cell. Switched on at runtime by the instructor station over
+         /weather/fog and /weather/rain (gz.msgs.ParticleEmitter);
+         both start off, so an untouched sim looks exactly as it did before.
+         Rendering only - this does not change how the aircraft flies.
+         Added by tools/weather_apply.py. -->
+    <plugin filename="gz-sim-particle-emitter-system"
+            name="gz::sim::systems::ParticleEmitter">
+    </plugin>
+    <model name="weather_cell">
+      <static>true</static>
+      <!-- At this world's own ground height; emitter heights below are
+           relative to it, so the cell sits over the ground in every world. -->
+      <pose>0 0 605.1 0 0 0</pose>
+      <link name="weather_link">
+        <particle_emitter name="fog" type="box">
+          <topic>/weather/fog</topic>
+          <emitting>false</emitting>
+          <!-- Tighter than the first attempt (was 240 x 240): the same
+               particle budget spread over a quarter of the area is four times
+               the obscuration. -->
+          <pose>0 0 45 0 0 0</pose>
+          <size>120 120 30</size>
+          <!-- X and Y only; Z is ignored (see the rain emitter below). -->
+          <particle_size>18 18 0</particle_size>
+          <lifetime>25</lifetime>
+          <min_velocity>0.1</min_velocity>
+          <max_velocity>0.5</max_velocity>
+          <scale_rate>0.5</scale_rate>
+          <rate>160</rate>
+          <particle_scatter_ratio>0.9</particle_scatter_ratio>
+          <material>
+            <diffuse>0.85 0.87 0.90</diffuse>
+            <specular>0.85 0.87 0.90</specular>
+          </material>
+        </particle_emitter>
+        <!-- Pitched 90 degrees about Y so the emitter's local +X, which is the
+             only direction Ogre2ParticleEmitter ever emits along, points at
+             world -Z. Without this, rain falls sideways. -->
+        <particle_emitter name="rain" type="box">
+          <topic>/weather/rain</topic>
+          <emitting>false</emitting>
+          <!-- 45 m, not 95: the fall time sets the lifetime, the lifetime sets
+               the rate ceiling (quota/lifetime), and the rate sets how much
+               rain you can actually see. Halving the drop roughly trebles the
+               rain. 45 m at 12-16 m/s is ~3.2 s, inside the 4 s lifetime. -->
+          <pose>0 0 45 0 1.5707963 0</pose>
+          <size>70 70 0</size>
+          <!-- Only X and Y are read - Ogre2ParticleEmitter passes them to
+               setDefaultDimensions(width, height) and ignores Z. 0.12 x 2.0 is
+               a falling streak; the first attempt put the length in Z and so
+               rendered 8 cm squares, which is why heavy rain looked like
+               almost nothing. -->
+          <particle_size>0.12 2.0 0</particle_size>
+          <lifetime>4</lifetime>
+          <min_velocity>12</min_velocity>
+          <max_velocity>16</max_velocity>
+          <scale_rate>0</scale_rate>
+          <rate>450</rate>
+          <particle_scatter_ratio>0.4</particle_scatter_ratio>
+          <material>
+            <diffuse>0.60 0.68 0.78</diffuse>
+            <specular>0.60 0.68 0.78</specular>
+          </material>
+        </particle_emitter>
+      </link>
+    </model>
   </world>
 </sdf>
