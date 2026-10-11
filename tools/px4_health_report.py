@@ -80,6 +80,7 @@ def main():
 
     params, texts = {}, []
     status = defaultdict(list)
+    track = defaultdict(list)
     deadline = time.time() + seconds
     while time.time() < deadline:
         msg = link.recv_match(blocking=True, timeout=1)
@@ -107,10 +108,45 @@ def main():
                 f"eph={msg.eph} epv={msg.epv} alt={msg.alt/1000.0:.1f}")
         elif kind == "ATTITUDE":
             status["att"].append(f"{msg.roll:+.3f} {msg.pitch:+.3f} {msg.yaw:+.3f}")
+            track["roll"].append(msg.roll)
+            track["pitch"].append(msg.pitch)
+        elif kind == "GLOBAL_POSITION_INT":
+            track["alt"].append(msg.relative_alt / 1000.0)
+        elif kind == "VFR_HUD":
+            track["speed"].append(msg.groundspeed)
+        elif kind == "HEARTBEAT":
+            track["armed"].append(
+                bool(msg.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED))
+
+    # Say up front whether a flight was captured at all. Three runs in a row
+    # recorded a stationary aircraft before anyone noticed, because the report
+    # only showed the last few sample rows - which look the same either way.
+    def span(key):
+        values = track[key]
+        return (max(values) - min(values)) if values else 0.0
+
+    armed_any = any(track["armed"])
+    alt_span, speed_max = span("alt"), max(track["speed"], default=0.0)
+    attitude_span = max(span("roll"), span("pitch"))
+    flew = alt_span > 2.0 or speed_max > 2.0
+
+    verdict = ["=== Did the aircraft fly during this capture? ==="]
+    if flew:
+        verdict.append(f"  YES - altitude varied {alt_span:.1f} m, "
+                       f"top ground speed {speed_max:.1f} m/s, "
+                       f"attitude moved {attitude_span:.3f} rad")
+    else:
+        verdict.append(f"  NO - altitude varied only {alt_span:.1f} m, "
+                       f"top ground speed {speed_max:.1f} m/s, "
+                       f"attitude moved {attitude_span:.3f} rad")
+        verdict.append(f"  armed at any point: {'yes' if armed_any else 'no'}")
+        verdict.append("  This capture shows a stationary aircraft, so it says")
+        verdict.append("  nothing about a fault that only appears in flight.")
+        verdict.append("  Start the capture FIRST, then take off straight away.")
 
     lines = [f"PX4 health report - {time.strftime('%Y-%m-%d %H:%M:%S')}",
              f"port udpin:localhost:{port}, system {link.target_system}",
-             "", "=== PX4 messages seen while listening ===" ]
+             ""] + verdict + ["", "=== PX4 messages seen while listening ===" ]
     lines += [f"  {t}" for t in texts] or ["  (none)"]
 
     lines += ["", "=== Parameters ==="]
