@@ -18,8 +18,16 @@ PORTS: the station holds udpin:localhost:14540. PX4's 4004 airframe also
 streams to 14550 (QGroundControl's port) and 14580, so this uses 14550 by
 default. If QGroundControl is running it will already have that port; close it
 first, or pass another port as the first argument.
+
+    python3 tools/px4_health_report.py 14550 180
+
+A second argument sets how long to listen, in seconds. Use a long window and
+fly during it: the ground state has been healthy every time it was checked,
+and the attitude problem only appears in the air, so a 25-second sample with
+the aircraft parked shows nothing useful.
 """
 import os
+import struct
 import sys
 import time
 from collections import defaultdict
@@ -31,7 +39,19 @@ except ImportError:
     sys.exit(1)
 
 REPORT = os.path.expanduser("~/uas_sim_logs/px4_health_report.txt")
-LISTEN_SECONDS = 25
+DEFAULT_SECONDS = 25
+
+# PX4 sends integer parameters as the integer's bit pattern in the float field
+# of PARAM_VALUE. Read as a float, COM_ARM_WO_GPS=1 arrives as 1.4013e-45.
+# These are the MAV_PARAM_TYPE values that need reinterpreting.
+INT_PARAM_TYPES = {1, 2, 3, 4, 5, 6}   # uint8..int32
+
+
+def param_value(msg):
+    """The real value of a PARAM_VALUE, integer types included."""
+    if msg.param_type in INT_PARAM_TYPES:
+        return struct.unpack("<i", struct.pack("<f", msg.param_value))[0]
+    return msg.param_value
 
 # Parameters that decide how the estimator behaves and where its sensor data
 # comes from. The SENS_EN_*SIM group matters most: on this PX4 version the
@@ -45,27 +65,29 @@ WANTED_PREFIXES = (
 
 
 def main():
-    port = sys.argv[1] if len(sys.argv) > 1 else "14550"
+    args = [a for a in sys.argv[1:] if not a.startswith("-")]
+    port = args[0] if args else "14550"
+    seconds = int(args[1]) if len(args) > 1 else DEFAULT_SECONDS
     print(f"Connecting on udpin:localhost:{port} ...")
     link = mavutil.mavlink_connection(f"udpin:localhost:{port}")
     if not link.wait_heartbeat(timeout=20):
         print("No heartbeat. Is the simulator running, and is this port free?")
         print("The station holds 14540; QGroundControl usually holds 14550.")
         return 1
-    print(f"Connected to system {link.target_system}. Listening {LISTEN_SECONDS}s ...")
+    print(f"Connected to system {link.target_system}. Listening {seconds}s ...")
 
     link.mav.param_request_list_send(link.target_system, link.target_component)
 
     params, texts = {}, []
     status = defaultdict(list)
-    deadline = time.time() + LISTEN_SECONDS
+    deadline = time.time() + seconds
     while time.time() < deadline:
         msg = link.recv_match(blocking=True, timeout=1)
         if msg is None:
             continue
         kind = msg.get_type()
         if kind == "PARAM_VALUE":
-            params[msg.param_id] = msg.param_value
+            params[msg.param_id] = param_value(msg)
         elif kind == "STATUSTEXT":
             line = msg.text.strip()
             if line not in texts:
@@ -96,7 +118,8 @@ def main():
         lines.append("  (none received - PX4 may not have answered the parameter request)")
     for name in sorted(params):
         if name.startswith(WANTED_PREFIXES):
-            lines.append(f"  {name:22} {params[name]:g}")
+            value = params[name]
+            lines.append(f"  {name:22} {value if isinstance(value, int) else f'{value:g}'}")
     lines.append(f"  ({len(params)} parameters received in total)")
 
     for key, title in (("ekf", "EKF status (last few)"), ("gps", "GPS (last few)"),
