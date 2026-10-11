@@ -1298,3 +1298,12 @@ if __name__ == "__main__":
             time.sleep(1)
     except KeyboardInterrupt:
         print("\nShutting down UAV Academy GCS Pro.")
+        # Exit without running interpreter teardown. The Gazebo transport node
+        # in video_feed is a pybind11 extension holding a background thread;
+        # tearing it down from a signal handler aborts with
+        # "pybind11::handle::dec_ref() PyGILState_Check() failure" and dumps
+        # core, which also leaves port 8080 held so the next start fails with
+        # "Address already in use". Nothing here needs flushing - the event log
+        # is written on each action, not buffered - so leaving immediately is
+        # clean as well as quiet.
+        os._exit(0)
