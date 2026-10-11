@@ -288,6 +288,58 @@ def main():
         check("it moved (%s -> %s)" % (round(start["x"]), round(moved["x"])),
               abs(moved["x"] - start["x"]) > 80)
 
+        print("7b. a rail undocks, moves, resizes and turns on its side")
+        rail = page.locator("#rail-right")
+        before = rail.bounding_box()
+        check("docked to start", "floating" not in (rail.get_attribute("class") or ""))
+        # Grab its top edge, which is how a docked rail comes off the wall.
+        page.mouse.move(before["x"] + 60, before["y"] + 4)
+        page.mouse.down()
+        page.mouse.move(before["x"] - 300, before["y"] + 220, steps=10)
+        page.mouse.up()
+        page.wait_for_timeout(250)
+        after = rail.bounding_box()
+        check("now floating", "floating" in (rail.get_attribute("class") or ""))
+        check("and moved (%s -> %s)" % (round(before["x"]), round(after["x"])),
+              abs(after["x"] - before["x"]) > 100)
+
+        grip = page.locator("#rail-right .railgrip")
+        box = grip.bounding_box()
+        page.mouse.move(box["x"] + 8, box["y"] + 8)
+        page.mouse.down()
+        page.mouse.move(box["x"] + 130, box["y"] + 40, steps=8)
+        page.mouse.up()
+        page.wait_for_timeout(250)
+        wider = rail.bounding_box()
+        check("and resized (%s -> %s wide)"
+              % (round(after["width"]), round(wider["width"])),
+              wider["width"] > after["width"] + 50)
+
+        page.click("#rail-right .turn")
+        page.wait_for_timeout(250)
+        check("turned on its side",
+              "horizontal" in (page.get_attribute("#rail-right", "class") or ""))
+        turned = rail.bounding_box()
+        check("long side swapped (%sx%s -> %sx%s)"
+              % (round(wider["width"]), round(wider["height"]),
+                 round(turned["width"]), round(turned["height"])),
+              turned["width"] > turned["height"])
+        check("its buttons still reachable",
+              page.locator("#rail-right #btn-gps_failure").count() == 1)
+
+        print("7c. the picture is not inset for a panel that left the edge")
+        page.click('#layouttabs button[data-layout="station"]')
+        page.wait_for_timeout(250)
+        hero = page.locator("#hero").bounding_box()
+        check("no dead strip on the right (%s + %s vs %s)"
+              % (round(hero["x"]), round(hero["width"]), 1600),
+              hero["x"] + hero["width"] > 1590)
+
+        page.click("#resettiles")
+        page.wait_for_timeout(250)
+        check("Reset panels re-docks it",
+              "floating" not in (page.get_attribute("#rail-right", "class") or ""))
+
         print("8. telemetry reached the readouts")
         check("altitude shown", "12.5" in page.inner_text("#p-alt"))
         check("arming state shown", "Ready" in page.inner_text("#t-armcheck"))

@@ -163,6 +163,12 @@ saved = mod.read_console_layout()
 print("  an absurd tile size is clamped, not stored:",
       saved["tiles"]["left"]["w"] == mod.TILE_MAX_W
       and saved["tiles"]["left"]["h"] == mod.TILE_MIN_H)
+mod.write_console_layout({"rails": {"right": {"x": 5, "y": 5, "w": -40, "h": 99999,
+                                              "horizontal": True}}})
+rail = mod.read_console_layout()["rails"]["right"]
+print("  a rail panel round-trips, clamped:",
+      rail["w"] == mod.RAIL_MIN_W and rail["h"] == mod.RAIL_MAX_H
+      and rail["horizontal"] is True)
 
 print("\n--- arming readout ---")
 for tok in ('id="t-armcheck"', ">Arming<", ".arm-ready", ".arm-wait",

@@ -106,11 +106,14 @@ def write_layout(data):
 # where the instructor has dragged the two corner tiles. Separate key, so a
 # saved panel layout from the classic page is untouched and either page can
 # be used without destroying the other's arrangement.
-CONSOLE_DEFAULT = {"hero": "chase", "layout": "pilot", "tiles": {}, "shut": None}
+CONSOLE_DEFAULT = {"hero": "chase", "layout": "pilot", "tiles": {},
+                   "rails": {}, "shut": None}
 CONSOLE_HEROES = ("chase", "nose", "map")
 CONSOLE_LAYOUTS = ("pilot", "station")
 TILE_MIN_W, TILE_MAX_W = 150, 520
 TILE_MIN_H, TILE_MAX_H = 96, 300
+RAIL_MIN_W, RAIL_MAX_W = 96, 760
+RAIL_MIN_H, RAIL_MAX_H = 90, 2000
 
 
 def read_console_layout():
@@ -125,6 +128,10 @@ def read_console_layout():
     tiles = saved.get("tiles")
     if isinstance(tiles, dict):
         out["tiles"] = {k: v for k, v in tiles.items()
+                        if k in ("left", "right") and isinstance(v, dict)}
+    rails = saved.get("rails")
+    if isinstance(rails, dict):
+        out["rails"] = {k: v for k, v in rails.items()
                         if k in ("left", "right") and isinstance(v, dict)}
     shut = saved.get("shut")
     out["shut"] = [str(x)[:60] for x in shut] if isinstance(shut, list) else None
@@ -169,6 +176,25 @@ def write_console_layout(data):
             continue
         tiles[side] = {"x": max(0, x), "y": max(0, y), "w": w, "h": h}
     clean["tiles"] = tiles
+
+    # The rails are panels now: an instructor can drag one off its edge,
+    # resize it, or turn it into a horizontal bar. Clamped for the same
+    # reason the tiles are - a panel saved off-screen or at zero size would
+    # be unreachable on the next load.
+    rails = {}
+    for side in ("left", "right"):
+        box = (data.get("rails") or {}).get(side)
+        if not isinstance(box, dict):
+            continue
+        try:
+            x, y = int(box["x"]), int(box["y"])
+            w = max(RAIL_MIN_W, min(RAIL_MAX_W, int(box["w"])))
+            h = max(RAIL_MIN_H, min(RAIL_MAX_H, int(box["h"])))
+        except (KeyError, TypeError, ValueError):
+            continue
+        rails[side] = {"x": max(0, x), "y": max(0, y), "w": w, "h": h,
+                       "horizontal": bool(box.get("horizontal"))}
+    clean["rails"] = rails
 
     shut = data.get("shut")
     clean["shut"] = ([str(x)[:60] for x in shut if isinstance(x, str)][:40]
@@ -1020,25 +1046,47 @@ EXTRA_SCRIPT = """
         fctx.drawImage(terrainImg, bx, by, bw, bh);
       }
 
+      // REVISED 11 Oct 2026: the concentric range rings went. They were
+      // drawn over the satellite imagery and they are not what a ground
+      // station map shows - aircraft, home and the track it has flown are.
+      // Range and ceiling against their limits are read from the CAP722B
+      // strip along the bottom of the console, which is always on screen,
+      // so nothing was lost by taking them off the picture.
+      //
+      // A scale bar stays, because a map with no scale cannot be read.
       var step = niceStep(maxAbs / 2.2);
-      fctx.strokeStyle = '#1f2b3a'; fctx.fillStyle = '#3d4b5e';
-      fctx.font = '10px -apple-system, sans-serif'; fctx.textAlign = 'left'; fctx.lineWidth = 1;
-      for (var rr = step; rr <= maxAbs; rr += step) {
-        fctx.beginPath(); fctx.arc(ox, oy, rr * scale, 0, 7); fctx.stroke();
-        fctx.fillText(fmt(rr), ox + 4, oy - rr * scale + 12);
-      }
-      fctx.fillStyle = '#62708a'; fctx.textAlign = 'center';
-      fctx.fillText('N', ox, 12);
+      var barPx = step * scale;
+      fctx.strokeStyle = 'rgba(255,255,255,0.85)'; fctx.lineWidth = 2;
+      fctx.beginPath();
+      fctx.moveTo(14, H - 16); fctx.lineTo(14 + barPx, H - 16);
+      fctx.moveTo(14, H - 21); fctx.lineTo(14, H - 11);
+      fctx.moveTo(14 + barPx, H - 21); fctx.lineTo(14 + barPx, H - 11);
+      fctx.stroke();
+      fctx.fillStyle = '#ffffff';
+      fctx.font = '11px -apple-system, sans-serif'; fctx.textAlign = 'left';
+      fctx.shadowColor = 'rgba(0,0,0,0.85)'; fctx.shadowBlur = 3;
+      fctx.fillText(fmt(step), 14, H - 24);
+      fctx.textAlign = 'center';
+      fctx.fillText('N', ox, 14);
+      fctx.shadowBlur = 0;
 
-      fctx.strokeStyle = '#4ad0ff'; fctx.lineWidth = 2; fctx.beginPath();
+      // Drawn twice: a dark casing under a bright line, so the track stays
+      // readable over both pale playa and dark terrain.
+      fctx.beginPath();
       for (var j = 0; j < pts.length; j++) {
         var X = ox + mx[j] * scale, Y = oy - my[j] * scale;
         if (j) fctx.lineTo(X, Y); else fctx.moveTo(X, Y);
       }
-      fctx.stroke();
+      fctx.strokeStyle = 'rgba(0,0,0,0.55)'; fctx.lineWidth = 5; fctx.stroke();
+      fctx.strokeStyle = '#4ad0ff'; fctx.lineWidth = 2.5; fctx.stroke();
 
+      // Home, drawn as a marker rather than a dot so it is still readable
+      // over imagery.
       fctx.fillStyle = '#4caf50';
-      fctx.beginPath(); fctx.arc(ox, oy, 5, 0, 7); fctx.fill();
+      fctx.strokeStyle = '#0d1219'; fctx.lineWidth = 2;
+      fctx.beginPath(); fctx.arc(ox, oy, 6, 0, 7); fctx.fill(); fctx.stroke();
+      fctx.fillStyle = '#0d1219';
+      fctx.beginPath(); fctx.arc(ox, oy, 2, 0, 7); fctx.fill();
 
       var last = pts.length - 1;
       var hx = ox + mx[last] * scale, hy = oy - my[last] * scale;

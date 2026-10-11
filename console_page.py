@@ -150,7 +150,39 @@ TEMPLATE = """<!DOCTYPE html>
   .tile .hud-toggle, .tile .fp-legend, .tile canvas.hud { display: none; }
 
   /* ---------- rails ---------- */
-  .rail { position: absolute; z-index: 30; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; }
+  /* A rail is a panel, not furniture: it can be dragged off its edge,
+     resized, and turned on its side into a horizontal bar. Docked is just
+     the frame it has before anyone moves it. */
+  .rail { position: absolute; z-index: 30; display: flex; flex-direction: column; overflow: hidden; }
+  .rail .railbody { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 6px; overflow: auto; }
+  .rail.floating { border-radius: 10px; box-shadow: 0 6px 22px rgba(0,0,0,0.55); }
+  .railbar {
+    display: none; align-items: center; justify-content: space-between; gap: 6px;
+    height: 22px; flex: none; padding: 0 6px; margin-bottom: 4px;
+    background: rgba(0,0,0,0.5); border-radius: 7px; cursor: grab;
+    font-size: 11px; font-weight: 600; color: var(--dim);
+  }
+  .rail.floating .railbar { display: flex; }
+  .railbar .turn {
+    width: 20px; height: 18px; min-height: 0; padding: 0; border: 0; border-radius: 4px;
+    background: rgba(255,255,255,0.14); color: var(--ink); cursor: pointer;
+    font-size: 11px; display: flex; align-items: center; justify-content: center;
+  }
+  .rail .railgrip {
+    position: absolute; right: 0; bottom: 0; width: 18px; height: 18px; display: none;
+    cursor: nwse-resize; border-radius: 0 0 9px 0;
+    background: linear-gradient(135deg, transparent 50%, rgba(255,255,255,0.8) 50% 58%,
+                transparent 58%, transparent 70%, rgba(255,255,255,0.8) 70% 78%, transparent 78%);
+  }
+  .rail.floating .railgrip { display: block; }
+
+  /* Turned on its side: sections run left to right, each with its buttons
+     in a row, and the whole bar scrolls sideways instead of down. */
+  .rail.horizontal .railbody { flex-direction: row; overflow-x: auto; overflow-y: hidden; align-items: flex-start; }
+  .rail.horizontal .items { flex-direction: row; flex-wrap: nowrap; }
+  .rail.horizontal button { width: auto; min-width: 86px; white-space: nowrap; }
+  .rail.horizontal .stack { min-width: 104px; }
+  .rail.horizontal hr { display: none; }
   .rail { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.35) transparent; }
   .rail::-webkit-scrollbar { width: 8px; }
   .rail::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.35); border-radius: 4px; }
@@ -271,7 +303,7 @@ TEMPLATE = """<!DOCTYPE html>
         <button data-layout="station">Station</button>
       </div>
     </div>
-    <button id="resettiles" style="height: 26px; padding: 0 12px; border: 0; border-radius: 6px; cursor: pointer; font-size: 12px; background: rgba(0,0,0,0.5); color: #fff">Reset tiles</button>
+    <button id="resettiles" style="height: 26px; padding: 0 12px; border: 0; border-radius: 6px; cursor: pointer; font-size: 12px; background: rgba(0,0,0,0.5); color: #fff">Reset panels</button>
   </div>
   <div class="icons">
     <span class="item" id="t-armcheck-wrap" title="Whether PX4 will accept ARM or TAKEOFF right now">
@@ -334,8 +366,16 @@ TEMPLATE = """<!DOCTYPE html>
   </div>
 </div>
 
-<div class="rail" id="rail-left">__LEFT_RAIL__</div>
-<div class="rail" id="rail-right">__RIGHT_RAIL__</div>
+<div class="rail" id="rail-left">
+  <div class="railbar"><span>Flight</span><button class="turn" title="Turn this panel on its side" aria-label="Turn this panel on its side">&#8646;</button></div>
+  <div class="railbody">__LEFT_RAIL__</div>
+  <div class="railgrip"></div>
+</div>
+<div class="rail" id="rail-right">
+  <div class="railbar"><span>Instructor</span><button class="turn" title="Turn this panel on its side" aria-label="Turn this panel on its side">&#8646;</button></div>
+  <div class="railbody">__RIGHT_RAIL__</div>
+  <div class="railgrip"></div>
+</div>
 
 <div class="tile" id="tile-left">
   <div class="body"></div>
@@ -396,6 +436,9 @@ SCRIPT = """
     hero: SAVED.hero || 'chase',
     layout: SAVED.layout || 'pilot',
     tiles: SAVED.tiles || {},
+    // A side appears here only once it has been dragged off its edge; until
+    // then the rail is docked and the layout switch owns its geometry.
+    rails: SAVED.rails || {},
     shut: SAVED.shut || []
   };
 
@@ -417,28 +460,50 @@ SCRIPT = """
   // reason these are one console and not two.
   function applyLayout() {
     var pilot = state.layout === 'pilot';
-    var left = el('rail-left'), right = el('rail-right');
     var railW = pilot ? 118 : 148;
 
     document.documentElement.style.setProperty('--btn', pilot ? 'rgba(0,0,0,0.58)' : '#1e2430');
     el('topbar').style.background = pilot ? 'rgba(0,0,0,0.62)' : 'var(--panel)';
     el('bottom').style.background = pilot ? 'rgba(0,0,0,0.72)' : 'var(--panel)';
 
-    [left, right].forEach(function (rail) {
-      rail.style.width = railW + 'px';
-      rail.style.top = (pilot ? TOPBAR + 10 : TOPBAR) + 'px';
-      rail.style.bottom = (pilot ? BAND + 10 : BAND) + 'px';
-      rail.style.padding = pilot ? '8px' : '10px';
-      rail.style.borderRadius = pilot ? '10px' : '0';
-      rail.style.background = pilot ? 'rgba(0,0,0,0.52)' : 'var(--panel)';
+    ['left', 'right'].forEach(function (side) {
+      var rail = el('rail-' + side), f = state.rails[side];
+      var floating = !!(f && f.w);
+      rail.classList.toggle('floating', floating);
+      rail.classList.toggle('horizontal', !!(f && f.horizontal));
+      rail.style.padding = pilot || floating ? '8px' : '10px';
+      rail.style.background = (pilot || floating) ? 'rgba(0,0,0,0.62)' : 'var(--panel)';
+      if (floating) {
+        rail.style.left = f.x + 'px';
+        rail.style.top = f.y + 'px';
+        rail.style.right = 'auto';
+        rail.style.bottom = 'auto';
+        rail.style.width = f.w + 'px';
+        rail.style.height = f.h + 'px';
+        rail.style.borderRadius = '10px';
+      } else {
+        rail.style.width = railW + 'px';
+        rail.style.height = 'auto';
+        rail.style.top = (pilot ? TOPBAR + 10 : TOPBAR) + 'px';
+        rail.style.bottom = (pilot ? BAND + 10 : BAND) + 'px';
+        rail.style.left = side === 'left' ? (pilot ? '10px' : '0') : 'auto';
+        rail.style.right = side === 'right' ? (pilot ? '10px' : '0') : 'auto';
+        rail.style.borderRadius = pilot ? '10px' : '0';
+      }
     });
-    left.style.left = pilot ? '10px' : '0';
-    right.style.right = pilot ? '10px' : '0';
 
+    // The picture is only inset for a rail that is still docked. A rail the
+    // instructor has dragged out floats over it, like everything else they
+    // have moved - insetting for a panel that is no longer at the edge
+    // would leave a bar of dead space where it used to be.
+    function inset(side) {
+      var f = state.rails[side];
+      return (pilot || (f && f.w)) ? 0 : railW;
+    }
     hero.style.top = (pilot ? 0 : TOPBAR) + 'px';
     hero.style.bottom = BAND + 'px';
-    hero.style.left = (pilot ? 0 : railW) + 'px';
-    hero.style.right = (pilot ? 0 : railW) + 'px';
+    hero.style.left = inset('left') + 'px';
+    hero.style.right = inset('right') + 'px';
     // Switching layout resizes the hero, so the canvases need refitting for
     // the same reason a swap does.
     if (window.gcsRedraw) { window.gcsRedraw(); }
@@ -460,10 +525,30 @@ SCRIPT = """
     };
   }
 
-  function frame(side) {
+  // Where a rail sits the moment it is first dragged off its edge: exactly
+  // where it already was, so it does not jump out from under the pointer.
+  function railHome(side) {
+    var box = el('rail-' + side).getBoundingClientRect();
+    return { x: Math.round(box.left), y: Math.round(box.top),
+             w: Math.round(box.width), h: Math.round(box.height),
+             horizontal: false };
+  }
+
+  var LIMITS_FOR = {
+    tile: { minW: MIN_W, maxW: MAX_W, minH: MIN_H, maxH: MAX_H },
+    rail: { minW: 96, maxW: 760, minH: 90, maxH: 2000 }
+  };
+
+  function frameOf(kind, side) {
+    if (kind === 'rail') {
+      var r = state.rails[side];
+      return (r && r.w) ? r : railHome(side);
+    }
     var f = state.tiles[side];
     return (f && f.w) ? f : home(side);
   }
+
+  function frame(side) { return frameOf('tile', side); }
 
   function placeTiles() {
     ['left', 'right'].forEach(function (side) {
@@ -525,30 +610,37 @@ SCRIPT = """
 
   // ---------- drag and resize ----------
   var drag = null;
-  function startDrag(side, mode, event) {
+  function startDrag(kind, side, mode, event) {
     event.preventDefault();
-    var f = frame(side);
-    drag = { side: side, mode: mode, x: event.clientX, y: event.clientY,
-             ox: f.x, oy: f.y, ow: f.w, oh: f.h };
+    var f = frameOf(kind, side);
+    drag = { kind: kind, side: side, mode: mode, x: event.clientX, y: event.clientY,
+             ox: f.x, oy: f.y, ow: f.w, oh: f.h, horizontal: !!f.horizontal };
     mask.style.display = 'block';
     mask.style.cursor = (mode === 'resize') ? 'nwse-resize' : 'grabbing';
   }
   mask.addEventListener('mousemove', function (event) {
     if (!drag) { return; }
     var dx = event.clientX - drag.x, dy = event.clientY - drag.y;
+    var lim = LIMITS_FOR[drag.kind];
     var maxX = window.innerWidth, maxY = window.innerHeight - BAND;
     var f;
     if (drag.mode === 'resize') {
       f = { x: drag.ox, y: drag.oy,
-            w: Math.max(MIN_W, Math.min(MAX_W, Math.min(drag.ow + dx, maxX - 4 - drag.ox))),
-            h: Math.max(MIN_H, Math.min(MAX_H, Math.min(drag.oh + dy, maxY - 4 - drag.oy))) };
+            w: Math.max(lim.minW, Math.min(lim.maxW, Math.min(drag.ow + dx, maxX - 4 - drag.ox))),
+            h: Math.max(lim.minH, Math.min(lim.maxH, Math.min(drag.oh + dy, maxY - 4 - drag.oy))) };
     } else {
       f = { x: Math.max(4, Math.min(maxX - drag.ow - 4, drag.ox + dx)),
             y: Math.max(TOPBAR + 4, Math.min(maxY - drag.oh - 4, drag.oy + dy)),
             w: drag.ow, h: drag.oh };
     }
-    state.tiles[drag.side] = f;
-    placeTiles();
+    f.horizontal = drag.horizontal;
+    if (drag.kind === 'rail') {
+      state.rails[drag.side] = f;
+      applyLayout();
+    } else {
+      state.tiles[drag.side] = f;
+      placeTiles();
+    }
     if (window.gcsRedraw) { window.gcsRedraw(); }
   });
   function endDrag() {
@@ -562,9 +654,46 @@ SCRIPT = """
 
   ['left', 'right'].forEach(function (side) {
     var t = tiles[side];
-    t.querySelector('.bar').addEventListener('mousedown', function (e) { startDrag(side, 'move', e); });
-    t.querySelector('.grip').addEventListener('mousedown', function (e) { startDrag(side, 'resize', e); });
+    t.querySelector('.bar').addEventListener('mousedown', function (e) { startDrag('tile', side, 'move', e); });
+    t.querySelector('.grip').addEventListener('mousedown', function (e) { startDrag('tile', side, 'resize', e); });
     t.querySelector('.body').addEventListener('click', function () { setHero(t.dataset.view); });
+
+    // A docked rail is dragged by its whole header strip; once floating it
+    // has a bar of its own, and the grip in its corner resizes it.
+    var rail = el('rail-' + side);
+    rail.querySelector('.railbar').addEventListener('mousedown', function (e) {
+      if (e.target.closest('.turn')) { return; }
+      startDrag('rail', side, 'move', e);
+    });
+    rail.querySelector('.railgrip').addEventListener('mousedown', function (e) {
+      startDrag('rail', side, 'resize', e);
+    });
+    rail.querySelector('.turn').addEventListener('click', function () {
+      var f = frameOf('rail', side);
+      var turned = !f.horizontal;
+      // Swap the long side with the short one, so turning a tall column
+      // gives a wide bar rather than a square nobody wanted.
+      state.rails[side] = { x: f.x, y: f.y, w: f.h, h: f.w, horizontal: turned };
+      applyLayout();
+      save();
+      say((side === 'left' ? 'Flight' : 'Instructor') + ' panel is now '
+          + (turned ? 'a horizontal bar.' : 'a column.'));
+    });
+  });
+
+  // Undocking: grabbing a docked rail's section heading area is how it comes
+  // off the edge. The header strip is hidden while docked, so the first
+  // drag has to come from somewhere - the panel's own top 10 pixels.
+  ['left', 'right'].forEach(function (side) {
+    var rail = el('rail-' + side);
+    rail.addEventListener('mousedown', function (e) {
+      if (state.rails[side] && state.rails[side].w) { return; }
+      var box = rail.getBoundingClientRect();
+      if (e.clientY - box.top > 10) { return; }
+      state.rails[side] = railHome(side);
+      applyLayout();
+      startDrag('rail', side, 'move', e);
+    });
   });
 
   // ---------- collapsible rail sections ----------
@@ -600,9 +729,11 @@ SCRIPT = """
   });
   el('resettiles').addEventListener('click', function () {
     state.tiles = {};
+    state.rails = {};
+    applyLayout();
     placeTiles();
     save();
-    say('Tiles back to their default size and corners.');
+    say('Panels back to their default places.');
   });
   window.addEventListener('resize', function () { applyLayout(); });
 
