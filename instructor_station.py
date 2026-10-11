@@ -20,6 +20,7 @@ import math
 import time
 import threading
 import sys
+import errno
 import os
 import re
 from urllib.parse import urlparse, parse_qs
@@ -1257,7 +1258,22 @@ class ThreadedServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
 
 
 def run_server():
-    with ThreadedServer(("", PORT), Handler) as httpd:
+    try:
+        server = ThreadedServer(("", PORT), Handler)
+    except OSError as exc:
+        if exc.errno != errno.EADDRINUSE:
+            raise
+        # Another station already holds the port. Until 11 Oct 2026 this threw
+        # inside the server thread while the main process carried on printing
+        # "Connected." - so the browser kept talking to the OLD station, with
+        # the old code and the old world, and its buttons appeared to
+        # misbehave for no visible reason. Twice. Say so plainly and stop.
+        print(f"\nPort {PORT} is already in use - another instructor station is"
+              f" running.\nThe browser would keep talking to that one, not this."
+              f"\n\nStop it and start again:\n"
+              f"    pkill -f instructor_station.py; sleep 2; python3 instructor_station.py\n")
+        os._exit(1)
+    with server as httpd:
         httpd.serve_forever()
 
 
