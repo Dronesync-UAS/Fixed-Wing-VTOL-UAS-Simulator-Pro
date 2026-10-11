@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Desktop icon for the UAV Academy instructor station launcher. Drawn as
+     SVG rather than shipped as a PNG so it stays diffable and scales to
+     whatever size the desktop asks for. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <rect x="2" y="2" width="60" height="60" rx="12" fill="#10151d"/>
+  <rect x="2.5" y="2.5" width="59" height="59" rx="11.5" fill="none" stroke="#1f2733"/>
+  <!-- quad arms -->
+  <g stroke="#4a5568" stroke-width="3" stroke-linecap="round">
+    <line x1="20" y1="22" x2="44" y2="42"/>
+    <line x1="44" y1="22" x2="20" y2="42"/>
+  </g>
+  <!-- rotors -->
+  <g fill="none" stroke="#2f80ed" stroke-width="2.5">
+    <circle cx="20" cy="22" r="6"/>
+    <circle cx="44" cy="22" r="6"/>
+    <circle cx="20" cy="42" r="6"/>
+    <circle cx="44" cy="42" r="6"/>
+  </g>
+  <!-- body -->
+  <rect x="27" y="27" width="10" height="10" rx="2.5" fill="#4caf50"/>
+</svg>
