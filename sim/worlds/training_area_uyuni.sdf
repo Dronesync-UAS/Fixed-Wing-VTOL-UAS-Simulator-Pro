@@ -209,9 +209,18 @@
           <scale_rate>0.5</scale_rate>
           <rate>160</rate>
           <particle_scatter_ratio>0.9</particle_scatter_ratio>
+          <!-- The texture is what makes a particle a shape rather than a
+               square. Without an albedo map Ogre draws a flat, hard-edged
+               quad, which is what the first fog test looked like: pale
+               rectangles stacked in the sky. -->
           <material>
             <diffuse>0.85 0.87 0.90</diffuse>
             <specular>0.85 0.87 0.90</specular>
+            <pbr>
+              <metal>
+                <albedo_map>file://media/particle_soft.png</albedo_map>
+              </metal>
+            </pbr>
           </material>
         </particle_emitter>
         <!-- Pitched 90 degrees about Y so the emitter's local +X, which is the
@@ -241,6 +250,11 @@
           <material>
             <diffuse>0.60 0.68 0.78</diffuse>
             <specular>0.60 0.68 0.78</specular>
+            <pbr>
+              <metal>
+                <albedo_map>file://media/particle_streak.png</albedo_map>
+              </metal>
+            </pbr>
           </material>
         </particle_emitter>
       </link>

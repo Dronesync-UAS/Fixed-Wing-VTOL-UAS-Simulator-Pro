@@ -156,6 +156,31 @@ for name, emitter in emitters.items():
     check("%s: nothing meaningful hidden in the ignored Z" % name,
           size[2] == 0)
 
+# A particle with no texture is a hard-edged quad - the "fog appears like
+# square boxes" report. The shape lives in the texture's alpha channel.
+import os.path
+for name, emitter in emitters.items():
+    albedo = emitter.find("./material/pbr/metal/albedo_map")
+    check("%s: has a texture, not a bare colour" % name, albedo is not None)
+    if albedo is None:
+        continue
+    relative = albedo.text.replace("file://", "")
+    texture = os.path.join(REPO, "sim", "worlds", relative)
+    check("%s: %s exists in the repo" % (name, relative),
+          os.path.isfile(texture))
+    try:
+        from PIL import Image
+    except ImportError:
+        print("  SKIP  %s: PIL not installed, alpha not checked" % name)
+        continue
+    with Image.open(texture) as image:
+        alpha = image.getchannel("A") if image.mode == "RGBA" else None
+    check("%s: texture carries an alpha channel" % name, alpha is not None)
+    if alpha is not None:
+        low, high = alpha.getextrema()
+        check("%s: alpha fades to nothing at the edge (min %d, max %d)"
+              % (name, low, high), low == 0 and high > 200)
+
 rain = emitters["rain"]
 rsize = [float(v) for v in rain.findtext("particle_size").split()]
 check("rain particles are streaks, not squares (%.2f x %.2f)"
