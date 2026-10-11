@@ -246,17 +246,29 @@ def render_buttons():
             fields = ""
             for inp in p.get("inputs", []):
                 fid = f'in-{p["id"]}-{inp["name"]}'
-                attrs = f'value="{inp.get("default", "")}"'
-                if "min" in inp:
-                    attrs += f' min="{inp["min"]}"'
-                if "max" in inp:
-                    attrs += f' max="{inp["max"]}"'
-                attrs += f' step="{inp.get("step", "any")}"'
-                fields += (
-                    f'<label class="field"><span>{inp["label"]}</span>'
-                    f'<input type="number" id="{fid}" class="param-input" '
-                    f'data-plugin="{p["id"]}" data-param="{inp["name"]}" {attrs}></label>'
-                )
+                common = (f'id="{fid}" class="param-input" data-plugin="{p["id"]}" '
+                          f'data-param="{inp["name"]}"')
+
+                # A number box unless the plugin asks for a drop-down. Added
+                # 11 Oct 2026 for the external-view plugin, where the choice
+                # is one of a fixed set of viewpoints rather than a quantity.
+                if inp.get("type") == "select":
+                    options = ""
+                    for opt in inp.get("options", []):
+                        selected = " selected" if opt["value"] == inp.get("default") else ""
+                        options += f'<option value="{opt["value"]}"{selected}>{opt["label"]}</option>'
+                    control = f'<select {common}>{options}</select>'
+                else:
+                    attrs = f'value="{inp.get("default", "")}"'
+                    if "min" in inp:
+                        attrs += f' min="{inp["min"]}"'
+                    if "max" in inp:
+                        attrs += f' max="{inp["max"]}"'
+                    attrs += f' step="{inp.get("step", "any")}"'
+                    control = f'<input type="number" {common} {attrs}>'
+
+                fields += (f'<label class="field"><span>{inp["label"]}</span>'
+                           f'{control}</label>')
             if fields:
                 html += f'<div class="btn-stack">{fields}{button}</div>'
             else:
@@ -388,6 +400,7 @@ PAGE_TEMPLATE = """
     color: #eee; font-size: 13px; font-weight: 600; padding: 8px 10px; width: 100%;
   }}
   .param-input:focus {{ outline: none; border-color: #4a90d9; }}
+  select.param-input {{ cursor: pointer; }}
 
   /* Small on/off status light for toggle-style failure buttons (GPS, RC
      Signal, Data Link, Motor, Engine) - added 23 Aug 2026 so a failure

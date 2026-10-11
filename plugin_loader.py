@@ -19,6 +19,14 @@ above its button that the instructor fills in first:
     "inputs": [{"name": "radius_m", "label": "Radius (m)", "default": 150,
                 "min": 10, "step": 10}],
 
+An input may instead be a drop-down, for a choice from a fixed set rather
+than a quantity (added 11 Oct 2026 for the external-view plugin):
+
+    "inputs": [{"name": "view", "label": "Viewpoint", "type": "select",
+                "default": "rear_above",
+                "options": [{"value": "rear_above", "label": "Rear and above"},
+                            {"value": "top_down", "label": "Top-down"}]}],
+
 Each input's value is passed to the handler as a keyword argument of the
 same name (as a string), e.g. handler(radius_m="150"). Handlers with
 inputs should validate/convert those values themselves.
