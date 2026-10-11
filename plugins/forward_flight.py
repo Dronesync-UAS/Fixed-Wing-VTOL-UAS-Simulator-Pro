@@ -16,7 +16,7 @@ Guards:
     (vtol_att_control_main.cpp). If the aircraft is orbiting (e.g. after
     the LOITER button), press HOLD first, then this.
 """
-from simulator_link import master, set_mode, log_instructor_action, telemetry
+from simulator_link import send_command_and_wait, set_mode, log_instructor_action, telemetry
 from pymavlink import mavutil
 
 PX4_MAIN_MODE_STABILIZED = 7      # px4_custom_mode.h
@@ -37,16 +37,21 @@ def forward_flight():
     mode_result = set_mode(PX4_MAIN_MODE_STABILIZED, name="Stabilized")
 
     # 2. Transition to fixed wing
-    master.mav.command_long_send(
-        master.target_system, master.target_component,
+    result, text = send_command_and_wait(
         mavutil.mavlink.MAV_CMD_DO_VTOL_TRANSITION,
-        0,
         MAV_VTOL_STATE_FW,   # param1: target VTOL state
-        0,                   # param2: 0 = normal (speed-based) transition
-        0, 0, 0, 0, 0)
+        0)                   # param2: 0 = normal (speed-based) transition
 
-    log_instructor_action("vtol_transition", f"target=fixed_wing mode=stabilized alt_m={alt:g} {mode_result}")
-    return f"Forward flight ({alt:g} m): {mode_result} Transition to fixed wing commanded."
+    log_instructor_action("vtol_transition",
+                          f"target=fixed_wing mode=stabilized alt_m={alt:g} "
+                          f"{mode_result} result={text}")
+    if result == mavutil.mavlink.MAV_RESULT_ACCEPTED:
+        return f"Forward flight ({alt:g} m): {mode_result} Transitioning to fixed wing."
+    if result is None:
+        return f"{mode_result} No acknowledgement of the transition from PX4."
+    # The guard in this file's docstring is the usual cause.
+    return (f"{mode_result} PX4 refused the transition ({text}) - it blocks "
+            "transitions during Takeoff, Land, RTL and Orbit. Press HOLD first.")
 
 
 PLUGIN = {

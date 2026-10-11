@@ -1,17 +1,22 @@
 import sim_target
 from sim_target import MODEL, service
-from simulator_link import master, log_instructor_action
+from simulator_link import send_command_and_wait, log_instructor_action
 from pymavlink import mavutil
 import subprocess
 
 
 
 def reset_scenario():
-    # Disarm first for safety
-    master.mav.command_long_send(
-        master.target_system, master.target_component,
-        mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
-        0, 0, 0, 0, 0, 0, 0, 0)
+    # Disarm first for safety. FIXED 11 Oct 2026: this fired blind and the
+    # button reported a completed reset either way - so an aircraft PX4
+    # refused to disarm would be repositioned while still armed, and the
+    # instructor would be told the scenario had been reset.
+    result, text = send_command_and_wait(
+        mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM, 0)
+    if result != mavutil.mavlink.MAV_RESULT_ACCEPTED:
+        reason = text or "no acknowledgement from PX4"
+        return (f"Scenario not reset - PX4 would not disarm ({reason}). "
+                "PX4 refuses a plain disarm in flight; land first.")
     # Then reposition to the known-safe spawn point
     # The spawn height belongs to the world, not to this plugin: Hoggar's
     # clearing is at 605 m and Black Rock's playa at 1 m, so a fixed value
