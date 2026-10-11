@@ -58,6 +58,15 @@ vf = types.ModuleType("video_feed")
 vf.start_video_capture = lambda: None
 vf.mjpeg_generator = lambda: iter(())
 vf.camera_fps = lambda: 0.0
+class _Feed:
+    def mjpeg_generator(self): return iter(())
+    def fps(self): return 0.0
+    def current_topic(self): return None
+    def resubscribe(self): return None
+    def start(self): return None
+vf.FEEDS = {"nose": _Feed(), "chase": _Feed()}
+vf.nose = vf.FEEDS["nose"]
+vf.chase = vf.FEEDS["chase"]
 sys.modules["video_feed"] = vf
 
 # --- real plugin_loader, but load actual plugin files (they only import the stub) ---

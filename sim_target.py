@@ -119,11 +119,34 @@ def environment():
     return BY_WORLD.get(WORLD)
 
 
+# The aircraft's two cameras, as link/sensor pairs. The nose camera is part
+# of the model as this project has it; the chase camera is added by
+# tools/chase_camera_apply.py, and these names are the contract between that
+# tool and the topics the station subscribes to - change one and the other
+# stops finding it.
+NOSE_CAMERA = ("camera_pitch_link", "fpv_camera")
+CHASE_CAMERA = ("base_link", "chase_camera")
+
+
 def service(name):
     """Full path of one of Gazebo's own world services, e.g. "control"."""
     return f"/world/{WORLD}/{name}"
 
 
+def _image_topic(link, sensor):
+    return f"/world/{WORLD}/model/{MODEL}/link/{link}/sensor/{sensor}/image"
+
+
 def camera_topic():
-    return (f"/world/{WORLD}/model/{MODEL}"
-            "/link/camera_pitch_link/sensor/fpv_camera/image")
+    """The nose (FPV) camera."""
+    return _image_topic(*NOSE_CAMERA)
+
+
+def chase_camera_topic():
+    """The chase camera - behind and above the aircraft, looking forward.
+
+    Only publishes once tools/chase_camera_apply.py has added the sensor to
+    the aircraft model. Until then the topic simply has no publisher, which
+    the feed's watchdog treats the same as a camera that has not started yet.
+    """
+    return _image_topic(*CHASE_CAMERA)

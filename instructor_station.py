@@ -29,7 +29,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from simulator_link import telemetry, connection_status, flight_path, home_latlon, link_health
 from plugin_loader import load_plugins
-from video_feed import start_video_capture, mjpeg_generator, camera_fps
+from video_feed import start_video_capture, mjpeg_generator, camera_fps, FEEDS
 import event_logger
 import terrain_backdrop
 
@@ -508,6 +508,14 @@ PAGE_TEMPLATE = """
           No video signal yet - camera stream starts once the simulator is running.
         </div>
         <label class="hud-toggle"><input type="checkbox" id="hud-on" checked> Attitude overlay</label>
+      </div>
+      <div class="panel" id="panel-chase">
+        <div class="panel-title">Chase Camera &mdash; Behind and Above the Aircraft</div>
+        <img src="/chase_feed" class="fpv-video"
+             onerror="this.style.display='none'; document.getElementById('chase-fallback').style.display='block';">
+        <div id="chase-fallback" style="display:none; color:#62708a; font-size:12px; padding:20px; text-align:center;">
+          No chase camera. Add it with tools/chase_camera_apply.py, then restart the simulator.
+        </div>
       </div>
       <!--EXTRA_PANELS-->
       </div>
@@ -1228,12 +1236,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 "points": [[round(p[0], 7), round(p[1], 7), p[2]] for p in flight_path],
             }
             self.wfile.write(json.dumps(payload).encode("utf-8"))
-        elif self.path == "/video_feed":
+        elif self.path in ("/video_feed", "/chase_feed"):
+            feed = FEEDS["nose" if self.path == "/video_feed" else "chase"]
             self.send_response(200)
             self.send_header("Content-type", "multipart/x-mixed-replace; boundary=frame")
             self.end_headers()
             try:
-                for chunk in mjpeg_generator():
+                for chunk in feed.mjpeg_generator():
                     self.wfile.write(chunk)
             except (BrokenPipeError, ConnectionResetError):
                 pass
