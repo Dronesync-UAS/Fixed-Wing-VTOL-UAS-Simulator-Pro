@@ -14,6 +14,7 @@ answers.
 import math
 import threading
 import subprocess
+import sys
 import time
 from pymavlink import mavutil
 
@@ -286,11 +287,42 @@ def _range_from_home(lat, lon):
     return round(math.hypot(x, y), 1)
 
 
+def reset_flight_state():
+    """Forget everything tied to the world that was running.
+
+    Added 11 Oct 2026 with the environment selector. Without this, switching
+    environment left the previous world's track on the plan view and its home
+    position in place - so the track showed two worlds at once, and range from
+    home was computed against a point thousands of kilometres away, which also
+    drives the CAP722B range limit. The telemetry loop re-learns home from the
+    next HOME_POSITION or position message.
+    """
+    flight_path.clear()
+    home_latlon["lat"] = None
+    home_latlon["lon"] = None
+    command_acks.clear()
+    telemetry["range_from_home_m"] = 0.0
+    link_health["last_msg_t"] = None
+
+
 def _telemetry_loop():
     while True:
+        try:
+            _read_one_message()
+        except Exception as exc:
+            # This loop is the station's only reader of the MAVLink socket.
+            # Any escaping exception - a field missing on a message variant, a
+            # log write failing on a full disk - used to end the thread, and
+            # the console then froze on its last values with no indication
+            # why. Keep reading, and say what happened.
+            print(f"[telemetry] ignored a bad message: {exc!r}", file=sys.stderr)
+            time.sleep(0.1)
+
+
+def _read_one_message():
         msg = master.recv_match(blocking=True, timeout=1)
         if msg is None:
-            continue
+            return
         link_health["last_msg_t"] = time.monotonic()
         t = msg.get_type()
         if t == "HEARTBEAT":

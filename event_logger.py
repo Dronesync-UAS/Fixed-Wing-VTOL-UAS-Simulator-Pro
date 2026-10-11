@@ -27,6 +27,8 @@ un-guessed decision (see the compliance notes for this project).
 """
 import csv
 import os
+import sys
+import threading
 from datetime import datetime, timezone
 
 LOG_DIR = os.path.expanduser("~/uas_sim_logs")
@@ -35,6 +37,13 @@ LOG_FILE = os.path.join(LOG_DIR, "instructor_events.csv")
 # One ID per run of the app, so rows from the same session can be grouped
 # later even before proper student/session identification is designed.
 SESSION_ID = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+# The station is multi-threaded - the HTTP server handles each request on its
+# own thread, and the telemetry loop logs student responses from another. Two
+# unsynchronised appends can interleave inside one row, and this file is the
+# CAP722B assessment record, so a corrupted row is not a cosmetic problem.
+_write_lock = threading.Lock()
 
 
 def _ensure_log_file():
@@ -52,18 +61,35 @@ def log_event(event_type, details=""):
     details: free-text specifics, e.g. "component=gps type=off instance=0"
              - session_id is appended automatically, no need to include it.
     """
-    _ensure_log_file()
     full_details = f"{details} session_id={SESSION_ID}".strip() if details else f"session_id={SESSION_ID}"
-    with open(LOG_FILE, "a", newline="") as f:
-        csv.writer(f).writerow([
-            datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            event_type,
-            full_details,
-        ])
+    row = [datetime.now(timezone.utc).isoformat(timespec="seconds"),
+           event_type, full_details]
+    try:
+        with _write_lock:
+            _ensure_log_file()
+            with open(LOG_FILE, "a", newline="") as f:
+                csv.writer(f).writerow(row)
+    except OSError as exc:
+        # A full or read-only disk must not propagate: this is called from
+        # instructor controls and from the telemetry thread, where an
+        # exception would take the whole telemetry loop down and leave the
+        # console frozen with no explanation. Losing a log row is bad; losing
+        # telemetry mid-exercise is worse. Say so on the console instead.
+        print(f"[event_logger] could not write {event_type}: {exc}", file=sys.stderr)
 
 
 def read_events():
-    """Return all logged events as a list of dicts, most recent last."""
-    _ensure_log_file()
-    with open(LOG_FILE, newline="") as f:
-        return list(csv.DictReader(f))
+    """Return all logged events as a list of dicts, most recent last.
+
+    An unreadable log returns nothing rather than raising - the caller is a
+    display, and the station should not fall over because the record is
+    temporarily unavailable.
+    """
+    try:
+        with _write_lock:
+            _ensure_log_file()
+            with open(LOG_FILE, newline="") as f:
+                return list(csv.DictReader(f))
+    except OSError as exc:
+        print(f"[event_logger] could not read the log: {exc}", file=sys.stderr)
+        return []

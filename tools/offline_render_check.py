@@ -26,6 +26,7 @@ class _M:
     target_system = 1
     target_component = 1
 sl.master = _M()
+sl.reset_flight_state = lambda: None
 sl.log_instructor_action = lambda *a, **k: None
 sl.mark_failure_injected = lambda *a, **k: None
 sl.mark_failure_cleared = lambda *a, **k: None

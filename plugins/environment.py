@@ -31,7 +31,7 @@ import subprocess
 import sim_target
 import terrain_backdrop
 import video_feed
-from simulator_link import log_instructor_action
+from simulator_link import log_instructor_action, reset_flight_state
 
 GCS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LAUNCHER = os.path.join(GCS, "tools", "start_world.sh")
@@ -74,6 +74,10 @@ def select_environment(environment=DEFAULT_KEY):
     # means there is no window where they address the old world.
     save_warning = sim_target.set_world(entry["world"])
     terrain_backdrop.reset()
+    # The previous world's track and home point are meaningless here, and a
+    # stale home makes the range-from-home limit nonsense - it is computed
+    # against a point that can be thousands of kilometres away.
+    reset_flight_state()
     try:
         video_feed.resubscribe()
     except Exception as exc:                      # a camera that fails to

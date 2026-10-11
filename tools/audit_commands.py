@@ -39,6 +39,7 @@ def _install_stubs():
     sl.log_instructor_action = lambda *a, **k: None
     sl.mark_failure_injected = lambda *a, **k: None
     sl.mark_failure_cleared = lambda *a, **k: None
+    sl.reset_flight_state = lambda: None
     sl.start_background_script = lambda n, c: "started"
     sl.stop_background_script = lambda n: "stopped"
 
