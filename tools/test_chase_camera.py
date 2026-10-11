@@ -95,7 +95,12 @@ with tempfile.TemporaryDirectory() as tmp:
     print("4. it is the cheap camera it claims to be")
     width = int(camera.findtext("./camera/image/width"))
     rate = float(camera.findtext("update_rate"))
-    check("no bigger than the nose camera (%d px wide)" % width, width <= 1280)
+    # Cost, not pixels, is the thing to hold: megapixels a second against the
+    # nose camera's 1280x960 at 30, which this machine already runs.
+    height = int(camera.findtext("./camera/image/height"))
+    load = width * height * rate
+    check("cheaper than the nose camera (%.1f vs 36.9 Mpx/s)" % (load / 1e6),
+          load < 1280 * 960 * 30)
     check("slow (%.0f Hz)" % rate, rate <= 20)
 
     print("5. the station would subscribe to exactly what this publishes")

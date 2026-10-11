@@ -30,8 +30,10 @@ XML, and anything that fails to parse is restored automatically.
 THE COST, STATED PLAINLY
 ------------------------
 This is a second rendered camera on a machine whose graphics performance is
-already noted as marginal (12 July entry). It runs at 1280x720 and 15 Hz
-against the nose camera's 1280x960 at 30.
+already noted as marginal (12 July entry). It runs at 1600x900 and 15 Hz
+against the nose camera's 1280x960 at 30 - which is 21.6 megapixels a second
+against the nose camera's 36.9, so it is the cheaper of the two cameras this
+machine is already running.
 
 It started at 640x360 and was raised on 11 Oct 2026, because at that size it
 was stretched across a full-width panel and looked it. The headroom this
@@ -71,13 +73,13 @@ SENSOR_BLOCK = """\
 {i}  <update_rate>15</update_rate>
 {i}  <camera>
 {i}    <horizontal_fov>1.05</horizontal_fov>
-{i}    <!-- 1280x720, raised from 640x360 on 11 Oct 2026: at the smaller
+{i}    <!-- 1600x900, raised from 640x360 on 11 Oct 2026: at the smaller
 {i}         size the picture was stretched across a full-width panel and
 {i}         looked like it. This is the most expensive line in the file -
 {i}         turn it back down first if the simulator slows. -->
 {i}    <image>
-{i}      <width>1280</width>
-{i}      <height>720</height>
+{i}      <width>1600</width>
+{i}      <height>900</height>
 {i}      <format>R8G8B8</format>
 {i}    </image>
 {i}    <!-- Far plane well past the 500 m operating limit, so the terrain

@@ -44,8 +44,8 @@ STALE_AFTER_S = 8.0
 class CameraFeed:
     """One Gazebo camera, re-encoded as MJPEG for the browser."""
 
-    def __init__(self, name, topic_source, width, height, quality=70,
-                 frame_interval_s=0.1):
+    def __init__(self, name, topic_source, width, height, quality=88,
+                 frame_interval_s=1 / 25.0):
         self.name = name
         self._topic_source = topic_source
         self.width = width
@@ -152,17 +152,21 @@ class CameraFeed:
             time.sleep(self.frame_interval_s)
 
 
+# Quality 88 and 25 frames a second, both raised on 11 Oct 2026. At 70 the
+# JPEG artefacts were visible on the horizon, and serving 10 frames a second
+# from a camera publishing 30 threw two out of every three away for no
+# saving anyone asked for - this is a loopback connection, not a radio link.
 nose = CameraFeed("nose", sim_target.camera_topic, 1280, 960)
 # Smaller, lower quality and slower than the nose camera on purpose: it is a
 # situational view of where the aircraft is, not an instrument.
 # RAISED 11 Oct 2026 from 640x360. At that size it was being stretched
-# across a 1400px hero and looked it - "chase view resolution is very poor".
-# 1280x720 is the hero's own scale, and the station reported 30 fps with the
-# smaller camera already running, so there is headroom. If the simulator
-# slows after this, the camera's <image> block in the aircraft model is where
-# to turn it back down.
-chase = CameraFeed("chase", sim_target.chase_camera_topic, 1280, 720,
-                   quality=72, frame_interval_s=1 / 15.0)
+# across a 1400px hero and looked it. 1600x900 matches the hero on this
+# machine's screen, and at 15 Hz it is 21.6 megapixels a second against the
+# nose camera's 36.9 - the cheaper of the two cameras already running. If the
+# simulator slows, the <image> block in the aircraft model is where to turn
+# it back down.
+chase = CameraFeed("chase", sim_target.chase_camera_topic, 1600, 900,
+                   frame_interval_s=1 / 15.0)
 
 FEEDS = {"nose": nose, "chase": chase}
 

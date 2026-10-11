@@ -865,16 +865,29 @@ EXTRA_SCRIPT = """
   }
   setInterval(poll, 200); poll();
 
+  // REVISED 11 Oct 2026: a canvas sized in CSS pixels is drawn at one
+  // device pixel per CSS pixel and then scaled up by the display, which is
+  // why the map and the attitude overlay looked soft. Size the backing
+  // store by devicePixelRatio and scale the context to match, so the
+  // drawing code below can keep working in CSS pixels through cv.cssW/cssH.
   function fit(cv) {
     var w = cv.clientWidth, h = cv.clientHeight;
-    if (w && h && (cv.width !== w || cv.height !== h)) { cv.width = w; cv.height = h; }
+    if (!w || !h) { return; }
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    var bw = Math.round(w * dpr), bh = Math.round(h * dpr);
+    cv.cssW = w; cv.cssH = h;
+    if (cv.width !== bw || cv.height !== bh) {
+      cv.width = bw; cv.height = bh;
+    }
+    var ctx = cv.getContext('2d');
+    ctx.setTransform(cv.width / w, 0, 0, cv.height / h, 0, 0);
   }
 
   // ---------- FPV artificial-horizon / attitude overlay ----------
   var hud = document.getElementById('hud');
   var hctx = hud.getContext('2d');
   function drawHud() {
-    var w = hud.width, h = hud.height, cx = w / 2, cy = h / 2;
+    var w = hud.cssW || hud.width, h = hud.cssH || hud.height, cx = w / 2, cy = h / 2;
     hctx.clearRect(0, 0, w, h);
     if (!w || !h || !document.getElementById('hud-on').checked) return;
 
@@ -976,7 +989,7 @@ EXTRA_SCRIPT = """
   function fmt(m) { return m >= 1000 ? (m / 1000).toFixed(m >= 10000 ? 0 : 1) + ' km' : m.toFixed(0) + ' m'; }
   function drawPath() {
     fetch('/flight_path').then(function (r) { return r.json(); }).then(function (data) {
-      var W = fp.width, H = fp.height;
+      var W = fp.cssW || fp.width, H = fp.cssH || fp.height;
       fctx.clearRect(0, 0, W, H);
       if (!W || !H) return;
       var pts = data.points || [];
@@ -1072,6 +1085,15 @@ EXTRA_SCRIPT = """
       healthEl.className = 'v' + ((age != null && age > 2) ? ' stale' : '');
     }).catch(function () {});
   }
+
+  // The rebuilt console moves these canvases between the hero and a corner
+  // tile. Their size only gets corrected on the next tick - up to a second
+  // for the map - so a swap showed a 208px map stretched across the screen
+  // until then. Let the page ask for an immediate resize and redraw.
+  window.gcsRedraw = function () {
+    fit(hud); drawHud();
+    fit(fp); drawPath();
+  };
 
   setInterval(function () { fit(hud); drawHud(); }, 150);
   setInterval(function () { fit(fp); drawPath(); }, 1000);

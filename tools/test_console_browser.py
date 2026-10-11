@@ -229,6 +229,18 @@ def main():
         check("and as wide (%s vs %s)" % (round(box["width"]), round(hero["width"])),
               box["width"] > hero["width"] - 8)
 
+        print("4b2. the canvases are sized for the display, not just CSS")
+        # Guards the soft map and overlay: a canvas sized in CSS pixels is
+        # drawn one device pixel per CSS pixel and scaled up by the screen.
+        sizing = page.evaluate(
+            "() => { const c = document.getElementById('flightpath');"
+            " return {css: c.cssW, client: c.clientWidth, backing: c.width,"
+            " dpr: Math.min(window.devicePixelRatio || 1, 2)}; }")
+        check("fit() recorded the CSS size (%s)" % sizing,
+              sizing["css"] == sizing["client"] and sizing["css"] > 0)
+        check("backing store matches CSS x devicePixelRatio",
+              abs(sizing["backing"] - sizing["css"] * sizing["dpr"]) <= 1)
+
         print("4c. rail sections collapse")
         head = page.locator("#rail-right .group .head").first
         group = page.locator("#rail-right .group").first

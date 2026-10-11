@@ -434,6 +434,9 @@ SCRIPT = """
     hero.style.bottom = BAND + 'px';
     hero.style.left = (pilot ? 0 : railW) + 'px';
     hero.style.right = (pilot ? 0 : railW) + 'px';
+    // Switching layout resizes the hero, so the canvases need refitting for
+    // the same reason a swap does.
+    if (window.gcsRedraw) { window.gcsRedraw(); }
 
     el('layouttabs').querySelectorAll('button').forEach(function (b) {
       b.className = (b.dataset.layout === state.layout) ? 'on' : '';
@@ -487,6 +490,11 @@ SCRIPT = """
     el('viewtabs').querySelectorAll('button').forEach(function (b) {
       b.className = (b.dataset.view === h) ? 'on' : '';
     });
+
+    // A canvas keeps the size it was last fitted to, and the map is only
+    // refitted once a second - so without this a swap showed a tile-sized
+    // map stretched across the hero until the next tick.
+    if (window.gcsRedraw) { window.gcsRedraw(); }
   }
 
   function setHero(name) {
@@ -536,6 +544,7 @@ SCRIPT = """
     }
     state.tiles[drag.side] = f;
     placeTiles();
+    if (window.gcsRedraw) { window.gcsRedraw(); }
   });
   function endDrag() {
     if (!drag) { return; }
