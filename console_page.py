@@ -115,10 +115,15 @@ TEMPLATE = """<!DOCTYPE html>
   .view { position: absolute; inset: 0; background: #000; }
   .view img, .view canvas.fill { position: absolute; inset: 0; width: 100%; height: 100%; display: block; object-fit: cover; }
   canvas.hud { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  /* Behind the picture, not over it. It was painting on top of a working
+     feed because it comes later in the markup - "No chase camera yet"
+     printed across a chase camera that was plainly working. */
   .view .nosignal {
-    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    position: absolute; inset: 0; z-index: 0;
+    display: flex; align-items: center; justify-content: center;
     text-align: center; color: #8ea0b6; font-size: 13px; padding: 24px;
   }
+  .view img { z-index: 1; }
   .hud-toggle {
     position: absolute; left: 10px; bottom: 8px; display: inline-flex; align-items: center;
     gap: 6px; font-size: 11px; color: #ffffff; background: rgba(0,0,0,0.55);

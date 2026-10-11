@@ -97,9 +97,9 @@
             <heightmap>
               <use_terrain_paging>false</use_terrain_paging>
               <texture>
-                <diffuse>file://media/grass_diffuse.png</diffuse>
+                <diffuse>file://media/ground_fine.png</diffuse>
                 <normal>file://media/flat_normal.png</normal>
-                <size>40</size>
+                <size>16</size>
               </texture>
               <uri>file://media/blackrock_real_heightmap.png</uri>
               <size>16000 16000 39.03</size>
