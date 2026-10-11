@@ -959,6 +959,19 @@ LAYOUT_SCRIPT = """
 
   if (fitBtn) fitBtn.addEventListener('click', function () { fitToScreen(true); });
 
+  // Re-fit when the window changes size. Tiling the station beside the Gazebo
+  // window makes it narrower, and a layout fitted to the old width then
+  // scrolls - which would otherwise mean clicking Fit to screen by hand every
+  // time. Only acts when the content actually overflows, so a hand-arranged
+  // layout that still fits is never rearranged underneath the instructor.
+  var refitTimer = null;
+  window.addEventListener('resize', function () {
+    clearTimeout(refitTimer);
+    refitTimer = setTimeout(function () {
+      if (gridHeight() > spaceAvailable()) fitToScreen(false);
+    }, 400);
+  });
+
   // ---------- move: drag a panel by its title ----------
   var dragging = null;
 
