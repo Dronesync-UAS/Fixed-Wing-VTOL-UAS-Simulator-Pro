@@ -8,6 +8,12 @@ aircraft as it flies, in the aircraft's own frame, so "rear and above" remains
 behind the aircraft through a turn. "Manual" releases the camera for free
 mouse look in the Gazebo window.
 
+The default distance was 20 m, which framed the standard_vtol too small to
+read its attitude - changed to 12 m on 11 Oct after seeing it on screen, which
+is the only way to judge it. Note the camera eases towards the offset rather
+than jumping (gz-gui follows with a P gain of 0.01), so give it a few seconds
+to settle after pressing the button before deciding the distance is wrong.
+
 The mechanics, and why this drives the Gazebo window rather than adding a
 panel to the station, are documented in gazebo_view.py.
 """
@@ -16,7 +22,7 @@ from gazebo_view import VIEW_LABELS, set_view
 from simulator_link import log_instructor_action
 
 DEFAULT_VIEW = "rear_above"
-DEFAULT_DISTANCE_M = 20
+DEFAULT_DISTANCE_M = 12
 
 
 def external_view(view=DEFAULT_VIEW, distance_m=DEFAULT_DISTANCE_M):
