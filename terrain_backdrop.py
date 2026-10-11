@@ -27,6 +27,7 @@ and see whether it is where the backdrop says - and flip it if it is mirrored.
 """
 
 import io
+import json
 import os
 import re
 import threading
@@ -37,6 +38,13 @@ from PIL import Image
 import sim_target
 
 PX4_WORLDS = os.path.expanduser("~/PX4-Autopilot/Tools/simulation/gz/worlds")
+
+# Satellite imagery downloaded once by tools/fetch_satellite.py. Preferred over
+# the shaded relief when present: on a flat world the relief says nothing (Black
+# Rock has 0.6 m across the whole operating area, so its hillshade is a blank
+# square) while imagery shows the playa, the tracks and the shoreline.
+SATELLITE_DIR = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "sim", "worlds", "satellite")
 
 # See the note above - flip this if the relief comes out mirrored north/south.
 FLIP_NORTH_SOUTH = True
@@ -102,13 +110,39 @@ def _find_terrain(world_path):
     return None
 
 
+def _satellite_paths():
+    base = os.path.join(SATELLITE_DIR, sim_target.WORLD)
+    image, meta = base + ".png", base + ".json"
+    return (image, meta) if os.path.isfile(image) and os.path.isfile(meta) else (None, None)
+
+
 def info():
     """Where the backdrop belongs, in the plan view's own metres-from-home
-    axes. {"available": False} when the world has no heightmap - flat_test
-    has none, and the plan view simply stays as it was."""
+    axes. {"available": False} when the world has neither imagery nor a
+    heightmap - flat_test has neither, and the plan view stays as it was."""
     with _lock:
         if _cache["info"] is not None:
             return _cache["info"]
+
+        image_path, meta_path = _satellite_paths()
+        if image_path:
+            try:
+                with open(meta_path) as handle:
+                    meta = json.load(handle)
+                result = {
+                    "available": True,
+                    "world": sim_target.WORLD,
+                    "source": "satellite",
+                    "credit": meta.get("credit", ""),
+                    "east_min": meta["east_min"], "east_max": meta["east_max"],
+                    "north_min": meta["north_min"], "north_max": meta["north_max"],
+                }
+                _cache["info"] = result
+                return result
+            except (OSError, ValueError, KeyError):
+                # A damaged cache must not take the backdrop down - fall
+                # through to the relief, which needs no download.
+                pass
 
         world_path = _world_file()
         terrain = _find_terrain(world_path) if world_path else None
@@ -119,6 +153,7 @@ def info():
             result = {
                 "available": True,
                 "world": sim_target.WORLD,
+                "source": "relief",
                 "east_min": pose_x - size_x / 2.0,
                 "east_max": pose_x + size_x / 2.0,
                 "north_min": pose_y - size_y / 2.0,
@@ -172,10 +207,22 @@ def _shade(heights, width, height):
 
 
 def png():
-    """The backdrop as PNG bytes, or None if this world has no heightmap."""
+    """The backdrop as PNG bytes, or None if this world has neither imagery
+    nor a heightmap."""
     with _lock:
         if _cache["png"] is not None:
             return _cache["png"]
+
+    image_path, _ = _satellite_paths()
+    if image_path:
+        try:
+            with open(image_path, "rb") as handle:
+                data = handle.read()
+            with _lock:
+                _cache["png"] = data
+            return data
+        except OSError:
+            pass
 
     world_path = _world_file()
     terrain = _find_terrain(world_path) if world_path else None
