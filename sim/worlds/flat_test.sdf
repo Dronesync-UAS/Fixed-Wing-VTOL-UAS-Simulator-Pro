@@ -87,18 +87,27 @@
       <shadows>true</shadows>
     </scene>
 
-    <!-- Flat ground at Z=0. Collision is an infinite plane, so there is no
-         edge to fly off; the visual is a 8km square, large enough that the
-         horizon is never a visible boundary at training altitudes. -->
+    <!-- Flat ground with its top surface at Z=0.
+
+         The collision is a very large BOX sunk 5 m, not a plane. PX4's own
+         working default.sdf does exactly this (box 100000 x 100000 x 10 at
+         pose 0 0 -5), and training_area's safety floor is a box too. A
+         <plane> collision was tried here first and the aircraft fell straight
+         through it - it appeared in the entity tree and in `gz model --list`
+         but was nowhere to be seen, because it was still falling. Follow the
+         working reference rather than the tidier-looking geometry.
+
+         The visual stays a plane: 8 km square, large enough that the horizon
+         is never a visible boundary at training altitudes. -->
     <model name="ground_plane">
       <static>true</static>
       <link name="ground_link">
         <collision name="ground_collision">
+          <pose>0 0 -5 0 0 0</pose>
           <geometry>
-            <plane>
-              <normal>0 0 1</normal>
-              <size>100 100</size>
-            </plane>
+            <box>
+              <size>100000 100000 10</size>
+            </box>
           </geometry>
           <surface>
             <friction>
