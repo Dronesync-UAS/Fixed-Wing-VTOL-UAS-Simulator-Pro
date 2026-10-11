@@ -57,7 +57,9 @@ def current_topic():
 
 
 def start_video_capture():
-    return resubscribe()
+    node = resubscribe()
+    start_watchdog()
+    return node
 
 
 def resubscribe():
@@ -78,6 +80,39 @@ def resubscribe():
         latest_jpeg["data"] = None
         _frame_times.clear()
     return node
+
+
+# How long with no frames before assuming the subscription is stale.
+# A world switch re-subscribes immediately, but the simulator takes 15-30
+# seconds to come up, so that subscription is made to a topic nothing is
+# publishing on yet. Rather than rely on gz-transport picking it up when the
+# publisher appears, check and re-subscribe.
+STALE_AFTER_S = 8.0
+_watchdog_started = {"on": False}
+
+
+def _watchdog():
+    while True:
+        time.sleep(STALE_AFTER_S / 2)
+        with lock:
+            last = _frame_times[-1] if _frame_times else None
+            topic = _node["topic"]
+        stale = last is None or (time.monotonic() - last) > STALE_AFTER_S
+        wrong = topic != sim_target.camera_topic()
+        if stale or wrong:
+            try:
+                resubscribe()
+            except Exception:
+                # A camera that cannot be reconnected must not take the
+                # station down - the rest of the console works without it.
+                pass
+
+
+def start_watchdog():
+    if _watchdog_started["on"]:
+        return
+    _watchdog_started["on"] = True
+    threading.Thread(target=_watchdog, daemon=True).start()
 
 
 def mjpeg_generator():

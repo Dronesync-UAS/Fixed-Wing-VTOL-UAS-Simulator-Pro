@@ -10,7 +10,7 @@ The radius comes from the number box next to the button on the console.
 A negative radius makes PX4 orbit counter-clockwise; this button keeps it
 positive (clockwise) and validates the input before sending anything.
 """
-from simulator_link import master, log_instructor_action
+from simulator_link import send_command_and_wait, log_instructor_action
 
 DEFAULT_RADIUS_M = 150.0
 NAN = float("nan")
@@ -29,18 +29,22 @@ def loiter(radius_m=DEFAULT_RADIUS_M):
     if not radius > 0:
         return "Loiter not sent - radius must be greater than 0 m."
 
-    master.mav.command_long_send(
-        master.target_system, master.target_component,
+    # FIXED 11 Oct 2026: fired blind and always reported success, so a
+    # refused orbit looked like a button that did nothing.
+    result, text = send_command_and_wait(
         MAV_CMD_DO_ORBIT,
-        0,
         radius,   # param1: radius (m), positive = clockwise
         NAN,      # param2: tangential speed - let PX4 pick a default
         0,        # param3: yaw behaviour (0 = face circle centre)
         NAN,      # param4: number of orbits (NaN = unlimited)
         NAN, NAN, NAN)  # param5-7: centre lat/lon/alt (NaN = current position)
 
-    log_instructor_action("loiter", f"radius_m={radius:g}")
-    return f"Loitering in a {radius:g} m circle around the current position."
+    log_instructor_action("loiter", f"radius_m={radius:g} result={text}")
+    if result == 0:  # MAV_RESULT_ACCEPTED
+        return f"Loitering in a {radius:g} m circle around the current position."
+    if result is None:
+        return "Loiter not confirmed - PX4 did not acknowledge."
+    return f"PX4 refused the loiter ({text})."
 
 
 PLUGIN = {

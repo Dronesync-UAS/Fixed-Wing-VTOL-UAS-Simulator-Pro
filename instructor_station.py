@@ -369,7 +369,13 @@ PAGE_TEMPLATE = """
   /* A 12-column tiling grid holding every panel. Panels declare how many
      columns they span rather than a pixel width, so a layout an instructor
      saves still fits when the station runs on a different screen. */
-  .grid {{ display: grid; grid-template-columns: repeat(12, 1fr); gap: 14px; align-content: start; }}
+  /* align-items: start stops each panel stretching to the height of the
+     tallest one in its row - which is what made the console look
+     stretched and forced scrolling even after a fit. */
+  .grid {{
+    display: grid; grid-template-columns: repeat(12, 1fr); gap: 14px;
+    align-content: start; align-items: start;
+  }}
   .panel {{
     background: #131c28; border: 1px solid #232f40; border-radius: 14px; padding: 16px;
     grid-column: span 4; position: relative; min-width: 0; overflow: auto;
