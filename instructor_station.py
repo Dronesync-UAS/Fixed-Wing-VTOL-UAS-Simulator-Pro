@@ -21,6 +21,7 @@ import time
 import threading
 import sys
 import os
+import re
 from urllib.parse import urlparse, parse_qs
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -31,6 +32,80 @@ from video_feed import start_video_capture, mjpeg_generator, camera_fps
 import event_logger
 
 PORT = 8080
+
+# Instructor-arranged panel layout. Stored on the machine rather than in the
+# browser so it survives a browser reset or reinstall, is the same for whoever
+# opens the station, and gets picked up by the same backup as the event log.
+LAYOUT_FILE = os.path.join(os.path.expanduser("~/uas_sim_logs"), "gcs_layout.json")
+
+# Panels an instructor must not be able to drag away or shrink to nothing:
+# the CAP722B limit banner and the feeds/health row live in the top bar, which
+# is outside the grid entirely and so is already fixed. Listed here as the
+# record of that decision.
+PINNED_OUTSIDE_GRID = ("limit-banner", "t-health")
+
+# A panel may span 2-12 of the grid's 12 columns and be 120-2000 px tall.
+# Anything outside that is rejected rather than saved, so a bad layout cannot
+# make a panel unreachable or push the rest off screen.
+LAYOUT_MIN_COLS, LAYOUT_MAX_COLS = 2, 12
+LAYOUT_MIN_H, LAYOUT_MAX_H = 120, 2000
+
+
+def read_layout():
+    """Saved layout, or {} if there isn't one / it's unreadable. A corrupt
+    layout file must not stop the station starting, so failures fall back to
+    the default arrangement."""
+    try:
+        with open(LAYOUT_FILE) as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def write_layout(data):
+    """Validates and saves a layout. Returns a message for the console."""
+    panels = data.get("panels")
+    if not isinstance(panels, list) or not panels:
+        return "Layout not saved - no panels in the request."
+
+    clean = []
+    for item in panels:
+        if not isinstance(item, dict):
+            continue
+        pid = str(item.get("id", ""))
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,60}", pid):
+            continue
+        try:
+            cols = int(item.get("cols", 4))
+        except (TypeError, ValueError):
+            continue
+        cols = max(LAYOUT_MIN_COLS, min(LAYOUT_MAX_COLS, cols))
+        height = item.get("h")
+        if height is not None:
+            try:
+                height = max(LAYOUT_MIN_H, min(LAYOUT_MAX_H, int(height)))
+            except (TypeError, ValueError):
+                height = None
+        clean.append({"id": pid, "cols": cols, "h": height})
+
+    if not clean:
+        return "Layout not saved - nothing in the request was usable."
+
+    os.makedirs(os.path.dirname(LAYOUT_FILE), exist_ok=True)
+    with open(LAYOUT_FILE, "w") as f:
+        json.dump({"panels": clean}, f, indent=2)
+    return f"Layout saved ({len(clean)} panels)."
+
+
+def clear_layout():
+    try:
+        os.remove(LAYOUT_FILE)
+        return "Layout reset to the default arrangement."
+    except FileNotFoundError:
+        return "Already using the default arrangement."
+    except OSError as exc:
+        return f"Could not reset the layout - {exc.strerror}."
 
 # ---------------------------------------------------------------------------
 # CAP722B 5.3(c) - operational-limit envelope. The instructor gets an
@@ -142,6 +217,12 @@ def health_status():
     return {"telemetry_age_s": age, "camera_fps": camera_fps()}
 
 
+def _panel_id(category):
+    """Stable, URL-safe id for a category panel, so a saved layout keeps
+    referring to the same panel across restarts."""
+    return re.sub(r"[^a-z0-9]+", "-", category.lower()).strip("-")
+
+
 def render_buttons():
     html = ""
     status = failure_status()
@@ -149,7 +230,8 @@ def render_buttons():
         items = categories.get(cat, [])
         if not items:
             continue
-        html += f'<div class="panel"><div class="panel-title">{cat}</div><div class="row">'
+        html += (f'<div class="panel" id="panel-{_panel_id(cat)}">'
+                 f'<div class="panel-title">{cat}</div><div class="row">')
         for p in items:
             dot = ""
             if p["id"] in status:
@@ -270,8 +352,14 @@ PAGE_TEMPLATE = """
 
   .main {{ flex: 1; padding: 20px; overflow-y: auto; }}
 
-  .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; max-width: 900px; }}
-  .panel {{ background: #131c28; border: 1px solid #232f40; border-radius: 14px; padding: 16px; }}
+  /* A 12-column tiling grid holding every panel. Panels declare how many
+     columns they span rather than a pixel width, so a layout an instructor
+     saves still fits when the station runs on a different screen. */
+  .grid {{ display: grid; grid-template-columns: repeat(12, 1fr); gap: 14px; align-content: start; }}
+  .panel {{
+    background: #131c28; border: 1px solid #232f40; border-radius: 14px; padding: 16px;
+    grid-column: span 4; position: relative; min-width: 0; overflow: auto;
+  }}
   .panel-title {{ font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #62708a; margin-bottom: 10px; }}
   .row {{ display: flex; gap: 8px; flex-wrap: wrap; }}
 
@@ -359,6 +447,10 @@ PAGE_TEMPLATE = """
     <div class="status-item"><div class="k">GPS</div><div class="v" id="t-gps">-</div></div>
     <div class="status-item"><div class="k">Battery</div><div class="v" id="t-batt">-</div></div>
     <div class="status-item"><div class="k">Feeds</div><div class="v" id="t-health" title="Telemetry age / camera frame rate">-</div></div>
+    <div class="layout-controls">
+      <button id="layout-reset" class="layout-btn" title="Discard the saved layout and go back to the default arrangement">Reset</button>
+      <button id="layout-lock" class="layout-btn locked" title="Unlock to move and resize panels">■ Layout locked</button>
+    </div>
   </div>
 
   <div id="limit-banner" class="limit-banner" style="display:none;"></div>
@@ -373,10 +465,9 @@ PAGE_TEMPLATE = """
     </div>
 
     <div class="main">
-      <div class="grid">
+      <div class="grid" id="panel-grid">
         {buttons}
-      </div>
-      <div class="panel" style="max-width: 900px; margin-top: 14px;">
+      <div class="panel" id="panel-fpv">
         <div class="panel-title">Live Nose Camera (FPV) &mdash; Forward View + Attitude</div>
         <div class="fpv-wrap">
           <img src="/video_feed" class="fpv-video"
@@ -387,6 +478,8 @@ PAGE_TEMPLATE = """
           No video signal yet - camera stream starts once the simulator is running.
         </div>
         <label class="hud-toggle"><input type="checkbox" id="hud-on" checked> Attitude overlay</label>
+      </div>
+      <!--EXTRA_PANELS-->
       </div>
       <div id="status">Ready.</div>
     </div>
@@ -448,7 +541,7 @@ refreshFailureStatus();
 #                    on top of the nose-camera stream, from ATTITUDE.
 # ---------------------------------------------------------------------------
 EXTRA_PANELS = """
-<div class="panel" id="flightpath-panel" style="max-width: 900px; margin-top: 14px;">
+<div class="panel" id="panel-flightpath">
   <div class="panel-title">Flight Path &mdash; Plan View (North Up)</div>
   <canvas id="flightpath"></canvas>
   <div class="fp-legend">
@@ -680,6 +773,242 @@ EXTRA_SCRIPT = """
 """
 
 
+# ---------------------------------------------------------------------------
+# Instructor-arranged layout (added 11 Oct 2026, on request: everything
+# visible at once on the station screen instead of scrolling, panels movable
+# and resizable, and a lock so a set layout cannot be nudged by accident
+# mid-session).
+#
+# Locked on every page load, deliberately - an instructor opts in to editing,
+# so a stray drag during a session cannot rearrange the console. The lock is
+# an accident guard, not access control: anyone at the keyboard can unlock it.
+# A PIN was considered and rejected as a thing to lose rather than real
+# security on a local app with no accounts.
+#
+# Panels span whole columns of a 12-column grid rather than pixel widths, so
+# a saved layout still tiles sensibly on a different screen.
+# ---------------------------------------------------------------------------
+LAYOUT_STYLE = """
+<style>
+  .layout-controls { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  .layout-btn {
+    background: #182230; color: #8b9bb4; border: 1px solid #2c3a4d; border-radius: 7px;
+    padding: 7px 12px; font-size: 11px; font-weight: 600; letter-spacing: 0.5px;
+    cursor: pointer; font-family: inherit;
+  }
+  .layout-btn:hover { color: #eee; border-color: #4a90d9; }
+  .layout-btn.unlocked { background: #2b3a18; color: #c6e68a; border-color: #4a6b1f; }
+  #layout-reset { display: none; }
+  body.layout-unlocked #layout-reset { display: inline-block; }
+
+  /* Edit mode: panels get a grab-handle title and a resize corner. */
+  body.layout-unlocked .panel { outline: 1px dashed #4a6b8a; outline-offset: 2px; }
+  body.layout-unlocked .panel-title { cursor: grab; }
+  body.layout-unlocked .panel-title::before { content: "\\2630  "; color: #4a90d9; }
+  .panel.drag-source { opacity: 0.4; }
+  .panel.drop-before { box-shadow: inset 3px 0 0 #4a90d9; }
+  .panel.drop-after { box-shadow: inset -3px 0 0 #4a90d9; }
+
+  .resize-grip {
+    position: absolute; right: 2px; bottom: 2px; width: 16px; height: 16px;
+    cursor: nwse-resize; display: none; border-radius: 3px;
+    background: linear-gradient(135deg, transparent 50%, #4a90d9 50%);
+  }
+  body.layout-unlocked .resize-grip { display: block; }
+
+  /* The plan view's canvas was a fixed 420px tall, so making its panel
+     taller or shorter did nothing. Letting it fill the panel means the
+     resize grip actually resizes the drawing - fit() in the script above
+     re-reads the canvas size each second and redraws at the new size. */
+  #panel-flightpath { display: flex; flex-direction: column; }
+  #panel-flightpath .panel-title, #panel-flightpath .fp-legend { flex-shrink: 0; }
+  #flightpath { flex: 1; height: auto; min-height: 300px; }
+
+  /* The grid scrolls only if an instructor makes the panels taller than the
+     screen; the default arrangement is meant to fit without it. */
+  .main { overflow-y: auto; }
+</style>
+"""
+
+LAYOUT_SCRIPT = """
+<script>
+(function () {
+  var grid = document.getElementById('panel-grid');
+  var lockBtn = document.getElementById('layout-lock');
+  var resetBtn = document.getElementById('layout-reset');
+  if (!grid || !lockBtn) return;
+
+  // Default spans, aimed at fitting the whole console on one screen: the two
+  // picture panels take half the width each (one row), the seven button
+  // panels a quarter each (two rows). Whether that fits exactly depends on
+  // the station's screen - which is the point of making it adjustable.
+  var DEFAULT_COLS = { 'panel-fpv': 6, 'panel-flightpath': 6 };
+  var FALLBACK_COLS = 3;
+  var MIN_COLS = 2, MAX_COLS = 12, MIN_H = 120;
+  var status = document.getElementById('status');
+
+  function panels() {
+    return Array.prototype.filter.call(grid.children, function (el) {
+      return el.classList.contains('panel');
+    });
+  }
+
+  function colsOf(el) {
+    return parseInt(el.dataset.cols, 10) || DEFAULT_COLS[el.id] || FALLBACK_COLS;
+  }
+
+  function setCols(el, cols) {
+    cols = Math.max(MIN_COLS, Math.min(MAX_COLS, Math.round(cols)));
+    el.dataset.cols = cols;
+    el.style.gridColumn = 'span ' + cols;
+  }
+
+  function currentLayout() {
+    return { panels: panels().map(function (el) {
+      var h = parseInt(el.style.height, 10);
+      return { id: el.id, cols: colsOf(el), h: isNaN(h) ? null : h };
+    }) };
+  }
+
+  function save() {
+    fetch('/layout', { method: 'POST', body: JSON.stringify(currentLayout()) })
+      .then(function (r) { return r.text(); })
+      .then(function (t) { if (status) status.innerText = t; });
+  }
+
+  function applyLayout(saved) {
+    var wanted = (saved && saved.panels) || [];
+    var byId = {};
+    wanted.forEach(function (p) { byId[p.id] = p; });
+    // Re-append in the saved order. Panels that no longer exist are ignored;
+    // panels added since the layout was saved keep their place at the end.
+    wanted.forEach(function (p) {
+      var el = document.getElementById(p.id);
+      if (el && el.parentNode === grid) grid.appendChild(el);
+    });
+    panels().forEach(function (el) {
+      var p = byId[el.id];
+      setCols(el, p ? p.cols : (DEFAULT_COLS[el.id] || FALLBACK_COLS));
+      el.style.height = (p && p.h) ? p.h + 'px' : '';
+    });
+  }
+
+  // ---------- move: drag a panel by its title ----------
+  var dragging = null;
+
+  function clearMarks() {
+    panels().forEach(function (el) {
+      el.classList.remove('drop-before', 'drop-after');
+    });
+  }
+
+  function wireMove(el) {
+    var title = el.querySelector('.panel-title');
+    if (!title) return;
+    title.addEventListener('dragstart', function (ev) {
+      if (!document.body.classList.contains('layout-unlocked')) return;
+      dragging = el;
+      el.classList.add('drag-source');
+      ev.dataTransfer.effectAllowed = 'move';
+      // Firefox will not start a drag without some payload set.
+      ev.dataTransfer.setData('text/plain', el.id);
+    });
+    title.addEventListener('dragend', function () {
+      if (dragging) dragging.classList.remove('drag-source');
+      dragging = null;
+      clearMarks();
+    });
+    el.addEventListener('dragover', function (ev) {
+      if (!dragging || el === dragging) return;
+      ev.preventDefault();
+      var box = el.getBoundingClientRect();
+      var after = ev.clientX > box.left + box.width / 2;
+      clearMarks();
+      el.classList.add(after ? 'drop-after' : 'drop-before');
+    });
+    el.addEventListener('drop', function (ev) {
+      if (!dragging || el === dragging) return;
+      ev.preventDefault();
+      var box = el.getBoundingClientRect();
+      var after = ev.clientX > box.left + box.width / 2;
+      grid.insertBefore(dragging, after ? el.nextSibling : el);
+      clearMarks();
+      save();
+    });
+  }
+
+  // ---------- resize: drag the corner grip ----------
+  function wireResize(el) {
+    var grip = document.createElement('div');
+    grip.className = 'resize-grip';
+    grip.title = 'Drag to resize';
+    el.appendChild(grip);
+
+    grip.addEventListener('pointerdown', function (ev) {
+      if (!document.body.classList.contains('layout-unlocked')) return;
+      ev.preventDefault();
+      grip.setPointerCapture(ev.pointerId);
+      var startX = ev.clientX, startY = ev.clientY;
+      var startCols = colsOf(el);
+      var startH = el.getBoundingClientRect().height;
+      // One column of the 12, including its share of the gap.
+      var colWidth = grid.clientWidth / 12;
+
+      function move(e) {
+        setCols(el, startCols + (e.clientX - startX) / colWidth);
+        el.style.height = Math.max(MIN_H, startH + (e.clientY - startY)) + 'px';
+      }
+      function up(e) {
+        grip.releasePointerCapture(ev.pointerId);
+        grip.removeEventListener('pointermove', move);
+        grip.removeEventListener('pointerup', up);
+        save();
+      }
+      grip.addEventListener('pointermove', move);
+      grip.addEventListener('pointerup', up);
+    });
+  }
+
+  // ---------- lock ----------
+  function setUnlocked(on) {
+    document.body.classList.toggle('layout-unlocked', on);
+    lockBtn.classList.toggle('unlocked', on);
+    lockBtn.classList.toggle('locked', !on);
+    lockBtn.innerHTML = on ? '\\u270e Editing layout' : '\\u25a0 Layout locked';
+    lockBtn.title = on ? 'Lock the layout so it cannot be changed by accident'
+                       : 'Unlock to move and resize panels';
+    panels().forEach(function (el) {
+      var title = el.querySelector('.panel-title');
+      if (title) title.draggable = on;
+    });
+    if (status) {
+      status.innerText = on
+        ? 'Layout unlocked - drag a panel heading to move it, drag the corner to resize. Lock when done.'
+        : 'Layout locked.';
+    }
+  }
+
+  lockBtn.addEventListener('click', function () {
+    setUnlocked(!document.body.classList.contains('layout-unlocked'));
+  });
+
+  resetBtn.addEventListener('click', function () {
+    fetch('/layout', { method: 'POST', body: JSON.stringify({ reset: true }) })
+      .then(function (r) { return r.text(); })
+      .then(function () { location.reload(); });
+  });
+
+  panels().forEach(function (el) { wireMove(el); wireResize(el); });
+
+  fetch('/layout').then(function (r) { return r.json(); })
+    .then(applyLayout)
+    .catch(function () { applyLayout(null); })
+    .then(function () { setUnlocked(false); });
+})();
+</script>
+"""
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     def _respond(self, text, code=200):
         self.send_response(code)
@@ -694,9 +1023,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             if connection_status["connected"]:
                 page = PAGE_TEMPLATE.format(buttons=render_buttons())
-                page = page.replace('<div id="status">Ready.</div>',
-                                    EXTRA_PANELS + '<div id="status">Ready.</div>')
-                page = page.replace("</body>", EXTRA_STYLE + EXTRA_SCRIPT + "</body>")
+                page = page.replace("<!--EXTRA_PANELS-->", EXTRA_PANELS)
+                page = page.replace("</body>", EXTRA_STYLE + EXTRA_SCRIPT
+                                    + LAYOUT_STYLE + LAYOUT_SCRIPT + "</body>")
                 self.wfile.write(page.encode("utf-8"))
             else:
                 self.wfile.write(CONNECTING_PAGE.encode("utf-8"))
@@ -724,6 +1053,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-type", "application/json; charset=utf-8")
             self.end_headers()
             self.wfile.write(json.dumps(limit_status()).encode("utf-8"))
+        elif self.path == "/layout":
+            self.send_response(200)
+            self.send_header("Content-type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps(read_layout()).encode("utf-8"))
         elif self.path == "/health":
             self.send_response(200)
             self.send_header("Content-type", "application/json; charset=utf-8")
@@ -766,6 +1100,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
         else:
             self.send_response(404)
             self.end_headers()
+
+    def do_POST(self):
+        if self.path != "/layout":
+            self.send_response(404)
+            self.end_headers()
+            return
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            data = json.loads(self.rfile.read(length) or "{}")
+        except (TypeError, ValueError):
+            self._respond("Layout not saved - request was not valid JSON.", 400)
+            return
+        if not isinstance(data, dict):
+            self._respond("Layout not saved - unexpected request.", 400)
+            return
+        self._respond(clear_layout() if data.get("reset") else write_layout(data))
 
     def log_message(self, format, *args):
         pass
