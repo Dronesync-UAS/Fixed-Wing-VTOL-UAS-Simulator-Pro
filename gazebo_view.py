@@ -37,9 +37,7 @@ deprecated-but-present /gui/follow pair is used. If a later Gazebo drops them,
 
 import subprocess
 
-# Confirmed for this setup in the 10 Aug entry, and used by the reposition
-# plugins too.
-MODEL = "standard_vtol_0"
+from sim_target import MODEL
 
 # Offset per view as a fraction of the instructor's chosen distance, in the
 # aircraft's frame: (forward, left, up). Scaling with distance rather than

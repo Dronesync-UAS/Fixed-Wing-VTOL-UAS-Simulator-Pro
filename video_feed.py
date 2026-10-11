@@ -12,7 +12,10 @@ from gz.transport13 import Node
 from gz.msgs10.image_pb2 import Image as GzImage
 from PIL import Image
 
-CAMERA_TOPIC = "/world/training_area/model/standard_vtol_0/link/camera_pitch_link/sensor/fpv_camera/image"
+from sim_target import MODEL, WORLD
+
+CAMERA_TOPIC = (f"/world/{WORLD}/model/{MODEL}"
+                "/link/camera_pitch_link/sensor/fpv_camera/image")
 CAM_WIDTH = 1280
 CAM_HEIGHT = 960
 

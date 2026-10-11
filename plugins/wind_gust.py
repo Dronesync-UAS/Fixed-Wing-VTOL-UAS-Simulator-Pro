@@ -32,9 +32,8 @@ the direction the wind comes FROM, in degrees true. 270 = a westerly.
 import math
 import subprocess
 
+from sim_target import WORLD
 from simulator_link import log_instructor_action
-
-WORLD = "training_area"
 
 # Zero wind still carries enable_wind, so "calm" is an explicit command
 # rather than switching the wind system off underneath the aircraft.
