@@ -93,8 +93,9 @@
          working default.sdf does exactly this (box 100000 x 100000 x 10 at
          pose 0 0 -5), and training_area's safety floor is a box too. A
          <plane> collision was tried here first and the aircraft fell straight
-         through it - it appeared in the entity tree and in `gz model --list`
-         but was nowhere to be seen, because it was still falling. Follow the
+         through it - it appeared in the entity tree and in the model list
+         reported by gz, but was nowhere to be seen, because it was still
+         falling. Follow the
          working reference rather than the tidier-looking geometry.
 
          The visual stays a plane: 8 km square, large enough that the horizon
