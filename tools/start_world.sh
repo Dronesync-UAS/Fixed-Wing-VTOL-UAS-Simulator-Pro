@@ -30,7 +30,7 @@ WORLDS="
 blackrock|training_area_blackrock|1.3|0.6 m|Black Rock playa, Nevada - flattest, best for handling practice
 nullarbor|training_area_nullarbor|11.3|7.9 m|Nullarbor Plain, Australia - very gently undulating
 uyuni|training_area_uyuni|8.3|9.5 m|Salar de Uyuni, Bolivia - very gently undulating
-hoggar|training_area|615.5|0 m|Hoggar Mountains, Algeria - flat to 600 m, mountains beyond
+hoggar|training_area|605.1|0 m|Hoggar Mountains, Algeria - flat to 600 m, mountains beyond
 flat|flat_test|0.3|0 m|Plain flat ground, no scenery - for isolating faults
 "
 

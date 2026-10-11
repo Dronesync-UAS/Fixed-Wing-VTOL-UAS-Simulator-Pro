@@ -120,43 +120,7 @@
       </link>
     </model>
 
-    <!-- ============================================================
-         SAFETY FLOOR: added 23 Aug 2026 as a first attempt to fix the
-         aircraft drifting/floating instead of resting solidly. NOTE:
-         two follow-up fixes were tried afterwards for the real cause
-         (moving the heightmap's position offset to a model-level pose
-         to sidestep gz-sim#1295, then adding an explicit <surface>
-         block matching Gazebo's own known-good flat ground) - see the
-         TERRAIN comment above for the current status of each. This
-         box is kept in place regardless, as a harmless backup surface,
-         since it costs nothing and adds a second line of defence for
-         takeoff/landing.
-         900m x 900m, comfortably covering the clearing's 400m radius,
-         collision-only (no visual) so it doesn't affect what's seen.
-         Top surface at Z=615.5 to match the clearing height.
-         ============================================================ -->
-    <model name="spawn_area_safety_floor">
-      <static>true</static>
-      <pose>0 0 614.5 0 0 0</pose>
-      <link name="safety_floor_link">
-        <collision name="safety_floor_collision">
-          <geometry>
-            <box>
-              <size>900 900 2</size>
-            </box>
-          </geometry>
-          <surface>
-            <friction>
-              <ode/>
-            </friction>
-            <bounce/>
-            <contact/>
-          </surface>
-        </collision>
-      </link>
-    </model>
-
-    <!-- Wind: speed/direction are set at runtime by the instructor station over
+<!-- Wind: speed/direction are set at runtime by the instructor station over
          /world/NAME/wind (gz.msgs.Wind). Zero here so an untouched sim
          flies exactly as it did before wind was added. -->
     <wind>

@@ -41,7 +41,7 @@ ENVIRONMENTS = [
     {"key": "uyuni", "world": "training_area_uyuni", "spawn_z": 8.3,
      "relief_m": 9.5,
      "label": "Salar de Uyuni, Bolivia - gently undulating"},
-    {"key": "hoggar", "world": "training_area", "spawn_z": 615.5,
+    {"key": "hoggar", "world": "training_area", "spawn_z": 605.1,
      "relief_m": 0.0,
      "label": "Hoggar Mountains, Algeria - flat to 600 m, mountains beyond"},
     {"key": "flat", "world": "flat_test", "spawn_z": 0.3,
