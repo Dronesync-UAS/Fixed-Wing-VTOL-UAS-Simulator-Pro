@@ -447,10 +447,6 @@ PAGE_TEMPLATE = """
     <div class="status-item"><div class="k">GPS</div><div class="v" id="t-gps">-</div></div>
     <div class="status-item"><div class="k">Battery</div><div class="v" id="t-batt">-</div></div>
     <div class="status-item"><div class="k">Feeds</div><div class="v" id="t-health" title="Telemetry age / camera frame rate">-</div></div>
-    <div class="layout-controls">
-      <button id="layout-reset" class="layout-btn" title="Discard the saved layout and go back to the default arrangement">Reset</button>
-      <button id="layout-lock" class="layout-btn locked" title="Unlock to move and resize panels">■ Layout locked</button>
-    </div>
   </div>
 
   <div id="limit-banner" class="limit-banner" style="display:none;"></div>
@@ -465,6 +461,12 @@ PAGE_TEMPLATE = """
     </div>
 
     <div class="main">
+      <div class="layout-controls" id="layout-controls">
+        <button id="layout-fit" class="layout-btn" title="Shrink the panels until the whole console fits this screen without scrolling">⇲ Fit to screen</button>
+        <button id="layout-lock" class="layout-btn locked" title="Unlock to move and resize panels">■ Layout locked</button>
+        <button id="layout-reset" class="layout-btn" title="Discard the saved layout and go back to the default arrangement">Reset</button>
+        <span id="layout-hint" class="layout-hint"></span>
+      </div>
       <div class="grid" id="panel-grid">
         {buttons}
       <div class="panel" id="panel-fpv">
@@ -790,7 +792,13 @@ EXTRA_SCRIPT = """
 # ---------------------------------------------------------------------------
 LAYOUT_STYLE = """
 <style>
-  .layout-controls { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  /* Sits at the top of the main area, not in the top bar - the top bar
+     already carries the brand and nine readouts, so controls appended there
+     get pushed off the edge on a narrower screen. */
+  .layout-controls {
+    display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap;
+  }
+  .layout-hint { font-size: 11px; color: #62708a; }
   .layout-btn {
     background: #182230; color: #8b9bb4; border: 1px solid #2c3a4d; border-radius: 7px;
     padding: 7px 12px; font-size: 11px; font-weight: 600; letter-spacing: 0.5px;
@@ -834,8 +842,12 @@ LAYOUT_SCRIPT = """
 <script>
 (function () {
   var grid = document.getElementById('panel-grid');
+  var main = document.querySelector('.main');
+  var toolbar = document.getElementById('layout-controls');
   var lockBtn = document.getElementById('layout-lock');
   var resetBtn = document.getElementById('layout-reset');
+  var fitBtn = document.getElementById('layout-fit');
+  var hint = document.getElementById('layout-hint');
   if (!grid || !lockBtn) return;
 
   // Default spans, aimed at fitting the whole console on one screen: the two
@@ -892,6 +904,47 @@ LAYOUT_SCRIPT = """
       el.style.height = (p && p.h) ? p.h + 'px' : '';
     });
   }
+
+  // ---------- fit to screen ----------
+  // The default spans are a guess at the station's screen; this measures the
+  // real one. Narrowing a panel shortens it too - the camera feed is a 16:9
+  // stream, so half the width is half the height - which is why this shrinks
+  // spans rather than forcing heights and cropping the picture.
+  function spaceAvailable() {
+    var used = toolbar ? toolbar.offsetHeight + 12 : 0;
+    var statusH = status ? status.offsetHeight + 16 : 0;
+    return main.clientHeight - used - statusH - 8;
+  }
+
+  function gridHeight() { return grid.getBoundingClientRect().height; }
+
+  function fitToScreen(announce) {
+    panels().forEach(function (el) { el.style.height = ''; });
+    var guard = 0;
+    while (gridHeight() > spaceAvailable() && guard++ < 60) {
+      // Shrink whichever panel is currently tallest and still above the
+      // minimum span. Tallest first, so the picture panels give way before
+      // the button panels get squeezed into unusable columns.
+      var worst = null;
+      panels().forEach(function (el) {
+        if (colsOf(el) <= MIN_COLS) return;
+        var h = el.getBoundingClientRect().height;
+        if (!worst || h > worst.h) worst = { el: el, h: h };
+      });
+      if (!worst) break;
+      setCols(worst.el, colsOf(worst.el) - 1);
+    }
+    var fits = gridHeight() <= spaceAvailable();
+    if (hint && announce) {
+      hint.innerText = fits
+        ? 'Fitted to this screen.'
+        : 'Still taller than the screen - resize the camera or plan view down by hand.';
+    }
+    save();
+    return fits;
+  }
+
+  if (fitBtn) fitBtn.addEventListener('click', function () { fitToScreen(true); });
 
   // ---------- move: drag a panel by its title ----------
   var dragging = null;
@@ -1001,9 +1054,19 @@ LAYOUT_SCRIPT = """
   panels().forEach(function (el) { wireMove(el); wireResize(el); });
 
   fetch('/layout').then(function (r) { return r.json(); })
-    .then(applyLayout)
-    .catch(function () { applyLayout(null); })
-    .then(function () { setUnlocked(false); });
+    .then(function (saved) {
+      var haveSaved = saved && saved.panels && saved.panels.length;
+      applyLayout(saved);
+      setUnlocked(false);
+      if (!haveSaved) {
+        // No saved layout: fit this screen rather than leave the instructor
+        // scrolling. Run again once the camera image has arrived, since an
+        // unloaded image measures short and would under-shrink the rest.
+        fitToScreen(false);
+        setTimeout(function () { fitToScreen(false); }, 2000);
+      }
+    })
+    .catch(function () { applyLayout(null); setUnlocked(false); });
 })();
 </script>
 """
