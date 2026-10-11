@@ -350,6 +350,12 @@ PAGE_TEMPLATE = """
   .status-item .v {{ font-size: 14px; font-weight: 600; margin-top: 1px; }}
   .armed-yes {{ color: #ff5252; }}
   .armed-no {{ color: #4caf50; }}
+  /* Arming readiness (added 11 Oct 2026). Green means PX4 has said its
+     preflight checks pass, so TAKEOFF will be accepted; red means it will
+     be refused and the text says what PX4 is unhappy about. */
+  .arm-ready {{ color: #4caf50; }}
+  .arm-wait {{ color: #ffb300; }}
+  .arm-block {{ color: #ff8a8a; }}
 
   /* ===== Body: sidebar + main ===== */
   .body-row {{ display: flex; flex: 1; overflow: hidden; }}
@@ -462,6 +468,7 @@ PAGE_TEMPLATE = """
     <div class="status-item"><div class="k">Vehicle</div><div class="v">STANDARD_VTOL-01</div></div>
     <div class="status-item"><div class="k">Mode</div><div class="v" id="t-mode">-</div></div>
     <div class="status-item"><div class="k">Status</div><div class="v" id="t-armed">-</div></div>
+    <div class="status-item"><div class="k">Arming</div><div class="v" id="t-armcheck" title="Whether PX4 will accept ARM / TAKEOFF right now">-</div></div>
     <div class="status-item"><div class="k">Altitude</div><div class="v" id="t-alt">-</div></div>
     <div class="status-item"><div class="k">Speed</div><div class="v" id="t-speed">-</div></div>
     <div class="status-item"><div class="k">Heading</div><div class="v" id="t-heading">-</div></div>
@@ -526,6 +533,17 @@ function refreshTelemetry() {{
     const armedEl = document.getElementById('t-armed');
     armedEl.innerText = d.armed ? 'ARMED' : 'Disarmed';
     armedEl.className = 'v ' + (d.armed ? 'armed-yes' : 'armed-no');
+    const armChk = document.getElementById('t-armcheck');
+    // PX4 prefixes its reason with "Preflight Fail:" / "Preflight:", which is
+    // redundant next to a label that already says "Not ready".
+    const why = d.arm_blocker
+      ? d.arm_blocker.replace(/^Preflight( Fail)?: */i, '') : '';
+    armChk.innerText = why ? (d.arm_state + ' - ' + why.slice(0, 48)) : d.arm_state;
+    armChk.title = d.arm_blocker
+      ? ('PX4 says: ' + d.arm_blocker)
+      : 'PX4 reports no blocking preflight check.';
+    armChk.className = 'v ' + (d.arm_ready === null ? 'arm-wait'
+                               : d.arm_ready ? 'arm-ready' : 'arm-block');
     document.getElementById('t-mode').innerText = d.mode;
     document.getElementById('t-alt').innerText = d.altitude_m + ' m';
     document.getElementById('t-speed').innerText = d.groundspeed_ms + ' m/s';

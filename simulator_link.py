@@ -62,7 +62,52 @@ telemetry = {
     # Straight-line distance from the home/launch point, metres. Added
     # 6 Sep 2026 for the operational-limit checks (CAP722B 5.3(c)).
     "range_from_home_m": 0.0,
+    # Arming readiness, read straight out of HEARTBEAT.system_status.
+    # Added 11 Oct 2026: the console said "Disarmed" but never why PX4 was
+    # refusing to arm, so the instructor pressed ARM over and over while the
+    # EKF was still converging. See _ARM_STATES for where the values come from.
+    "arm_ready": None,                  # True / False / None (no heartbeat yet)
+    "arm_state": "Waiting for PX4",     # short label for the console
+    "arm_blocker": None,                # PX4's own words, out of STATUSTEXT
 }
+
+# HEARTBEAT.system_status (the MAVLink MAV_STATE enum), as PX4 v1.15.4 fills
+# it in - src/modules/mavlink/streams/HEARTBEAT.hpp lines 107-127:
+#
+#     uint8_t system_status = MAV_STATE_UNINIT;
+#     if (arming_state == ARMING_STATE_ARMED)   -> ACTIVE, or CRITICAL in failsafe
+#     else if (calibration in progress)         -> CALIBRATING
+#     else if (pre_flight_checks_pass)          -> STANDBY
+#
+# Note the first line. When the aircraft is disarmed and its preflight checks
+# are NOT passing, nothing overwrites the initial value, so PX4 reports
+# MAV_STATE_UNINIT. That is the "ARM will be refused" case - it does not mean
+# PX4 is still booting, which is what the name suggests. This readout exists
+# precisely to make that state visible.
+#
+# Written as plain integers (minimal.xml, MAV_STATE) rather than
+# mavutil.mavlink.MAV_STATE_* so an older pymavlink missing one of the names
+# still imports.
+_ARM_STATES = {
+    0: (False, "Not ready"),           # MAV_STATE_UNINIT
+    1: (False, "Booting"),             # MAV_STATE_BOOT
+    2: (False, "Calibrating"),         # MAV_STATE_CALIBRATING
+    3: (True,  "Ready to arm"),        # MAV_STATE_STANDBY
+    4: (True,  "Armed"),               # MAV_STATE_ACTIVE
+    5: (True,  "Armed - failsafe"),    # MAV_STATE_CRITICAL
+    6: (False, "Emergency"),           # MAV_STATE_EMERGENCY
+    7: (False, "Powering off"),        # MAV_STATE_POWEROFF
+    8: (False, "Flight termination"),  # MAV_STATE_FLIGHT_TERMINATION
+}
+
+# STATUSTEXT lines that say WHY arming is being refused, e.g.
+#   "Preflight Fail: Yaw estimate error"
+#   "Preflight: GPS Vertical Pos Drift too high"
+# PX4 repeats these for as long as the condition holds, so a recent one is the
+# live reason and an older one is history - hence the age check.
+_ARM_BLOCKER_PREFIXES = ("preflight", "arming denied", "arm denied")
+_ARM_BLOCKER_MAX_AGE_S = 15.0
+_arm_blocker = {"text": None, "t": None}
 
 # Link health, for the "how fresh is this data" readout (CAP722B 5.2(d)).
 # `last_msg_t` is a time.monotonic() stamp updated every time ANY MAVLink
@@ -302,7 +347,30 @@ def reset_flight_state():
     home_latlon["lon"] = None
     command_acks.clear()
     telemetry["range_from_home_m"] = 0.0
+    telemetry["arm_ready"] = None
+    telemetry["arm_state"] = "Waiting for PX4"
+    telemetry["arm_blocker"] = None
+    _arm_blocker["text"] = None
+    _arm_blocker["t"] = None
     link_health["last_msg_t"] = None
+
+
+def _update_arm_readiness(system_status):
+    """Turn HEARTBEAT.system_status into the console's arming readout.
+
+    Kept separate from the HEARTBEAT branch because the interesting part is
+    not the lookup, it is deciding when PX4's last complaint has stopped
+    being the reason for anything.
+    """
+    ready, label = _ARM_STATES.get(
+        system_status, (False, "Unknown state %s" % system_status))
+    telemetry["arm_ready"] = ready
+    telemetry["arm_state"] = label
+    stale = (_arm_blocker["t"] is None
+             or time.monotonic() - _arm_blocker["t"] > _ARM_BLOCKER_MAX_AGE_S)
+    # Once PX4 says the checks pass, whatever it was complaining about a
+    # moment ago is no longer blocking anything, so don't keep showing it.
+    telemetry["arm_blocker"] = None if (ready or stale) else _arm_blocker["text"]
 
 
 def _telemetry_loop():
@@ -327,6 +395,7 @@ def _read_one_message():
         t = msg.get_type()
         if t == "HEARTBEAT":
             telemetry["armed"] = bool(msg.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED)
+            _update_arm_readiness(msg.system_status)
             new_mode = _decode_mode(msg.custom_mode)
             _check_failure_response(new_mode)
             telemetry["mode"] = new_mode
@@ -361,6 +430,14 @@ def _read_one_message():
         elif t == "BATTERY_STATUS":
             if msg.battery_remaining >= 0:
                 telemetry["battery_pct"] = msg.battery_remaining
+        elif t == "STATUSTEXT":
+            text = msg.text
+            if isinstance(text, bytes):
+                text = text.decode("utf-8", "replace")
+            text = text.strip()
+            if text.lower().startswith(_ARM_BLOCKER_PREFIXES):
+                _arm_blocker["text"] = text
+                _arm_blocker["t"] = time.monotonic()
         elif t == "COMMAND_ACK":
             command_acks[msg.command] = {"result": msg.result, "t": time.monotonic()}
 

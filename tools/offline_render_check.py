@@ -35,7 +35,9 @@ sl.stop_background_script = lambda *a, **k: None
 sl.running_processes = {}
 sl.RESPONSE_TIMEOUT_S = 45
 sl.telemetry.update({"roll_deg": 0.0, "pitch_deg": 0.0, "yaw_deg": 0.0,
-                     "airspeed_ms": 0.0, "range_from_home_m": 0.0})
+                     "airspeed_ms": 0.0, "range_from_home_m": 0.0,
+                     "arm_ready": None, "arm_state": "Waiting for PX4",
+                     "arm_blocker": None})
 sl.flight_path = [(23.5, 6.5, 100.0, 1.0), (23.5012, 6.5009, 120.0, 2.0), (23.5021, 6.5, 130.0, 3.0)]
 sl.home_latlon = {"lat": 23.5, "lon": 6.5}
 sl.link_health = {"last_msg_t": None}
@@ -108,3 +110,15 @@ sl.telemetry["range_from_home_m"] = 20.0
 sl.telemetry["battery_pct"] = 80
 print("  limit_status() (all ok):", mod.limit_status())
 print("  health_status():", mod.health_status())
+
+# --- arming readout (added 11 Oct 2026) ---------------------------------
+# The console used to say "Disarmed" and nothing else, so a refused ARM
+# looked identical to an aircraft that simply had not been armed yet. These
+# tokens are what turns HEARTBEAT.system_status into something readable;
+# the readout's own logic is tested against real MAVLink messages in
+# simulator_link, this only checks the page still carries the wiring.
+print("\n--- arming readout ---")
+for tok in ('id="t-armcheck"', ">Arming<", ".arm-ready", ".arm-wait",
+            ".arm-block", "d.arm_state", "d.arm_blocker",
+            "d.arm_ready === null", "/^Preflight( Fail)?: */i"):
+    print(f"  page contains {tok!r}:", tok in page)
