@@ -90,7 +90,10 @@ def terminate_flight():
 PLUGIN = {
     "id": "flight_termination",
     "label": "TERMINATE FLIGHT",
-    "category": "Flight Ops",
+    # Its own section at the foot of the left rail. In "Flight Ops" the
+    # plugins load in filename order, which put this between DISARM and
+    # HOLD - the worst place on the console for a control with no undo.
+    "category": "Emergency",
     "style": "danger",
     "handler": terminate_flight,
 }

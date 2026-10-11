@@ -42,6 +42,14 @@ Run the offline checks - they need neither PX4 nor Gazebo:
 python3 tools/offline_render_check.py
 ```
 
+After changing the console's page or its JavaScript, also run the browser
+check - the console is mostly JavaScript, and a syntax error in it shows as
+a black screen that the offline check cannot see:
+
+```
+python3 tools/test_console_browser.py
+```
+
 Other tools under `tools/` are self-describing; `--dry-run` and `--revert`
 exist on anything that edits world files, and world edits are always backed
 up and auto-restored if the result does not parse.

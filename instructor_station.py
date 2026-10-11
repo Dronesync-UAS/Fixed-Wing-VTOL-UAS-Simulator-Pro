@@ -30,6 +30,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from simulator_link import telemetry, connection_status, flight_path, home_latlon, link_health
 from plugin_loader import load_plugins
 from video_feed import start_video_capture, mjpeg_generator, camera_fps, FEEDS
+import console_page
 import event_logger
 import terrain_backdrop
 
@@ -100,6 +101,72 @@ def write_layout(data):
     return f"Layout saved ({len(clean)} panels)."
 
 
+# The rebuilt console keeps its own small piece of state in the same file:
+# which view is on the main screen, which of the two layouts is in use, and
+# where the instructor has dragged the two corner tiles. Separate key, so a
+# saved panel layout from the classic page is untouched and either page can
+# be used without destroying the other's arrangement.
+CONSOLE_DEFAULT = {"hero": "chase", "layout": "pilot", "tiles": {}}
+CONSOLE_HEROES = ("chase", "nose", "map")
+CONSOLE_LAYOUTS = ("pilot", "station")
+TILE_MIN_W, TILE_MAX_W = 150, 520
+TILE_MIN_H, TILE_MAX_H = 96, 300
+
+
+def read_console_layout():
+    saved = read_layout().get("console")
+    if not isinstance(saved, dict):
+        return dict(CONSOLE_DEFAULT)
+    out = dict(CONSOLE_DEFAULT)
+    if saved.get("hero") in CONSOLE_HEROES:
+        out["hero"] = saved["hero"]
+    if saved.get("layout") in CONSOLE_LAYOUTS:
+        out["layout"] = saved["layout"]
+    tiles = saved.get("tiles")
+    if isinstance(tiles, dict):
+        out["tiles"] = {k: v for k, v in tiles.items()
+                        if k in ("left", "right") and isinstance(v, dict)}
+    return out
+
+
+def write_console_layout(data):
+    """Validates and saves the console's own state. Returns a message.
+
+    Clamped rather than trusted: a tile saved at a negative size or off the
+    screen would be unreachable on the next load, with no way back except
+    deleting the file by hand.
+    """
+    clean = dict(CONSOLE_DEFAULT)
+    if data.get("hero") in CONSOLE_HEROES:
+        clean["hero"] = data["hero"]
+    if data.get("layout") in CONSOLE_LAYOUTS:
+        clean["layout"] = data["layout"]
+
+    tiles = {}
+    for side in ("left", "right"):
+        box = (data.get("tiles") or {}).get(side)
+        if not isinstance(box, dict):
+            continue
+        try:
+            x, y = int(box["x"]), int(box["y"])
+            w = max(TILE_MIN_W, min(TILE_MAX_W, int(box["w"])))
+            h = max(TILE_MIN_H, min(TILE_MAX_H, int(box["h"])))
+        except (KeyError, TypeError, ValueError):
+            continue
+        tiles[side] = {"x": max(0, x), "y": max(0, y), "w": w, "h": h}
+    clean["tiles"] = tiles
+
+    existing = read_layout()
+    existing["console"] = clean
+    try:
+        os.makedirs(os.path.dirname(LAYOUT_FILE), exist_ok=True)
+        with open(LAYOUT_FILE, "w") as handle:
+            json.dump(existing, handle, indent=2)
+    except OSError as exc:
+        return f"Console layout not saved - {exc.strerror}."
+    return "Console layout saved."
+
+
 def clear_layout():
     try:
         os.remove(LAYOUT_FILE)
@@ -136,6 +203,33 @@ plugins_by_id = {p["id"]: p for p in plugins}
 
 # Group plugins by category, in a sensible fixed order
 CATEGORY_ORDER = ["Flight Ops", "Flight Mode", "Function Test", "Failure Injection", "Simulation Control", "Camera", "Experimental - In Development"]
+
+# The rebuilt console has two rails rather than a grid. The split is by who
+# the control is for: the left rail is what a pilot does, the right rail is
+# what only an instructor does to them.
+LEFT_CATEGORIES = ["Flight Ops", "Flight Mode", "Emergency"]
+RIGHT_CATEGORIES = ["Failure Injection", "Simulation Control", "Camera",
+                    "Function Test", "Experimental - In Development"]
+
+# Plugins load in filename order, which put TERMINATE FLIGHT third in the
+# left rail - between DISARM and HOLD, where a mis-click lives. Order the
+# rails by what a pilot reaches for, not by what the files are called;
+# anything not listed keeps its loaded order, after the ones that are.
+RAIL_ORDER = {
+    "Flight Ops": ["arm", "disarm", "takeoff", "land", "rtl", "hold", "set_home"],
+    "Flight Mode": ["hover_flight", "forward_flight", "loiter", "mode_position",
+                    "mode_manual"],
+    "Failure Injection": ["gps_failure", "data_link_loss", "rc_signal_loss",
+                          "engine_failure", "motor_failure"],
+}
+
+
+def _rail_sorted(cat, items):
+    order = RAIL_ORDER.get(cat)
+    if not order:
+        return items
+    rank = {pid: n for n, pid in enumerate(order)}
+    return sorted(items, key=lambda p: rank.get(p["id"], len(rank)))
 categories = {cat: [] for cat in CATEGORY_ORDER}
 for p in plugins:
     categories.setdefault(p["category"], []).append(p)
@@ -223,6 +317,91 @@ def _panel_id(category):
     """Stable, URL-safe id for a category panel, so a saved layout keeps
     referring to the same panel across restarts."""
     return re.sub(r"[^a-z0-9]+", "-", category.lower()).strip("-")
+
+
+def _render_inputs(p):
+    """The number boxes and drop-downs a plugin declares, as HTML."""
+    fields = ""
+    for inp in p.get("inputs", []):
+        fid = f'in-{p["id"]}-{inp["name"]}'
+        common = (f'id="{fid}" class="param-input" data-plugin="{p["id"]}" '
+                  f'data-param="{inp["name"]}"')
+
+        # A number box unless the plugin asks for a drop-down. Added
+        # 11 Oct 2026 for the external-view plugin, where the choice
+        # is one of a fixed set of viewpoints rather than a quantity.
+        if inp.get("type") == "select":
+            options = ""
+            for opt in inp.get("options", []):
+                selected = " selected" if opt["value"] == inp.get("default") else ""
+                options += f'<option value="{opt["value"]}"{selected}>{opt["label"]}</option>'
+            control = f'<select {common}>{options}</select>'
+        else:
+            attrs = f'value="{inp.get("default", "")}"'
+            if "min" in inp:
+                attrs += f' min="{inp["min"]}"'
+            if "max" in inp:
+                attrs += f' max="{inp["max"]}"'
+            attrs += f' step="{inp.get("step", "any")}"'
+            control = f'<input type="number" {common} {attrs}>'
+
+        fields += (f'<label class="field"><span>{inp["label"]}</span>'
+                   f'{control}</label>')
+    return fields
+
+
+def render_rail(category_names):
+    """One rail of the rebuilt console: the plugins of these categories, in
+    order, under their headings.
+
+    Toggle-style plugins carry a light (#dot-<id>) that the page updates from
+    /failure_status, because a failure left switched on with no visible
+    reminder is the fault that prompted the lights in the first place."""
+    status = failure_status()
+    html = ""
+    for cat in category_names:
+        items = categories.get(cat, [])
+        if not items:
+            continue
+        short = cat.replace(" - In Development", "")
+        danger = " danger" if cat in ("Failure Injection", "Emergency") else ""
+        html += f'<div class="head{danger}">{short}</div>'
+        for p in _rail_sorted(cat, items):
+            dot = ""
+            klass = p["style"]
+            if p["id"] in status:
+                dot = f'<span class="dot{" on" if status[p["id"]] else ""}" id="dot-{p["id"]}"></span>'
+                klass += " on" if status[p["id"]] else ""
+            if p["id"] == "arm":
+                klass += " arm"
+            elif p["id"] == "disarm":
+                klass += " disarm"
+            button = (f'<button id="btn-{p["id"]}" class="{klass}" '
+                      f'onclick="send(\'{p["id"]}\')">{dot}{p["label"]}</button>')
+            fields = _render_inputs(p)
+            html += f'<div class="stack">{fields}{button}</div>' if fields else button
+        html += "<hr>"
+    return html
+
+
+def render_console():
+    """The rebuilt console page, assembled from the plugins and the saved
+    arrangement. The classic page is still built by render_buttons below and
+    served at /classic."""
+    page = console_page.TEMPLATE
+    page = page.replace("__LEFT_RAIL__", render_rail(LEFT_CATEGORIES))
+    page = page.replace("__RIGHT_RAIL__", render_rail(RIGHT_CATEGORIES))
+    script = console_page.SCRIPT
+    script = script.replace("__SAVED__", json.dumps(read_console_layout()))
+    script = script.replace("__LIMITS__", json.dumps({
+        "range_m": LIMITS["range_m"],
+        "ceiling_m": LIMITS["ceiling_m"],
+        "groundspeed_ms": LIMITS["groundspeed_ms"],
+    }))
+    page = page.replace("__CONSOLE_SCRIPT__", script)
+    page = page.replace("__EXTRA_STYLE__", EXTRA_STYLE)
+    page = page.replace("__EXTRA_SCRIPT__", EXTRA_SCRIPT)
+    return page
 
 
 def render_buttons():
@@ -1162,18 +1341,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(text.encode())
 
     def do_GET(self):
-        if self.path == "/":
+        if self.path in ("/", "/classic"):
             self.send_response(200)
             self.send_header("Content-type", "text/html; charset=utf-8")
             self.end_headers()
-            if connection_status["connected"]:
+            if not connection_status["connected"]:
+                self.wfile.write(CONNECTING_PAGE.encode("utf-8"))
+            elif self.path == "/classic":
+                # The panel grid, kept while the rebuilt console earns its
+                # place in a lesson. Nothing in the rebuild removed it.
                 page = PAGE_TEMPLATE.format(buttons=render_buttons())
                 page = page.replace("<!--EXTRA_PANELS-->", EXTRA_PANELS)
                 page = page.replace("</body>", EXTRA_STYLE + EXTRA_SCRIPT
                                     + LAYOUT_STYLE + LAYOUT_SCRIPT + "</body>")
                 self.wfile.write(page.encode("utf-8"))
             else:
-                self.wfile.write(CONNECTING_PAGE.encode("utf-8"))
+                self.wfile.write(render_console().encode("utf-8"))
         elif self.path == "/connection_status":
             self.send_response(200)
             self.send_header("Content-type", "application/json; charset=utf-8")
@@ -1267,7 +1450,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
 
     def do_POST(self):
-        if self.path != "/layout":
+        if self.path not in ("/layout", "/console_layout"):
             self.send_response(404)
             self.end_headers()
             return
@@ -1279,6 +1462,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
         if not isinstance(data, dict):
             self._respond("Layout not saved - unexpected request.", 400)
+            return
+        if self.path == "/console_layout":
+            self._respond(write_console_layout(data))
             return
         self._respond(clear_layout() if data.get("reset") else write_layout(data))
 

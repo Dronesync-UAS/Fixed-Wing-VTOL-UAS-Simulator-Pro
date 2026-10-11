@@ -126,6 +126,44 @@ print("  health_status():", mod.health_status())
 # tokens are what turns HEARTBEAT.system_status into something readable;
 # the readout's own logic is tested against real MAVLink messages in
 # simulator_link, this only checks the page still carries the wiring.
+# --- rebuilt console (added 11 Oct 2026) ------------------------------
+print("\n--- rebuilt console ---")
+console = mod.render_console()
+print("  page assembled, length", len(console))
+for tok in ('id="hero"', 'id="tile-left"', 'id="tile-right"', 'id="gyro"',
+            'id="view-chase"', 'id="view-nose"', 'id="view-map"',
+            'id="rail-left"', 'id="rail-right"', 'id="hud"', 'id="hud-on"',
+            'id="flightpath"', 'id="limit-banner"', 'id="t-health"',
+            "/console_layout", "CAP722B"):
+    print(f"  contains {tok!r}:", tok in console)
+print("  no placeholder left:",
+      not any(t in console for t in ("__LEFT_RAIL__", "__RIGHT_RAIL__",
+                                     "__SAVED__", "__LIMITS__",
+                                     "__CONSOLE_SCRIPT__", "__EXTRA_SCRIPT__",
+                                     "__EXTRA_STYLE__")))
+# Each feed must appear exactly once: a second <img> on the same MJPEG
+# endpoint doubles the station's encoding work for a duplicate picture.
+print("  one /chase_feed tag:", console.count('src="/chase_feed"') == 1)
+print("  one /video_feed tag:", console.count('src="/video_feed"') == 1)
+left = mod.render_rail(mod.LEFT_CATEGORIES)
+right = mod.render_rail(mod.RIGHT_CATEGORIES)
+print("  arm/disarm on the left rail:",
+      'id="btn-arm"' in left and 'id="btn-disarm"' in left)
+print("  failure injection on the right rail:",
+      'id="btn-gps_failure"' in right and 'id="btn-motor_failure"' in right)
+print("  every plugin reachable from one rail or the other:",
+      all(('id="btn-%s"' % p["id"]) in (left + right) for p in mod.plugins))
+import tempfile
+mod.LAYOUT_FILE = os.path.join(tempfile.mkdtemp(), "gcs_layout.json")
+print("  console layout round-trips:",
+      mod.write_console_layout({"hero": "map", "layout": "station",
+                                "tiles": {"left": {"x": 10, "y": 20, "w": 9999, "h": 5}}})
+      and mod.read_console_layout()["hero"] == "map")
+saved = mod.read_console_layout()
+print("  an absurd tile size is clamped, not stored:",
+      saved["tiles"]["left"]["w"] == mod.TILE_MAX_W
+      and saved["tiles"]["left"]["h"] == mod.TILE_MIN_H)
+
 print("\n--- arming readout ---")
 for tok in ('id="t-armcheck"', ">Arming<", ".arm-ready", ".arm-wait",
             ".arm-block", "d.arm_state", "d.arm_blocker",
