@@ -1,5 +1,4 @@
-from simulator_link import (master, send_command_and_wait, log_instructor_action,
-                            telemetry)
+from simulator_link import send_command_and_wait, log_instructor_action, telemetry
 from pymavlink import mavutil
 
 CLIMB_ABOVE_CURRENT_M = 20
