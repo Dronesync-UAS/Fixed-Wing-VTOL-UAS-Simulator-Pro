@@ -217,6 +217,38 @@ def main():
         check("the tab shows which view is live",
               "on" in (page.get_attribute('#viewtabs button[data-view="map"]', "class") or ""))
 
+        print("4b. the map fills the hero")
+        # Guards the 420px bug: the classic stylesheet pins #flightpath to a
+        # fixed height with an id selector, which left the map drawing a
+        # quarter of the hero and black everywhere else.
+        box = page.locator("#hero #flightpath").bounding_box()
+        hero = page.locator("#hero").bounding_box()
+        check("canvas is as tall as the hero (%s vs %s)"
+              % (round(box["height"]), round(hero["height"])),
+              box["height"] > hero["height"] - 8)
+        check("and as wide (%s vs %s)" % (round(box["width"]), round(hero["width"])),
+              box["width"] > hero["width"] - 8)
+
+        print("4c. rail sections collapse")
+        head = page.locator("#rail-right .group .head").first
+        group = page.locator("#rail-right .group").first
+        check("open to start", "shut" not in (group.get_attribute("class") or ""))
+        head.click()
+        page.wait_for_timeout(200)
+        check("shut after a click", "shut" in (group.get_attribute("class") or ""))
+        check("its controls are hidden", not group.locator(".items").is_visible())
+        head.click()
+        page.wait_for_timeout(200)
+        check("open again", "shut" not in (group.get_attribute("class") or ""))
+
+        print("4d. rail labels fit the rail")
+        rail = page.locator("#rail-left").bounding_box()
+        widest = page.evaluate(
+            "() => Math.max(...[...document.querySelectorAll('#rail-left button')]"
+            ".map(b => b.scrollWidth))")
+        check("no button text overflows (%s px in a %s px rail)"
+              % (widest, round(rail["width"])), widest <= rail["width"])
+
         print("5. clicking a tile swaps it in")
         page.click("#tile-left .body")
         page.wait_for_timeout(300)

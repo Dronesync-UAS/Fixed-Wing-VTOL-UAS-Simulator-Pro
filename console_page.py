@@ -130,6 +130,15 @@ TEMPLATE = """<!DOCTYPE html>
     padding: 4px 9px; border-radius: 6px; z-index: 3;
   }
   .fp-legend b { color: #fff; font-weight: 600; }
+  /* The classic page's stylesheet is still loaded for its canvas code, and
+     it pins #flightpath to a fixed 420px height. An id selector beats a
+     class one, so the map drew 420px tall inside a 900px hero and the rest
+     of the screen went black - which is exactly what "map view not fully
+     visible" looked like. Ancestor + id outranks it without !important. */
+  .view canvas#flightpath, #hero canvas#flightpath, .tile canvas#flightpath {
+    width: 100%; height: 100%; border-radius: 0; background: #0d1219;
+  }
+
   /* a tile is small: its own captions would cover the picture, and the
      attitude overlay is drawn for a full-size view - at tile size its pitch
      ladder and readout boxes are unreadable and spill over the picture. */
@@ -137,19 +146,37 @@ TEMPLATE = """<!DOCTYPE html>
 
   /* ---------- rails ---------- */
   .rail { position: absolute; z-index: 30; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; }
-  .rail::-webkit-scrollbar { width: 6px; }
-  .rail::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.22); border-radius: 3px; }
+  .rail { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.35) transparent; }
+  .rail::-webkit-scrollbar { width: 8px; }
+  .rail::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.35); border-radius: 4px; }
+  .rail::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.55); }
+  /* Each section collapses, because the right rail holds more controls than
+     fit on a laptop screen and an instructor only uses a few per lesson. */
   .rail .head {
-    font-size: 10px; font-weight: 600; color: var(--dim);
-    letter-spacing: 1px; text-transform: uppercase; margin-top: 2px;
+    width: 100%; display: flex; align-items: center; justify-content: space-between;
+    gap: 6px; background: none; border: 0; padding: 4px 2px; margin-top: 2px;
+    font-size: 10px; font-weight: 600; color: var(--dim); cursor: pointer;
+    letter-spacing: 1px; text-transform: uppercase; text-align: left;
   }
+  .rail .head:hover { color: var(--ink); }
+  .rail .head .chev { transition: transform 120ms; font-size: 9px; }
+  .rail .group.shut .chev { transform: rotate(-90deg); }
+  .rail .group.shut .items { display: none; }
+  .rail .items { display: flex; flex-direction: column; gap: 6px; }
   .rail .head.danger { color: #ffd0a8; }
   .rail hr { border: 0; border-top: 1px solid rgba(255,255,255,0.18); margin: 3px 0; width: 100%; }
+  /* Labels are written for a wide panel ("RETURN TO LAUNCH", "HOVER FLIGHT
+     (MC)") and the rail is 120px. Centre them, let them wrap to two tidy
+     lines, and leave the status dot out of the centring so a lit control
+     does not sit off-axis from an unlit one. */
   .rail button {
     width: 100%; min-height: 34px; border: 0; border-radius: 8px; cursor: pointer;
-    font-size: 12px; font-weight: 500; color: var(--ink); padding: 0 10px;
-    display: flex; align-items: center; gap: 7px; text-align: left;
+    font-size: 11.5px; font-weight: 500; color: var(--ink); padding: 5px 8px;
+    line-height: 1.2; display: flex; align-items: center; justify-content: center;
+    gap: 6px; text-align: center; position: relative;
   }
+  .rail button .dot { position: absolute; left: 7px; top: 50%; margin-top: -4px; }
+  .rail button.has-dot { padding-left: 20px; }
   .rail button.normal { background: var(--btn); }
   .rail button.highlight { background: #b5730f; color: #1a1205; font-weight: 600; }
   .rail button.arm { background: rgba(31,138,76,0.95); font-weight: 600; justify-content: center; }
@@ -363,7 +390,8 @@ SCRIPT = """
   var state = {
     hero: SAVED.hero || 'chase',
     layout: SAVED.layout || 'pilot',
-    tiles: SAVED.tiles || {}
+    tiles: SAVED.tiles || {},
+    shut: SAVED.shut || []
   };
 
   var el = function (id) { return document.getElementById(id); };
@@ -523,6 +551,24 @@ SCRIPT = """
     t.querySelector('.bar').addEventListener('mousedown', function (e) { startDrag(side, 'move', e); });
     t.querySelector('.grip').addEventListener('mousedown', function (e) { startDrag(side, 'resize', e); });
     t.querySelector('.body').addEventListener('click', function () { setHero(t.dataset.view); });
+  });
+
+  // ---------- collapsible rail sections ----------
+  function applySections() {
+    document.querySelectorAll('.rail .group').forEach(function (g) {
+      g.classList.toggle('shut', state.shut.indexOf(g.dataset.section) !== -1);
+    });
+  }
+  document.querySelectorAll('.rail').forEach(function (rail) {
+    rail.addEventListener('click', function (e) {
+      var head = e.target.closest('.head');
+      if (!head) { return; }
+      var id = head.parentNode.dataset.section;
+      var at = state.shut.indexOf(id);
+      if (at === -1) { state.shut.push(id); } else { state.shut.splice(at, 1); }
+      applySections();
+      save();
+    });
   });
 
   // ---------- controls ----------
@@ -732,6 +778,7 @@ SCRIPT = """
   // ---------- go ----------
   applyLayout();
   applyHero();
+  applySections();
   refreshTelemetry(); refreshFailures(); refreshLink(); refreshCap();
   setInterval(refreshTelemetry, 500);
   setInterval(refreshFailures, 1000);

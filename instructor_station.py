@@ -106,7 +106,7 @@ def write_layout(data):
 # where the instructor has dragged the two corner tiles. Separate key, so a
 # saved panel layout from the classic page is untouched and either page can
 # be used without destroying the other's arrangement.
-CONSOLE_DEFAULT = {"hero": "chase", "layout": "pilot", "tiles": {}}
+CONSOLE_DEFAULT = {"hero": "chase", "layout": "pilot", "tiles": {}, "shut": None}
 CONSOLE_HEROES = ("chase", "nose", "map")
 CONSOLE_LAYOUTS = ("pilot", "station")
 TILE_MIN_W, TILE_MAX_W = 150, 520
@@ -126,7 +126,21 @@ def read_console_layout():
     if isinstance(tiles, dict):
         out["tiles"] = {k: v for k, v in tiles.items()
                         if k in ("left", "right") and isinstance(v, dict)}
+    shut = saved.get("shut")
+    out["shut"] = [str(x)[:60] for x in shut] if isinstance(shut, list) else None
     return out
+
+
+def console_state_for_page():
+    """The saved console state, with the first-run defaults filled in.
+
+    A console that has never been arranged starts with the occasional
+    sections collapsed, so the right rail fits a laptop screen without
+    scrolling to find Freeze."""
+    state = read_console_layout()
+    if state["shut"] is None:
+        state["shut"] = list(RAIL_SHUT_BY_DEFAULT)
+    return state
 
 
 def write_console_layout(data):
@@ -155,6 +169,10 @@ def write_console_layout(data):
             continue
         tiles[side] = {"x": max(0, x), "y": max(0, y), "w": w, "h": h}
     clean["tiles"] = tiles
+
+    shut = data.get("shut")
+    clean["shut"] = ([str(x)[:60] for x in shut if isinstance(x, str)][:40]
+                     if isinstance(shut, list) else [])
 
     existing = read_layout()
     existing["console"] = clean
@@ -222,6 +240,43 @@ RAIL_ORDER = {
     "Failure Injection": ["gps_failure", "data_link_loss", "rc_signal_loss",
                           "engine_failure", "motor_failure"],
 }
+
+
+# Labels written for a wide panel do not fit a 120px rail. These are the
+# rail's own shorter names; the plugin's own label is used for anything not
+# listed, and the classic page is untouched.
+RAIL_LABELS = {
+    "rtl": "Return to launch",
+    "set_home": "Set home here",
+    "hover_flight": "Hover (MC)",
+    "forward_flight": "Forward (FW)",
+    "mode_manual": "Manual",
+    "mode_position": "Position",
+    "flight_termination": "TERMINATE",
+    "gps_failure": "GPS failure",
+    "data_link_loss": "Data link (C2)",
+    "rc_signal_loss": "RC signal loss",
+    "engine_failure": "Engine failure",
+    "motor_failure": "Motor failure",
+    "reset_spawn": "Reset to spawn",
+    "reset_scenario": "Reset scenario",
+    "freeze": "Freeze / resume",
+    "environment": "Load area",
+    "external_view": "Set view",
+    "start_stabilizer": "Stabiliser",
+    "start_video": "FPV video",
+    "motor_test_5": "Motor 5 (pusher)",
+    "motor_test_1": "Motor 1",
+    "motor_test_2": "Motor 2",
+    "motor_test_3": "Motor 3",
+    "motor_test_4": "Motor 4",
+    "weather": "Set weather",
+    "wind_gust": "Wind on / off",
+}
+
+# Sections that start collapsed on a console that has never been arranged:
+# the ones an instructor opens occasionally rather than every lesson.
+RAIL_SHUT_BY_DEFAULT = ["function-test", "experimental-in-development"]
 
 
 def _rail_sorted(cat, items):
@@ -365,22 +420,27 @@ def render_rail(category_names):
             continue
         short = cat.replace(" - In Development", "")
         danger = " danger" if cat in ("Failure Injection", "Emergency") else ""
-        html += f'<div class="head{danger}">{short}</div>'
+        section = _panel_id(cat)
+        html += (f'<div class="group" data-section="{section}">'
+                 f'<button class="head{danger}">{short}<span class="chev">&#9660;</span></button>'
+                 f'<div class="items">')
         for p in _rail_sorted(cat, items):
             dot = ""
             klass = p["style"]
             if p["id"] in status:
                 dot = f'<span class="dot{" on" if status[p["id"]] else ""}" id="dot-{p["id"]}"></span>'
+                klass += " has-dot"
                 klass += " on" if status[p["id"]] else ""
             if p["id"] == "arm":
                 klass += " arm"
             elif p["id"] == "disarm":
                 klass += " disarm"
+            label = RAIL_LABELS.get(p["id"], p["label"])
             button = (f'<button id="btn-{p["id"]}" class="{klass}" '
-                      f'onclick="send(\'{p["id"]}\')">{dot}{p["label"]}</button>')
+                      f'onclick="send(\'{p["id"]}\')">{dot}{label}</button>')
             fields = _render_inputs(p)
             html += f'<div class="stack">{fields}{button}</div>' if fields else button
-        html += "<hr>"
+        html += "</div></div>"
     return html
 
 
@@ -392,7 +452,7 @@ def render_console():
     page = page.replace("__LEFT_RAIL__", render_rail(LEFT_CATEGORIES))
     page = page.replace("__RIGHT_RAIL__", render_rail(RIGHT_CATEGORIES))
     script = console_page.SCRIPT
-    script = script.replace("__SAVED__", json.dumps(read_console_layout()))
+    script = script.replace("__SAVED__", json.dumps(console_state_for_page()))
     script = script.replace("__LIMITS__", json.dumps({
         "range_m": LIMITS["range_m"],
         "ceiling_m": LIMITS["ceiling_m"],

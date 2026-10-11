@@ -95,8 +95,7 @@ with tempfile.TemporaryDirectory() as tmp:
     print("4. it is the cheap camera it claims to be")
     width = int(camera.findtext("./camera/image/width"))
     rate = float(camera.findtext("update_rate"))
-    check("small (%d px wide, under the nose camera's 1280)" % width,
-          width <= 800)
+    check("no bigger than the nose camera (%d px wide)" % width, width <= 1280)
     check("slow (%.0f Hz)" % rate, rate <= 20)
 
     print("5. the station would subscribe to exactly what this publishes")

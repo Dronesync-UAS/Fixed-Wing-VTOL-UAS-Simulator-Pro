@@ -155,8 +155,14 @@ class CameraFeed:
 nose = CameraFeed("nose", sim_target.camera_topic, 1280, 960)
 # Smaller, lower quality and slower than the nose camera on purpose: it is a
 # situational view of where the aircraft is, not an instrument.
-chase = CameraFeed("chase", sim_target.chase_camera_topic, 640, 360,
-                   quality=60, frame_interval_s=1 / 15.0)
+# RAISED 11 Oct 2026 from 640x360. At that size it was being stretched
+# across a 1400px hero and looked it - "chase view resolution is very poor".
+# 1280x720 is the hero's own scale, and the station reported 30 fps with the
+# smaller camera already running, so there is headroom. If the simulator
+# slows after this, the camera's <image> block in the aircraft model is where
+# to turn it back down.
+chase = CameraFeed("chase", sim_target.chase_camera_topic, 1280, 720,
+                   quality=72, frame_interval_s=1 / 15.0)
 
 FEEDS = {"nose": nose, "chase": chase}
 
