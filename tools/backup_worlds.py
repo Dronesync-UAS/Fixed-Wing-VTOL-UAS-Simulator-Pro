@@ -52,24 +52,31 @@ def human(size):
 def referenced_files(world_path):
     """Local files a world needs, as paths relative to the worlds directory.
 
-    Skips model:// and package:// URIs - those resolve to installed model
-    libraries, not files belonging to these worlds.
+    file:// is a local path, not a library lookup - these worlds reference
+    their heightmap as file://media/... - so the scheme is stripped and the
+    rest resolved against the worlds directory. model:// and package:// are
+    library lookups into installed models and are reported separately rather
+    than copied.
     """
     with open(world_path, errors="replace") as fh:
         text = fh.read()
 
-    found = {}
+    found, skipped = {}, []
     for raw in REF_PATTERN.findall(text):
-        if "://" in raw:
+        path = raw
+        if path.lower().startswith("file://"):
+            path = path[len("file://"):]
+        elif "://" in path:
+            skipped.append(raw)
             continue
-        candidate = os.path.normpath(os.path.join(PX4_WORLDS, raw))
+        candidate = os.path.normpath(os.path.join(PX4_WORLDS, path))
         # Don't follow a reference that climbs out of the worlds directory.
         if not candidate.startswith(os.path.realpath(PX4_WORLDS) + os.sep) and \
            not candidate.startswith(PX4_WORLDS + os.sep):
             found[raw] = None
             continue
         found[raw] = candidate if os.path.isfile(candidate) else None
-    return found
+    return found, skipped
 
 
 def main(apply):
@@ -85,10 +92,13 @@ def main(apply):
 
     to_copy = {}      # relative path -> absolute source
     missing = []      # references that could not be resolved
+    libraries = set() # model:// style lookups, not ours to copy
     for name in worlds:
         src = os.path.join(PX4_WORLDS, name)
         to_copy[name] = src
-        for raw, resolved in referenced_files(src).items():
+        refs, skipped = referenced_files(src)
+        libraries.update(skipped)
+        for raw, resolved in refs.items():
             if resolved:
                 rel = os.path.relpath(resolved, PX4_WORLDS)
                 to_copy[rel] = resolved
@@ -105,9 +115,15 @@ def main(apply):
         print(f"  {human(size):>9}  {rel}{flag}")
     print(f"\n  {human(total):>9}  total, {len(to_copy)} files")
 
+    if libraries:
+        print("\nLibrary lookups, not copied (these resolve to installed models,")
+        print("not to files belonging to these worlds):")
+        for raw in sorted(libraries):
+            print(f"  {raw}")
+
     if missing:
-        print("\nReferenced but not found as local files (left alone - these are")
-        print("probably installed models rather than part of these worlds):")
+        print("\nReferenced but NOT FOUND on disk - check these before relying on")
+        print("the backup, since the worlds expect them:")
         for name, raw in missing:
             print(f"  {name}: {raw}")
 
