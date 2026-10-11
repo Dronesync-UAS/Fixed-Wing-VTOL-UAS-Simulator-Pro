@@ -44,10 +44,15 @@ world -Z: straight down. Fog drifts and needs no rotation.
 
 Ogre's particle quota is 5000 per emitter (setParticleQuota(5000) in the
 same function). Particles alive at once is roughly rate x lifetime, so the
-rate ceiling is 5000/lifetime. Rain at 220/s with an 11 s lifetime sits at
-~2420; fog at 8/s with 25 s sits at ~200. The station's intensity settings
-stay under that ceiling on purpose - exceed it and Ogre silently stops
-emitting rather than erroring.
+rate ceiling is 5000/lifetime: ~200/s for fog's 25 s, ~1250/s for rain's
+4 s. The station's intensity settings stay under that ceiling on purpose -
+exceed it and Ogre silently stops emitting rather than erroring.
+
+Particle size is read as (width, height) ONLY. Ogre2ParticleEmitter uses
+particleSize[0] and particleSize[1] and never touches [2], so a value in Z
+is silently discarded. The first version of this file put rain's streak
+length in Z and got 8 cm squares - visible as "heavy rain is not much rain",
+which is exactly how a silently-ignored field presents.
 
 Ground height differs by world - Black Rock's playa is at ~1 m, Hoggar's
 clearing at ~605 m - so the model is placed at each world's own ground
@@ -97,14 +102,18 @@ BLOCK = """\
 {i}    <particle_emitter name="fog" type="box">
 {i}      <topic>{fog_topic}</topic>
 {i}      <emitting>false</emitting>
-{i}      <pose>0 0 55 0 0 0</pose>
-{i}      <size>240 240 40</size>
-{i}      <particle_size>14 14 14</particle_size>
+{i}      <!-- Tighter than the first attempt (was 240 x 240): the same
+{i}           particle budget spread over a quarter of the area is four times
+{i}           the obscuration. -->
+{i}      <pose>0 0 45 0 0 0</pose>
+{i}      <size>120 120 30</size>
+{i}      <!-- X and Y only; Z is ignored (see the rain emitter below). -->
+{i}      <particle_size>18 18 0</particle_size>
 {i}      <lifetime>25</lifetime>
 {i}      <min_velocity>0.1</min_velocity>
 {i}      <max_velocity>0.5</max_velocity>
 {i}      <scale_rate>0.5</scale_rate>
-{i}      <rate>8</rate>
+{i}      <rate>160</rate>
 {i}      <particle_scatter_ratio>0.9</particle_scatter_ratio>
 {i}      <material>
 {i}        <diffuse>0.85 0.87 0.90</diffuse>
@@ -117,14 +126,23 @@ BLOCK = """\
 {i}    <particle_emitter name="rain" type="box">
 {i}      <topic>{rain_topic}</topic>
 {i}      <emitting>false</emitting>
-{i}      <pose>0 0 95 0 1.5707963 0</pose>
-{i}      <size>140 140 0</size>
-{i}      <particle_size>0.08 0.08 0.70</particle_size>
-{i}      <lifetime>11</lifetime>
-{i}      <min_velocity>8</min_velocity>
-{i}      <max_velocity>11</max_velocity>
+{i}      <!-- 45 m, not 95: the fall time sets the lifetime, the lifetime sets
+{i}           the rate ceiling (quota/lifetime), and the rate sets how much
+{i}           rain you can actually see. Halving the drop roughly trebles the
+{i}           rain. 45 m at 12-16 m/s is ~3.2 s, inside the 4 s lifetime. -->
+{i}      <pose>0 0 45 0 1.5707963 0</pose>
+{i}      <size>70 70 0</size>
+{i}      <!-- Only X and Y are read - Ogre2ParticleEmitter passes them to
+{i}           setDefaultDimensions(width, height) and ignores Z. 0.12 x 2.0 is
+{i}           a falling streak; the first attempt put the length in Z and so
+{i}           rendered 8 cm squares, which is why heavy rain looked like
+{i}           almost nothing. -->
+{i}      <particle_size>0.12 2.0 0</particle_size>
+{i}      <lifetime>4</lifetime>
+{i}      <min_velocity>12</min_velocity>
+{i}      <max_velocity>16</max_velocity>
 {i}      <scale_rate>0</scale_rate>
-{i}      <rate>220</rate>
+{i}      <rate>450</rate>
 {i}      <particle_scatter_ratio>0.4</particle_scatter_ratio>
 {i}      <material>
 {i}        <diffuse>0.60 0.68 0.78</diffuse>

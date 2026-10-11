@@ -81,7 +81,7 @@ check("clear: both off",
 
 print("3. rates stay under Ogre's 5000-particle quota")
 # Lifetimes are fixed in the world file by tools/weather_apply.py.
-LIFETIME = {W.FOG_TOPIC: 25, W.RAIN_TOPIC: 11}
+LIFETIME = {W.FOG_TOPIC: 25, W.RAIN_TOPIC: 4}
 QUOTA = 5000
 for condition in W.CONDITIONS:
     _, sent = publish_for(condition)
@@ -133,6 +133,71 @@ for condition in W.CONDITIONS:
 print("9. gz is called with the right message type")
 publish_for("rain")
 check("logged to the event record", any(a[0] == "weather" for a in actions))
+
+print("10. the world geometry the rates assume")
+# Guards the bug that made the first live look say "heavy rain is not much
+# rain seen falling": Ogre reads particle_size as (width, height) and
+# ignores Z, so a streak length written into Z renders as a tiny square.
+import xml.etree.ElementTree as ET
+wspec = importlib.util.spec_from_file_location(
+    "weather_apply", os.path.join(REPO, "tools", "weather_apply.py"))
+WA = importlib.util.module_from_spec(wspec)
+wspec.loader.exec_module(WA)
+block = WA.BLOCK.format(i="", ground=1.3, fog_topic=WA.FOG_TOPIC,
+                        rain_topic=WA.RAIN_TOPIC)
+root = ET.fromstring("<world>" + block + "</world>")
+emitters = {e.get("name"): e for e in root.iter("particle_emitter")}
+check("both emitters defined", set(emitters) == {"fog", "rain"})
+
+for name, emitter in emitters.items():
+    size = [float(v) for v in emitter.findtext("particle_size").split()]
+    check("%s: particle width and height are non-zero" % name,
+          size[0] > 0 and size[1] > 0)
+    check("%s: nothing meaningful hidden in the ignored Z" % name,
+          size[2] == 0)
+
+rain = emitters["rain"]
+rsize = [float(v) for v in rain.findtext("particle_size").split()]
+check("rain particles are streaks, not squares (%.2f x %.2f)"
+      % (rsize[0], rsize[1]), rsize[1] >= 5 * rsize[0])
+
+# Rain must reach the ground inside its lifetime, or it vanishes mid-air.
+pose = [float(v) for v in rain.findtext("pose").split()]
+lifetime = float(rain.findtext("lifetime"))
+slowest = float(rain.findtext("min_velocity"))
+check("rain reaches the ground in %.1fs of %.1fs life"
+      % (pose[2] / slowest, lifetime), pose[2] / slowest <= lifetime)
+
+# Density is the whole point of the retune, so assert it rather than hope.
+# Fog and rain need different measures: fog has to OBSCURE, so what matters
+# is how many times over its billboards cover the footprint; rain has to be
+# SEEN FALLING without becoming a wall, so what matters is streaks per
+# square metre. One number for both would be meaningless.
+QUOTA = 5000
+for name, emitter in emitters.items():
+    is_fog = name == "fog"
+    heaviest = max(
+        float(p.split("rate: {data:")[1].split("}")[0])
+        for pair in W.CONDITIONS.values()
+        for p in (pair[0] if is_fog else pair[1],)
+        if "rate" in p)
+    box = [float(v) for v in emitter.findtext("size").split()]
+    footprint = max(box[0] * box[1], 1.0)
+    psize = [float(v) for v in emitter.findtext("particle_size").split()]
+    alive = heaviest * float(emitter.findtext("lifetime"))
+
+    # The original fault was rates at roughly a tenth of the quota, which
+    # looked like the feature not working.
+    check("%s: full intensity uses %.0f%% of the particle budget"
+          % (name, 100 * alive / QUOTA), alive >= 0.75 * QUOTA)
+
+    if is_fog:
+        coverage = alive * psize[0] * psize[1] / footprint
+        check("fog: billboards cover the cell %.0fx over" % coverage,
+              coverage >= 5)
+    else:
+        check("rain: %.2f streaks per square metre" % (alive / footprint),
+              alive / footprint >= 0.5)
 
 print()
 print("FAILED: %s" % fails if fails else "all checks passed")

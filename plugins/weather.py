@@ -31,8 +31,15 @@ RATES ARE CAPPED FOR A REASON
 Ogre holds 5000 particles per emitter (setParticleQuota(5000) in
 Ogre2ParticleEmitter::CreateParticleSystem). Particles alive at once is
 about rate x lifetime, so fog's 25 s lifetime caps it near 200/s and rain's
-11 s near 450/s. Past the quota Ogre silently stops emitting rather than
-reporting anything, so the settings below stay well under it.
+4 s near 1250/s. Past the quota Ogre silently stops emitting rather than
+reporting anything, so the settings below stay under it.
+
+REVISED 11 Oct 2026 after the first live look: "heavy rain is not much rain
+seen falling". Two causes, both real. The rates here were roughly a tenth of
+what the quota allows, and the rain emitter spawned over a 140 x 140 m box
+from 95 m up, which spread what little there was over 20,000 square metres.
+The world geometry was retightened in tools/weather_apply.py at the same
+time; these rates go with that geometry, so re-run it after pulling.
 """
 
 import subprocess
@@ -51,12 +58,12 @@ OFF = "emitting: {data: false}"
 # look round.
 CONDITIONS = {
     "clear": (OFF, OFF),
-    "haze": ("emitting: {data: true}, rate: {data: 4}", OFF),
-    "fog": ("emitting: {data: true}, rate: {data: 14}", OFF),
-    "rain": (OFF, "emitting: {data: true}, rate: {data: 120}"),
-    "heavy_rain": (OFF, "emitting: {data: true}, rate: {data: 300}"),
-    "fog_and_rain": ("emitting: {data: true}, rate: {data: 14}",
-                     "emitting: {data: true}, rate: {data: 120}"),
+    "haze": ("emitting: {data: true}, rate: {data: 40}", OFF),
+    "fog": ("emitting: {data: true}, rate: {data: 160}", OFF),
+    "rain": (OFF, "emitting: {data: true}, rate: {data: 450}"),
+    "heavy_rain": (OFF, "emitting: {data: true}, rate: {data: 1150}"),
+    "fog_and_rain": ("emitting: {data: true}, rate: {data: 160}",
+                     "emitting: {data: true}, rate: {data: 450}"),
 }
 
 LABELS = {
