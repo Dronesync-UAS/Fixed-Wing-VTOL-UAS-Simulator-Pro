@@ -7,14 +7,23 @@ from a bad state) without that extra complexity yet.
 
 import subprocess
 
+import sim_target
 from sim_target import MODEL, service
 from simulator_link import log_instructor_action
 
-SPAWN_POSE = "0,0,615.5,0,0,0"
 
 
 def reset_to_spawn():
-    x, y, z, roll, pitch, yaw = SPAWN_POSE.split(",")
+    # The spawn height belongs to the world, not to this plugin: Hoggar's
+    # clearing is at 605 m and Black Rock's playa at 1 m, so a fixed value
+    # here teleported the aircraft 600 m into the air on every world but
+    # one. Taken from the environment list instead, which is also what
+    # launches each world.
+    environment = sim_target.environment()
+    if environment is None:
+        return (f"Reset not sent - '{sim_target.WORLD}' is not in the "
+                "environment list, so its spawn height is unknown.")
+    x, y, z = 0.0, 0.0, environment["spawn_z"]
     req = (f"name: '{MODEL}', position: {{x: {x}, y: {y}, z: {z}}}, "
            f"orientation: {{x: 0, y: 0, z: 0, w: 1}}")
     subprocess.run([
