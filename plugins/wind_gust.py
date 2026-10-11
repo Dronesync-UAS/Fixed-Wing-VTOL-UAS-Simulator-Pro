@@ -32,6 +32,7 @@ the direction the wind comes FROM, in degrees true. 270 = a westerly.
 import math
 import subprocess
 
+import sim_target
 from sim_target import service
 from simulator_link import log_instructor_action
 
@@ -40,6 +41,23 @@ from simulator_link import log_instructor_action
 CALM = "linear_velocity: {x: 0, y: 0, z: 0}, enable_wind: true"
 
 state = {"active": False}
+
+
+def reset_state():
+    """Forget that wind was switched on.
+
+    Added 11 Oct 2026. Restarting the simulator or switching environment loads
+    a world whose <wind> is zero, but this plugin's state lived only in the
+    station - so the button kept showing its green "wind on" light while the
+    running world was calm, and worse, an instructor who believed wind was off
+    could leave it on across a restart. On 11 Oct an 8 m/s crosswind left
+    running this way pushed the aircraft out of a 1 m hover into the ground,
+    and was mistaken for a flight-control fault.
+    """
+    state["active"] = False
+
+
+sim_target.on_world_change(reset_state)
 
 
 def _wind_vector(speed_ms, direction_deg):

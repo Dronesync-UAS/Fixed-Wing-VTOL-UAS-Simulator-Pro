@@ -78,6 +78,10 @@ def select_environment(environment=DEFAULT_KEY):
     # stale home makes the range-from-home limit nonsense - it is computed
     # against a point that can be thousands of kilometres away.
     reset_flight_state()
+    # A fresh world loads with <wind> at zero, so anything holding state tied
+    # to the old world - the wind control's on/off light, for one - must
+    # forget it.
+    sim_target.world_changed()
     try:
         video_feed.resubscribe()
     except Exception as exc:                      # a camera that fails to

@@ -79,6 +79,28 @@ def remember(world):
         return f"could not save the choice ({exc.strerror})"
 
 
+# Things that hold state tied to the running world and must forget it when the
+# world changes. Plugins register here at import; the environment control calls
+# world_changed() after a switch. A registry rather than imports, because
+# plugins are loaded from files and are not importable by name.
+_on_world_change = []
+
+
+def on_world_change(callback):
+    _on_world_change.append(callback)
+    return callback
+
+
+def world_changed():
+    for callback in _on_world_change:
+        try:
+            callback()
+        except Exception:
+            # One plugin failing to reset must not abandon the rest, nor fail
+            # the switch itself.
+            pass
+
+
 def set_world(world):
     """Point the station at a different world, from now on.
 
