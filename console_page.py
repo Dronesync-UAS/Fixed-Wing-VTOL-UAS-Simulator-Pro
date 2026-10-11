@@ -114,7 +114,10 @@ TEMPLATE = """<!DOCTYPE html>
   #hero { position: absolute; overflow: hidden; background: #000; z-index: 10; }
   .view { position: absolute; inset: 0; background: #000; }
   .view img, .view canvas.fill { position: absolute; inset: 0; width: 100%; height: 100%; display: block; object-fit: cover; }
-  canvas.hud { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  /* z-index 2 is the whole reason the overlay is visible: the camera image
+     below is z-index 1, and a canvas with no z-index of its own painted
+     underneath it - the overlay was drawn every frame and never seen. */
+  canvas.hud { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; }
   /* Behind the picture, not over it. It was painting on top of a working
      feed because it comes later in the markup - "No chase camera yet"
      printed across a chase camera that was plainly working. */
@@ -156,25 +159,37 @@ TEMPLATE = """<!DOCTYPE html>
   .rail { position: absolute; z-index: 30; display: flex; flex-direction: column; overflow: hidden; }
   .rail .railbody { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 6px; overflow: auto; }
   .rail.floating { border-radius: 10px; box-shadow: 0 6px 22px rgba(0,0,0,0.55); }
+  /* The handle is on screen whether the panel is docked or floating. It was
+     only drawn once floating, so the one gesture that got a docked panel
+     moving - grabbing its top 10 pixels - had nothing to show for it, and
+     the rails read as fixed furniture. */
   .railbar {
-    display: none; align-items: center; justify-content: space-between; gap: 6px;
-    height: 22px; flex: none; padding: 0 6px; margin-bottom: 4px;
-    background: rgba(0,0,0,0.5); border-radius: 7px; cursor: grab;
-    font-size: 11px; font-weight: 600; color: var(--dim);
+    display: flex; align-items: center; justify-content: space-between; gap: 6px;
+    height: 24px; flex: none; padding: 0 5px; margin-bottom: 4px;
+    background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.16);
+    border-radius: 7px; cursor: grab;
+    font-size: 11px; font-weight: 600; color: var(--ink);
   }
-  .rail.floating .railbar { display: flex; }
+  .railbar:hover { background: rgba(255,255,255,0.19); }
+  .railbar:active { cursor: grabbing; }
+  .railbar .name { display: flex; align-items: center; gap: 5px; overflow: hidden; }
+  /* two columns of dots: the convention for "drag me" */
+  .railbar .dots {
+    width: 9px; height: 13px; flex: none; opacity: 0.75;
+    background-image: radial-gradient(circle, var(--ink) 1px, transparent 1.2px);
+    background-size: 4px 4px; background-position: 0 1px;
+  }
   .railbar .turn {
     width: 20px; height: 18px; min-height: 0; padding: 0; border: 0; border-radius: 4px;
     background: rgba(255,255,255,0.14); color: var(--ink); cursor: pointer;
     font-size: 11px; display: flex; align-items: center; justify-content: center;
   }
   .rail .railgrip {
-    position: absolute; right: 0; bottom: 0; width: 18px; height: 18px; display: none;
-    cursor: nwse-resize; border-radius: 0 0 9px 0;
+    position: absolute; right: 0; bottom: 0; width: 18px; height: 18px; display: block;
+    cursor: nwse-resize; border-radius: 0 0 9px 0; z-index: 2;
     background: linear-gradient(135deg, transparent 50%, rgba(255,255,255,0.8) 50% 58%,
                 transparent 58%, transparent 70%, rgba(255,255,255,0.8) 70% 78%, transparent 78%);
   }
-  .rail.floating .railgrip { display: block; }
 
   /* Turned on its side: sections run left to right, each with its buttons
      in a row, and the whole bar scrolls sideways instead of down. */
@@ -259,16 +274,19 @@ TEMPLATE = """<!DOCTYPE html>
   #bottom { position: absolute; left: 0; right: 0; bottom: 0; height: 104px; z-index: 30; display: flex; flex-direction: column; }
   #params { height: 62px; display: flex; align-items: center; padding: 0 16px; }
   #params .group { flex: 1 1 0; display: flex; justify-content: space-evenly; align-items: center; }
-  #params .gyrogap { width: 144px; flex: none; }
+  #params .gyrogap { width: 212px; flex: none; }
   #params .p { text-align: center; }
   #params .p .k { font-size: 10px; color: var(--dim); }
   #params .p .v { font-family: 'IBM Plex Mono', monospace; font-size: 20px; font-weight: 500; }
+  /* The limit row is tightened so it ends before the gyro's lower half,
+     which now reaches 12px from the bottom - at the old widths the
+     instrument sat on top of the speed figure. */
   #cap {
-    height: 42px; display: flex; align-items: center; gap: 24px; padding: 0 16px;
+    height: 42px; display: flex; align-items: center; gap: 14px; padding: 0 16px;
     border-top: 1px solid rgba(255,255,255,0.12); font-size: 12px; color: var(--dim);
   }
   #cap .lim { display: flex; align-items: center; gap: 8px; }
-  #cap .track { width: 110px; height: 6px; border-radius: 3px; background: rgba(255,255,255,0.2); position: relative; }
+  #cap .track { width: 72px; height: 6px; border-radius: 3px; background: rgba(255,255,255,0.2); position: relative; }
   #cap .track i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; background: var(--good); }
   #cap .val { font-family: 'IBM Plex Mono', monospace; color: var(--ink); }
   #cap .pill { display: flex; align-items: center; gap: 8px; border-radius: 999px; padding: 5px 13px; background: rgba(22,40,30,0.95); }
@@ -277,11 +295,15 @@ TEMPLATE = """<!DOCTYPE html>
 
   /* the gyro sits across the band's top edge: half in the view, half in
      the band. Drawn last in the markup so neither clips it. */
+  /* 184px across, centred on the band's top edge: bottom 12 + half of 184
+     puts the horizon exactly on the 104px band. The bezel, the glass and
+     the drop shadow are all drawn on the canvas, so the element itself
+     carries no background - a CSS ring would sit outside the painted rim. */
   #gyro {
-    position: absolute; left: 50%; bottom: 42px; transform: translateX(-50%);
-    width: 124px; height: 124px; border-radius: 50%; z-index: 50;
-    box-shadow: 0 0 0 3px rgba(255,255,255,0.75), 0 6px 20px rgba(0,0,0,0.6);
-    background: #10151d;
+    position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%);
+    width: 184px; height: 184px; border-radius: 50%; z-index: 50;
+    box-shadow: 0 8px 26px rgba(0,0,0,0.75);
+    background: transparent;
   }
 </style>
 </head>
@@ -367,12 +389,18 @@ TEMPLATE = """<!DOCTYPE html>
 </div>
 
 <div class="rail" id="rail-left">
-  <div class="railbar"><span>Flight</span><button class="turn" title="Turn this panel on its side" aria-label="Turn this panel on its side">&#8646;</button></div>
+  <div class="railbar" title="Drag to move this panel; its corner resizes it">
+    <span class="name"><i class="dots"></i>Flight</span>
+    <button class="turn" title="Turn this panel on its side" aria-label="Turn this panel on its side">&#8646;</button>
+  </div>
   <div class="railbody">__LEFT_RAIL__</div>
   <div class="railgrip"></div>
 </div>
 <div class="rail" id="rail-right">
-  <div class="railbar"><span>Instructor</span><button class="turn" title="Turn this panel on its side" aria-label="Turn this panel on its side">&#8646;</button></div>
+  <div class="railbar" title="Drag to move this panel; its corner resizes it">
+    <span class="name"><i class="dots"></i>Instructor</span>
+    <button class="turn" title="Turn this panel on its side" aria-label="Turn this panel on its side">&#8646;</button>
+  </div>
   <div class="railbody">__RIGHT_RAIL__</div>
   <div class="railgrip"></div>
 </div>
@@ -415,7 +443,7 @@ TEMPLATE = """<!DOCTYPE html>
   </div>
 </div>
 
-<canvas id="gyro" width="124" height="124"></canvas>
+<canvas id="gyro" width="184" height="184"></canvas>
 
 __EXTRA_STYLE__
 __CONSOLE_SCRIPT__
@@ -534,6 +562,14 @@ SCRIPT = """
              horizontal: false };
   }
 
+  // Lift a panel off its edge, keeping the shape it already had. A no-op
+  // once it is floating, so grabbing the handle a second time just moves it.
+  function undock(side) {
+    if (state.rails[side] && state.rails[side].w) { return; }
+    state.rails[side] = railHome(side);
+    applyLayout();
+  }
+
   var LIMITS_FOR = {
     tile: { minW: MIN_W, maxW: MAX_W, minH: MIN_H, maxH: MAX_H },
     rail: { minW: 96, maxW: 760, minH: 90, maxH: 2000 }
@@ -644,13 +680,17 @@ SCRIPT = """
     if (window.gcsRedraw) { window.gcsRedraw(); }
   });
   function endDrag() {
+    // The mask comes down whether or not a drag was running. Releasing the
+    // button outside the window used to leave it up, and with it covering
+    // everything at z-index 60 the whole console stopped taking clicks.
+    mask.style.display = 'none';
     if (!drag) { return; }
     drag = null;
-    mask.style.display = 'none';
     save();
   }
   mask.addEventListener('mouseup', endDrag);
-  mask.addEventListener('mouseleave', endDrag);
+  window.addEventListener('mouseup', endDrag);
+  window.addEventListener('blur', endDrag);
 
   ['left', 'right'].forEach(function (side) {
     var t = tiles[side];
@@ -663,12 +703,15 @@ SCRIPT = """
     var rail = el('rail-' + side);
     rail.querySelector('.railbar').addEventListener('mousedown', function (e) {
       if (e.target.closest('.turn')) { return; }
+      undock(side);
       startDrag('rail', side, 'move', e);
     });
     rail.querySelector('.railgrip').addEventListener('mousedown', function (e) {
+      undock(side);
       startDrag('rail', side, 'resize', e);
     });
     rail.querySelector('.turn').addEventListener('click', function () {
+      undock(side);
       var f = frameOf('rail', side);
       var turned = !f.horizontal;
       // Swap the long side with the short one, so turning a tall column
@@ -681,20 +724,6 @@ SCRIPT = """
     });
   });
 
-  // Undocking: grabbing a docked rail's section heading area is how it comes
-  // off the edge. The header strip is hidden while docked, so the first
-  // drag has to come from somewhere - the panel's own top 10 pixels.
-  ['left', 'right'].forEach(function (side) {
-    var rail = el('rail-' + side);
-    rail.addEventListener('mousedown', function (e) {
-      if (state.rails[side] && state.rails[side].w) { return; }
-      var box = rail.getBoundingClientRect();
-      if (e.clientY - box.top > 10) { return; }
-      state.rails[side] = railHome(side);
-      applyLayout();
-      startDrag('rail', side, 'move', e);
-    });
-  });
 
   // ---------- collapsible rail sections ----------
   function applySections() {
@@ -861,63 +890,142 @@ SCRIPT = """
   }
 
   // ---------- the gyro ----------
+  // Drawn as a real attitude indicator is: a metal bezel carrying a fixed
+  // roll scale, glass showing sky over ground with a labelled pitch ladder,
+  // and a fixed yellow aircraft symbol. The heading sits in a window in the
+  // lower half, where an EFIS puts it, rather than on a compass needle -
+  // a needle on an attitude indicator is not a thing real panels have.
+  var GY = 184;
   var gy = el('gyro'), gctx = gy.getContext('2d');
-  function drawGyro() {
-    var S = 124, c = S / 2;
-    gctx.clearRect(0, 0, S, S);
-    gctx.save();
-    gctx.beginPath(); gctx.arc(c, c, c - 1, 0, 7); gctx.clip();
 
+  function gyroFit() {
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    var px = Math.round(GY * dpr);
+    if (gy.width !== px) { gy.width = px; gy.height = px; }
+    gctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  function gyroBox(x, y, w, h, r) {
+    gctx.beginPath();
+    gctx.moveTo(x + r, y);
+    gctx.arcTo(x + w, y, x + w, y + h, r);
+    gctx.arcTo(x + w, y + h, x, y + h, r);
+    gctx.arcTo(x, y + h, x, y, r);
+    gctx.arcTo(x, y, x + w, y, r);
+    gctx.closePath();
+  }
+
+  function drawGyro() {
+    gyroFit();
+    var S = GY, c = S / 2, R = c - 13;
     var roll = telem.roll_deg || 0, pitch = telem.pitch_deg || 0;
-    var pxPerDeg = 1.5;
+    var pxPerDeg = R / 26;
+    gctx.clearRect(0, 0, S, S);
+
+    // --- the glass: sky over ground, rolling and pitching -------------
+    gctx.save();
+    gctx.beginPath(); gctx.arc(c, c, R, 0, 7); gctx.clip();
+
     gctx.save();
     gctx.translate(c, c);
     gctx.rotate(-roll * Math.PI / 180);
     gctx.translate(0, pitch * pxPerDeg);
-    gctx.fillStyle = '#4f9ad8'; gctx.fillRect(-S, -S, S * 2, S);
-    gctx.fillStyle = '#8d6a3f'; gctx.fillRect(-S, 0, S * 2, S);
-    gctx.strokeStyle = '#ffffff'; gctx.lineWidth = 2;
+
+    var sky = gctx.createLinearGradient(0, -S, 0, 0);
+    sky.addColorStop(0, '#17436f'); sky.addColorStop(1, '#5ba6dc');
+    gctx.fillStyle = sky; gctx.fillRect(-S, -S * 2, S * 2, S * 2);
+    var gnd = gctx.createLinearGradient(0, 0, 0, S);
+    gnd.addColorStop(0, '#946533'); gnd.addColorStop(1, '#3f2a14');
+    gctx.fillStyle = gnd; gctx.fillRect(-S, 0, S * 2, S * 2);
+
+    gctx.strokeStyle = '#ffffff'; gctx.lineWidth = 2.5;
     gctx.beginPath(); gctx.moveTo(-S, 0); gctx.lineTo(S, 0); gctx.stroke();
-    gctx.lineWidth = 1; gctx.strokeStyle = 'rgba(255,255,255,0.8)';
-    [-20, -10, 10, 20].forEach(function (d) {
-      var y = -d * pxPerDeg, half = (d % 20 === 0) ? 22 : 12;
+
+    gctx.font = '600 10px "IBM Plex Mono", monospace';
+    gctx.textAlign = 'center'; gctx.textBaseline = 'middle';
+    for (var d = -20; d <= 20; d += 5) {
+      if (d === 0) { continue; }
+      var y = -d * pxPerDeg, ten = (d % 10 === 0), half = ten ? 30 : 15;
+      gctx.lineWidth = ten ? 2 : 1.4;
+      gctx.strokeStyle = 'rgba(255,255,255,0.95)';
       gctx.beginPath(); gctx.moveTo(-half, y); gctx.lineTo(half, y); gctx.stroke();
+      if (ten) {
+        gctx.fillStyle = '#ffffff';
+        gctx.fillText(Math.abs(d), -half - 11, y);
+        gctx.fillText(Math.abs(d), half + 11, y);
+      }
+    }
+    gctx.restore();
+
+    // curved glass: light at the top, shaded at the bottom
+    var gloss = gctx.createLinearGradient(0, c - R, 0, c + R);
+    gloss.addColorStop(0, 'rgba(255,255,255,0.18)');
+    gloss.addColorStop(0.45, 'rgba(255,255,255,0)');
+    gloss.addColorStop(1, 'rgba(0,0,0,0.32)');
+    gctx.fillStyle = gloss; gctx.fillRect(c - R, c - R, R * 2, R * 2);
+    gctx.restore();
+
+    // --- the bezel, and the fixed roll scale it carries ---------------
+    var bez = gctx.createLinearGradient(0, 0, 0, S);
+    bez.addColorStop(0, '#5a6477'); bez.addColorStop(0.5, '#262c37'); bez.addColorStop(1, '#13171e');
+    gctx.lineWidth = c - R;
+    gctx.strokeStyle = bez;
+    gctx.beginPath(); gctx.arc(c, c, (c + R) / 2, 0, 7); gctx.stroke();
+    gctx.lineWidth = 1.5; gctx.strokeStyle = 'rgba(0,0,0,0.85)';
+    gctx.beginPath(); gctx.arc(c, c, R + 0.75, 0, 7); gctx.stroke();
+
+    gctx.strokeStyle = '#ffffff'; gctx.lineCap = 'butt';
+    [-60, -45, -30, -20, -10, 10, 20, 30, 45, 60].forEach(function (a) {
+      var ar = (a - 90) * Math.PI / 180;
+      var big = (a % 30 === 0), r2 = R + (c - R) * (big ? 0.92 : 0.6);
+      gctx.lineWidth = big ? 2.4 : 1.6;
+      gctx.beginPath();
+      gctx.moveTo(c + Math.cos(ar) * R, c + Math.sin(ar) * R);
+      gctx.lineTo(c + Math.cos(ar) * r2, c + Math.sin(ar) * r2);
+      gctx.stroke();
     });
-    gctx.restore();
-
-    // heading needle, red half to north
-    var hdg = (telem.heading_deg || 0) * Math.PI / 180;
-    gctx.save();
-    gctx.translate(c, c); gctx.rotate(hdg);
-    gctx.strokeStyle = '#ff4d4d'; gctx.lineWidth = 3; gctx.lineCap = 'round';
-    gctx.beginPath(); gctx.moveTo(0, 0); gctx.lineTo(0, -46); gctx.stroke();
-    gctx.strokeStyle = 'rgba(255,255,255,0.92)';
-    gctx.beginPath(); gctx.moveTo(0, 0); gctx.lineTo(0, 46); gctx.stroke();
-    gctx.restore();
-
-    // fixed aircraft reference
-    gctx.strokeStyle = '#ffc94d'; gctx.lineWidth = 4; gctx.lineCap = 'round';
-    gctx.beginPath();
-    gctx.moveTo(c - 30, c); gctx.lineTo(c - 8, c);
-    gctx.moveTo(c + 8, c); gctx.lineTo(c + 30, c);
-    gctx.stroke();
-    gctx.fillStyle = '#ffc94d';
-    gctx.beginPath(); gctx.arc(c, c, 3.5, 0, 7); gctx.fill();
-
-    // roll pointer at the top
-    gctx.fillStyle = '#ffc94d';
-    gctx.beginPath();
-    gctx.moveTo(c, 6); gctx.lineTo(c - 6, 15); gctx.lineTo(c + 6, 15);
-    gctx.closePath(); gctx.fill();
-    gctx.restore();
-
-    // heading, in the half that sits on the black band
     gctx.fillStyle = '#ffffff';
-    gctx.font = '600 15px "IBM Plex Mono", monospace';
-    gctx.textAlign = 'center';
-    gctx.shadowColor = 'rgba(0,0,0,0.85)'; gctx.shadowBlur = 4;
-    gctx.fillText(String(Math.round(telem.heading_deg || 0)).padStart(3, '0') + '\\u00b0', c, S - 10);
-    gctx.shadowBlur = 0;
+    gctx.beginPath();
+    gctx.moveTo(c, c - R); gctx.lineTo(c - 6, c - R - 9); gctx.lineTo(c + 6, c - R - 9);
+    gctx.closePath(); gctx.fill();
+
+    // the bank pointer, which rolls with the aircraft
+    var pa = (-roll - 90) * Math.PI / 180;
+    gctx.fillStyle = '#ffb02e';
+    gctx.beginPath();
+    gctx.moveTo(c + Math.cos(pa) * (R - 2), c + Math.sin(pa) * (R - 2));
+    gctx.lineTo(c + Math.cos(pa - 0.08) * (R - 15), c + Math.sin(pa - 0.08) * (R - 15));
+    gctx.lineTo(c + Math.cos(pa + 0.08) * (R - 15), c + Math.sin(pa + 0.08) * (R - 15));
+    gctx.closePath(); gctx.fill();
+
+    // --- the fixed aircraft symbol ------------------------------------
+    function wings() {
+      gctx.beginPath();
+      gctx.moveTo(c - 54, c); gctx.lineTo(c - 20, c); gctx.lineTo(c - 20, c + 10);
+      gctx.moveTo(c + 54, c); gctx.lineTo(c + 20, c); gctx.lineTo(c + 20, c + 10);
+      gctx.stroke();
+    }
+    gctx.lineCap = 'round'; gctx.lineJoin = 'round';
+    gctx.strokeStyle = 'rgba(0,0,0,0.8)'; gctx.lineWidth = 7.5; wings();
+    gctx.strokeStyle = '#ffc94d'; gctx.lineWidth = 4; wings();
+    gctx.fillStyle = 'rgba(0,0,0,0.8)';
+    gctx.beginPath(); gctx.arc(c, c, 5, 0, 7); gctx.fill();
+    gctx.fillStyle = '#ffc94d';
+    gctx.beginPath(); gctx.arc(c, c, 3, 0, 7); gctx.fill();
+
+    // --- heading window, in the half that sits on the black band ------
+    var hw = 58, hh = 22, hx = c - hw / 2, hy = c + R * 0.40;
+    gctx.fillStyle = 'rgba(6,9,13,0.92)';
+    gctx.strokeStyle = 'rgba(255,255,255,0.6)'; gctx.lineWidth = 1.5;
+    gyroBox(hx, hy, hw, hh, 4); gctx.fill(); gctx.stroke();
+    gctx.fillStyle = '#ffffff';
+    gctx.font = '600 16px "IBM Plex Mono", monospace';
+    gctx.textAlign = 'center'; gctx.textBaseline = 'middle';
+    gctx.fillText(String(Math.round(telem.heading_deg || 0)).padStart(3, '0') + '°',
+                  c, hy + hh / 2 + 1);
+    gctx.font = '600 8px -apple-system, sans-serif';
+    gctx.fillStyle = 'rgba(255,255,255,0.65)';
+    gctx.fillText('HDG', c, hy - 6);
   }
 
   // ---------- go ----------

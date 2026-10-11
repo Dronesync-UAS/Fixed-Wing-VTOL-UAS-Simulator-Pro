@@ -917,78 +917,125 @@ EXTRA_SCRIPT = """
     hctx.clearRect(0, 0, w, h);
     if (!w || !h || !document.getElementById('hud-on').checked) return;
 
+    // Every line goes down twice: a wide near-black casing first, then the
+    // bright line on top of it. Thin cyan hairlines on their own vanished
+    // against bright desert and sky - the casing is what makes the overlay
+    // readable over any picture, the same trick the map's track uses.
+    function cased(draw, colour, width) {
+      hctx.lineCap = 'round'; hctx.lineJoin = 'round';
+      hctx.strokeStyle = 'rgba(0,0,0,0.78)'; hctx.lineWidth = width + 3.5;
+      draw();
+      hctx.strokeStyle = colour; hctx.lineWidth = width;
+      draw();
+    }
+    function casedText(txt, x, y, font, colour) {
+      hctx.font = font;
+      hctx.lineJoin = 'round';
+      hctx.strokeStyle = 'rgba(0,0,0,0.85)'; hctx.lineWidth = 3.5;
+      hctx.strokeText(txt, x, y);
+      hctx.fillStyle = colour;
+      hctx.fillText(txt, x, y);
+    }
+
     var rollDeg = telem.roll_deg || 0;
     var pitchDeg = telem.pitch_deg || 0;
     var pxPerDeg = h / 50;
+    var LINE = '#ffffff';
 
     hctx.save();
     hctx.translate(cx, cy);
     hctx.rotate(-rollDeg * Math.PI / 180);
     hctx.translate(0, pitchDeg * pxPerDeg);
-    hctx.strokeStyle = 'rgba(120,220,255,0.9)';
-    hctx.fillStyle = 'rgba(120,220,255,0.95)';
-    hctx.lineWidth = 2;
-    hctx.font = '12px -apple-system, sans-serif';
     hctx.textAlign = 'left';
-    hctx.beginPath(); hctx.moveTo(-w, 0); hctx.lineTo(w, 0); hctx.stroke();
+    hctx.textBaseline = 'middle';
+
+    cased(function () {
+      hctx.beginPath(); hctx.moveTo(-w, 0); hctx.lineTo(w, 0); hctx.stroke();
+    }, LINE, 3.5);
+
     for (var d = -40; d <= 40; d += 10) {
       if (d === 0) continue;
       var y = -d * pxPerDeg;
-      var half = (d % 20 === 0) ? 74 : 42;
-      var tick = (d < 0) ? -7 : 7;
-      hctx.beginPath();
-      hctx.moveTo(-half, y + tick); hctx.lineTo(-half, y); hctx.lineTo(half, y); hctx.lineTo(half, y + tick);
-      hctx.stroke();
-      hctx.fillText(Math.abs(d), half + 6, y + 4);
-      hctx.fillText(Math.abs(d), -half - 20, y + 4);
+      var half = (d % 20 === 0) ? 80 : 46;
+      var tick = (d < 0) ? -9 : 9;
+      cased(function () {
+        hctx.beginPath();
+        hctx.moveTo(-half, y + tick); hctx.lineTo(-half, y);
+        hctx.lineTo(half, y); hctx.lineTo(half, y + tick);
+        hctx.stroke();
+      }, LINE, 2.5);
+      var lab = String(Math.abs(d));
+      hctx.textAlign = 'left';
+      casedText(lab, half + 8, y, '700 15px -apple-system, sans-serif', LINE);
+      hctx.textAlign = 'right';
+      casedText(lab, -half - 8, y, '700 15px -apple-system, sans-serif', LINE);
     }
     hctx.restore();
 
     // fixed aircraft reference
-    hctx.strokeStyle = '#ffd24a'; hctx.lineWidth = 3;
-    hctx.beginPath();
-    hctx.moveTo(cx - 70, cy); hctx.lineTo(cx - 24, cy); hctx.lineTo(cx - 12, cy + 12);
-    hctx.moveTo(cx + 70, cy); hctx.lineTo(cx + 24, cy); hctx.lineTo(cx + 12, cy + 12);
-    hctx.stroke();
-    hctx.fillStyle = '#ffd24a';
-    hctx.beginPath(); hctx.arc(cx, cy, 3, 0, 7); hctx.fill();
+    cased(function () {
+      hctx.beginPath();
+      hctx.moveTo(cx - 78, cy); hctx.lineTo(cx - 26, cy); hctx.lineTo(cx - 13, cy + 14);
+      hctx.moveTo(cx + 78, cy); hctx.lineTo(cx + 26, cy); hctx.lineTo(cx + 13, cy + 14);
+      hctx.stroke();
+    }, '#ffc94d', 4.5);
+    hctx.fillStyle = 'rgba(0,0,0,0.8)';
+    hctx.beginPath(); hctx.arc(cx, cy, 5.5, 0, 7); hctx.fill();
+    hctx.fillStyle = '#ffc94d';
+    hctx.beginPath(); hctx.arc(cx, cy, 3.5, 0, 7); hctx.fill();
 
     // roll scale (fixed) + rolling pointer
-    hctx.strokeStyle = 'rgba(255,255,255,0.8)'; hctx.lineWidth = 2;
     var R = Math.min(w, h) * 0.36;
-    hctx.beginPath(); hctx.arc(cx, cy, R, Math.PI * 1.18, Math.PI * 1.82); hctx.stroke();
+    cased(function () {
+      hctx.beginPath(); hctx.arc(cx, cy, R, Math.PI * 1.18, Math.PI * 1.82); hctx.stroke();
+    }, LINE, 2.5);
     [-60, -45, -30, -15, 0, 15, 30, 45, 60].forEach(function (a) {
       var ar = (a - 90) * Math.PI / 180;
-      var inr = (a % 30 === 0) ? R - 13 : R - 8;
-      hctx.beginPath();
-      hctx.moveTo(cx + Math.cos(ar) * R, cy + Math.sin(ar) * R);
-      hctx.lineTo(cx + Math.cos(ar) * inr, cy + Math.sin(ar) * inr);
-      hctx.stroke();
+      var big = (a % 30 === 0);
+      var inr = big ? R - 16 : R - 10;
+      cased(function () {
+        hctx.beginPath();
+        hctx.moveTo(cx + Math.cos(ar) * R, cy + Math.sin(ar) * R);
+        hctx.lineTo(cx + Math.cos(ar) * inr, cy + Math.sin(ar) * inr);
+        hctx.stroke();
+      }, LINE, big ? 3 : 2);
     });
     var pa = (-rollDeg - 90) * Math.PI / 180;
-    hctx.fillStyle = '#ff5252';
+    hctx.strokeStyle = 'rgba(0,0,0,0.8)'; hctx.lineWidth = 2;
+    hctx.fillStyle = '#ffb02e';
     hctx.beginPath();
     hctx.moveTo(cx + Math.cos(pa) * R, cy + Math.sin(pa) * R);
-    hctx.lineTo(cx + Math.cos(pa - 0.045) * (R + 13), cy + Math.sin(pa - 0.045) * (R + 13));
-    hctx.lineTo(cx + Math.cos(pa + 0.045) * (R + 13), cy + Math.sin(pa + 0.045) * (R + 13));
-    hctx.closePath(); hctx.fill();
+    hctx.lineTo(cx + Math.cos(pa - 0.05) * (R + 16), cy + Math.sin(pa - 0.05) * (R + 16));
+    hctx.lineTo(cx + Math.cos(pa + 0.05) * (R + 16), cy + Math.sin(pa + 0.05) * (R + 16));
+    hctx.closePath(); hctx.fill(); hctx.stroke();
 
     // readout boxes: airspeed (L), altitude (R), heading (top)
-    function box(x, y, txt) {
-      hctx.fillStyle = 'rgba(0,0,0,0.5)';
-      hctx.fillRect(x - 46, y - 14, 92, 28);
-      hctx.strokeStyle = 'rgba(120,220,255,0.9)'; hctx.lineWidth = 1;
-      hctx.strokeRect(x - 46, y - 14, 92, 28);
-      hctx.fillStyle = '#dff6ff'; hctx.font = 'bold 14px -apple-system, sans-serif';
-      hctx.textAlign = 'center'; hctx.fillText(txt, x, y + 5);
+    function box(x, y, txt, cap) {
+      var bw = 104, bh = 34;
+      hctx.fillStyle = 'rgba(0,0,0,0.72)';
+      hctx.fillRect(x - bw / 2, y - bh / 2, bw, bh);
+      hctx.strokeStyle = 'rgba(255,255,255,0.9)'; hctx.lineWidth = 2;
+      hctx.strokeRect(x - bw / 2, y - bh / 2, bw, bh);
+      hctx.textAlign = 'center'; hctx.textBaseline = 'middle';
+      hctx.fillStyle = '#ffffff';
+      hctx.font = '700 18px "IBM Plex Mono", monospace';
+      hctx.fillText(txt, x, y + 1);
+      if (cap) {
+        hctx.font = '600 10px -apple-system, sans-serif';
+        hctx.fillStyle = 'rgba(255,255,255,0.7)';
+        hctx.fillText(cap, x, y - bh / 2 - 8);
+      }
     }
     var spd = (telem.airspeed_ms != null && telem.airspeed_ms > 0.2) ? telem.airspeed_ms : telem.groundspeed_ms;
-    box(64, cy, (spd != null ? spd.toFixed(0) : '--') + ' m/s');
-    box(w - 64, cy, (telem.altitude_m != null ? telem.altitude_m.toFixed(0) : '--') + ' m');
-    box(cx, 22, (telem.heading_deg != null ? telem.heading_deg : '--') + '\\u00b0');
+    box(76, cy, (spd != null ? spd.toFixed(0) : '--') + ' m/s', 'SPEED');
+    box(w - 76, cy, (telem.altitude_m != null ? telem.altitude_m.toFixed(0) : '--') + ' m', 'ALT AGL');
+    box(cx, 30, (telem.heading_deg != null ? Math.round(telem.heading_deg) : '--') + '°', null);
 
-    hctx.fillStyle = '#9fe6ff'; hctx.font = '11px -apple-system, sans-serif'; hctx.textAlign = 'center';
-    hctx.fillText('BANK ' + rollDeg.toFixed(0) + '\\u00b0   PITCH ' + pitchDeg.toFixed(0) + '\\u00b0', cx, h - 12);
+    // Top left, clear of the heading box above and of the gyro, which sits
+    // over the bottom centre of the picture.
+    hctx.textAlign = 'left'; hctx.textBaseline = 'middle';
+    casedText('BANK ' + rollDeg.toFixed(0) + '°   PITCH ' + pitchDeg.toFixed(0) + '°',
+              18, 24, '600 13px -apple-system, sans-serif', '#ffffff');
   }
 
   // ---------- Flight path plan view ----------

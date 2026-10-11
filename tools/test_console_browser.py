@@ -202,6 +202,30 @@ def main():
             check("%s tile placed on screen (%s)" % (side, box),
                   box and box["width"] > 100 and 0 <= box["x"] < 1600)
         check("gyro is drawn", page.locator("#gyro").is_visible())
+        gyro = page.locator("#gyro").bounding_box()
+        check("gyro is instrument-sized (%s px)" % round(gyro["width"]),
+              gyro["width"] >= 180)
+        band = page.evaluate(
+            "() => document.getElementById('bottom').getBoundingClientRect().top")
+        check("gyro straddles the band's top edge (centre %s vs edge %s)"
+              % (round(gyro["y"] + gyro["height"] / 2), round(band)),
+              abs((gyro["y"] + gyro["height"] / 2) - band) <= 3)
+        clash = page.evaluate(
+            "() => { const g = document.getElementById('gyro').getBoundingClientRect();"
+            " let worst = 0;"
+            " document.querySelectorAll('#cap .val, #cap .lim, #cap .pill').forEach(e => {"
+            "   const r = e.getBoundingClientRect();"
+            "   if (r.bottom > g.top && r.top < g.bottom)"
+            "     worst = Math.max(worst, Math.min(r.right, g.right) - Math.max(r.left, g.left));"
+            " }); return Math.round(worst); }")
+        check("gyro does not sit on the CAP722B row (%s px of overlap)" % clash,
+              clash <= 0)
+        check("gyro paints pixels, not an empty canvas",
+              page.evaluate(
+                  "() => { const c = document.getElementById('gyro');"
+                  " const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;"
+                  " let n = 0; for (let i = 3; i < d.length; i += 4) { if (d[i]) n++; }"
+                  " return n > c.width * c.height * 0.5; }"))
 
         print("3. the three views are each in exactly one place")
         for view in ("chase", "nose", "map"):
@@ -240,6 +264,26 @@ def main():
               sizing["css"] == sizing["client"] and sizing["css"] > 0)
         check("backing store matches CSS x devicePixelRatio",
               abs(sizing["backing"] - sizing["css"] * sizing["dpr"]) <= 1)
+
+        print("4b3. the attitude overlay sits over the nose camera, not under it")
+        # The overlay was drawn every frame and never seen: the camera image
+        # is z-index 1 and the canvas had none of its own, so it painted
+        # underneath. "Where is the gyroscope in nose view" was this.
+        page.click('#viewtabs button[data-view="nose"]')
+        page.wait_for_timeout(300)
+        order = page.evaluate(
+            "() => { const v = document.querySelector('#hero #view-nose');"
+            " const z = e => parseInt(getComputedStyle(e).zIndex, 10) || 0;"
+            " return {hud: z(v.querySelector('canvas.hud')), img: z(v.querySelector('img'))}; }")
+        check("overlay stacks above the picture (%s)" % order, order["hud"] > order["img"])
+        check("overlay has drawn something",
+              page.evaluate(
+                  "() => { const c = document.getElementById('hud');"
+                  " const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;"
+                  " let n = 0; for (let i = 3; i < d.length; i += 4) { if (d[i] > 40) n++; }"
+                  " return n > 2000; }"))
+        page.click('#viewtabs button[data-view="map"]')
+        page.wait_for_timeout(250)
 
         print("4c. rail sections collapse")
         head = page.locator("#rail-right .group .head").first
@@ -292,8 +336,17 @@ def main():
         rail = page.locator("#rail-right")
         before = rail.bounding_box()
         check("docked to start", "floating" not in (rail.get_attribute("class") or ""))
-        # Grab its top edge, which is how a docked rail comes off the wall.
-        page.mouse.move(before["x"] + 60, before["y"] + 4)
+        # The handle is on screen while docked - that is the whole point of
+        # it. A docked rail with no visible handle reads as fixed furniture,
+        # which is exactly how this looked before.
+        handle = page.locator("#rail-right .railbar")
+        check("handle visible while docked", handle.is_visible())
+        hb = handle.bounding_box()
+        check("handle inside the rail (%s wide in %s)"
+              % (round(hb["width"]), round(before["width"])),
+              hb["width"] > 40 and hb["y"] >= before["y"] - 1)
+        # Grab the handle, which is how a docked rail comes off the wall.
+        page.mouse.move(hb["x"] + hb["width"] / 2 - 14, hb["y"] + hb["height"] / 2)
         page.mouse.down()
         page.mouse.move(before["x"] - 300, before["y"] + 220, steps=10)
         page.mouse.up()
@@ -348,6 +401,15 @@ def main():
 
         if "--shot" in sys.argv:
             out = sys.argv[sys.argv.index("--shot") + 1]
+            # --nose puts the attitude overlay on screen over a stand-in for
+            # bright desert, which is the only way to judge whether it reads.
+            if "--nose" in sys.argv:
+                page.click('#viewtabs button[data-view="nose"]')
+                page.evaluate(
+                    "() => { const v = document.querySelector('#hero #view-nose');"
+                    " v.style.background = 'linear-gradient(#9ec9ea 0 45%, #cdab77 45% 100%)';"
+                    " v.querySelector('.nosignal').style.display = 'none'; }")
+                page.wait_for_timeout(400)
             page.screenshot(path=out)
             print("\n  screenshot: " + out)
         browser.close()
