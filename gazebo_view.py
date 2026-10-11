@@ -37,7 +37,7 @@ deprecated-but-present /gui/follow pair is used. If a later Gazebo drops them,
 
 import subprocess
 
-from sim_target import MODEL
+import sim_target
 
 # Offset per view as a fraction of the instructor's chosen distance, in the
 # aircraft's frame: (forward, left, up). Scaling with distance rather than
@@ -98,7 +98,7 @@ def set_view(view, distance_m):
 
     # Target first: the offset service ignores the request when no target is
     # set, so the order of these two calls matters.
-    error = _service("/gui/follow", "gz.msgs.StringMsg", f'data: "{MODEL}"')
+    error = _service("/gui/follow", "gz.msgs.StringMsg", f'data: "{sim_target.MODEL}"')
     if error:
         return f"View not changed - {error}"
 

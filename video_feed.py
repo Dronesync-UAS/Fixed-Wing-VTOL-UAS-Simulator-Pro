@@ -12,10 +12,8 @@ from gz.transport13 import Node
 from gz.msgs10.image_pb2 import Image as GzImage
 from PIL import Image
 
-from sim_target import MODEL, WORLD
+import sim_target
 
-CAMERA_TOPIC = (f"/world/{WORLD}/model/{MODEL}"
-                "/link/camera_pitch_link/sensor/fpv_camera/image")
 CAM_WIDTH = 1280
 CAM_HEIGHT = 960
 
@@ -49,10 +47,37 @@ def _on_image(msg: GzImage):
         _frame_times.append(time.monotonic())
 
 
+# The node holding the live subscription. Kept at module level so a world
+# switch can replace it - a Node that goes out of scope stops delivering.
+_node = {"ref": None, "topic": None}
+
+
+def current_topic():
+    return _node["topic"]
+
+
 def start_video_capture():
+    return resubscribe()
+
+
+def resubscribe():
+    """(Re)subscribe to the camera of whichever world is current.
+
+    Called at start-up, and again when the Environment panel switches world -
+    the topic has the world name in it, so a switch leaves the old
+    subscription pointed at a world that no longer exists. gz-transport has no
+    unsubscribe here, so the previous node is simply dropped; its world is
+    gone, so it delivers nothing.
+    """
+    topic = sim_target.camera_topic()
     node = Node()
-    node.subscribe(GzImage, CAMERA_TOPIC, _on_image)
-    return node  # keep a reference alive
+    node.subscribe(GzImage, topic, _on_image)
+    _node["ref"] = node
+    _node["topic"] = topic
+    with lock:
+        latest_jpeg["data"] = None
+        _frame_times.clear()
+    return node
 
 
 def mjpeg_generator():

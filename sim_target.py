@@ -1,5 +1,6 @@
 """
-Which Gazebo world and model the station talks to.
+Which Gazebo world and model the station talks to, and the list of training
+environments it can switch between.
 
 Until 11 Oct 2026 the world name "training_area" was spelled out separately in
 six files - freeze/resume, both reposition plugins, the camera topic, the
@@ -7,22 +8,100 @@ external-view helper and the wind control. Any new world meant finding and
 editing all six, and missing one would leave a control silently talking to a
 world that wasn't running.
 
-Set GCS_WORLD to point the station at a different world, matching the
-PX4_GZ_WORLD the simulator was launched with:
+The world can be set three ways, in this order of precedence:
 
-    GCS_WORLD=flat_test python3 instructor_station.py
+  1. GCS_WORLD in the environment, for a one-off session:
+         GCS_WORLD=flat_test python3 instructor_station.py
+  2. the last environment chosen from the station's Environment panel, which
+     is remembered in ~/uas_sim_logs/gcs_world.json
+  3. the default below
 
-The model name follows PX4's own convention of the airframe name plus an
-instance number, and is overridable the same way for the rare case of a
-second vehicle.
+RELIEF FIGURES are the height range within the station's 500 m range limit,
+measured from each world's own heightmap on 11 Oct 2026. They are the number
+that decides whether a world is usable: the station also enforces a 120 m
+ceiling, so a world with more relief than that inside the range limit has no
+airspace a student can legally fly in. Hoggar is listed at 0 m because its
+clearing was widened to 600 m that day - beyond 1 km it still rises 582 m.
 """
 
+import json
 import os
 
-WORLD = os.environ.get("GCS_WORLD", "training_area")
+DEFAULT_WORLD = "training_area"
+STATE_FILE = os.path.join(os.path.expanduser("~/uas_sim_logs"), "gcs_world.json")
+
+# key | world file name | spawn height (m) | relief within 500 m | description
+ENVIRONMENTS = [
+    {"key": "blackrock", "world": "training_area_blackrock", "spawn_z": 1.3,
+     "relief_m": 0.6,
+     "label": "Black Rock playa, Nevada - flattest"},
+    {"key": "nullarbor", "world": "training_area_nullarbor", "spawn_z": 11.3,
+     "relief_m": 7.9,
+     "label": "Nullarbor Plain, Australia - gently undulating"},
+    {"key": "uyuni", "world": "training_area_uyuni", "spawn_z": 8.3,
+     "relief_m": 9.5,
+     "label": "Salar de Uyuni, Bolivia - gently undulating"},
+    {"key": "hoggar", "world": "training_area", "spawn_z": 615.5,
+     "relief_m": 0.0,
+     "label": "Hoggar Mountains, Algeria - flat to 600 m, mountains beyond"},
+    {"key": "flat", "world": "flat_test", "spawn_z": 0.3,
+     "relief_m": 0.0,
+     "label": "Plain flat ground, no scenery - for isolating faults"},
+]
+
+BY_KEY = {env["key"]: env for env in ENVIRONMENTS}
+BY_WORLD = {env["world"]: env for env in ENVIRONMENTS}
+
+
+def _remembered():
+    try:
+        with open(STATE_FILE) as handle:
+            value = json.load(handle).get("world")
+        return value if value in BY_WORLD else None
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
+WORLD = os.environ.get("GCS_WORLD") or _remembered() or DEFAULT_WORLD
 MODEL = os.environ.get("GCS_MODEL", "standard_vtol_0")
+
+
+def remember(world):
+    """Persist the chosen world so the next start-up uses it. Failing to save
+    must not stop a switch that has otherwise worked, so this reports rather
+    than raises."""
+    try:
+        os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
+        with open(STATE_FILE, "w") as handle:
+            json.dump({"world": world}, handle)
+        return None
+    except OSError as exc:
+        return f"could not save the choice ({exc.strerror})"
+
+
+def set_world(world):
+    """Point the station at a different world, from now on.
+
+    Everything that talks to Gazebo builds its topic or service name through
+    service() or reads sim_target.WORLD at call time, so this takes effect
+    without a restart - except the camera feed, which holds a subscription and
+    is re-subscribed separately by video_feed.resubscribe().
+    """
+    global WORLD
+    WORLD = world
+    return remember(world)
+
+
+def environment():
+    """The entry for the current world, or None for a world not in the list."""
+    return BY_WORLD.get(WORLD)
 
 
 def service(name):
     """Full path of one of Gazebo's own world services, e.g. "control"."""
     return f"/world/{WORLD}/{name}"
+
+
+def camera_topic():
+    return (f"/world/{WORLD}/model/{MODEL}"
+            "/link/camera_pitch_link/sensor/fpv_camera/image")

@@ -34,7 +34,7 @@ import xml.etree.ElementTree as ET
 
 from PIL import Image
 
-from sim_target import WORLD
+import sim_target
 
 PX4_WORLDS = os.path.expanduser("~/PX4-Autopilot/Tools/simulation/gz/worlds")
 
@@ -50,8 +50,17 @@ _cache = {"png": None, "info": None}
 _lock = threading.Lock()
 
 
+def reset():
+    """Forget the rendered relief. Called when the world changes - the
+    backdrop is per-world, and a stale one would show the wrong terrain under
+    the new world's track."""
+    with _lock:
+        _cache["png"] = None
+        _cache["info"] = None
+
+
 def _world_file():
-    path = os.path.join(PX4_WORLDS, f"{WORLD}.sdf")
+    path = os.path.join(PX4_WORLDS, f"{sim_target.WORLD}.sdf")
     return path if os.path.isfile(path) else None
 
 
@@ -104,12 +113,12 @@ def info():
         world_path = _world_file()
         terrain = _find_terrain(world_path) if world_path else None
         if terrain is None:
-            result = {"available": False, "world": WORLD}
+            result = {"available": False, "world": sim_target.WORLD}
         else:
             _, size_x, size_y, pose_x, pose_y = terrain
             result = {
                 "available": True,
-                "world": WORLD,
+                "world": sim_target.WORLD,
                 "east_min": pose_x - size_x / 2.0,
                 "east_max": pose_x + size_x / 2.0,
                 "north_min": pose_y - size_y / 2.0,

@@ -32,7 +32,7 @@ the direction the wind comes FROM, in degrees true. 270 = a westerly.
 import math
 import subprocess
 
-from sim_target import WORLD
+from sim_target import service
 from simulator_link import log_instructor_action
 
 # Zero wind still carries enable_wind, so "calm" is an explicit command
@@ -56,7 +56,7 @@ def _publish(payload):
     """Returns None on success, or a message to show the instructor."""
     try:
         result = subprocess.run([
-            "gz", "topic", "-t", f"/world/{WORLD}/wind",
+            "gz", "topic", "-t", service("wind"),
             "-m", "gz.msgs.Wind",
             "-p", payload,
         ], capture_output=True, text=True)
