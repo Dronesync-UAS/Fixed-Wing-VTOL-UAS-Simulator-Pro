@@ -214,6 +214,23 @@ sidecar = sidecar[:sidecar.index("}, handle")]
 check("the token is never written into the cached image's sidecar",
       "token" not in sidecar)
 
+# --all once fetched twelve worlds, two of which were the same picture:
+# flat_test carries hoggar's coordinates as a placeholder.
+check("flat_test is left out of --all", "flat_test" in fs.SKIP_IN_ALL)
+all_worlds = [env["key"] for env in sim_target.ENVIRONMENTS
+              if fs.world_latlon(env["world"])
+              and env["world"] not in fs.SKIP_IN_ALL]
+check("so --all covers 11 worlds, not 12 (%d)" % len(all_worlds),
+      len(all_worlds) == 11 and "flat" not in all_worlds)
+check("but the bare world can still be asked for by name",
+      sim_target.BY_KEY.get("flat") is not None)
+
+# The credit line is attribution on its own; the token note belongs
+# with the provider list, not in the line printed over the imagery.
+for name in ("mapbox", "mapbox-outdoors"):
+    check("%s credit is attribution only" % name,
+          "token" not in fs.PROVIDERS[name]["credit"].lower())
+
 print()
 if fails:
     print("%d check(s) failed:" % len(fails))

@@ -87,6 +87,12 @@ CACHE_DIR = os.path.join(REPO, "sim", "worlds", "satellite")
 # gets committed. See the docstring.
 TOKEN_FILE = os.path.expanduser("~/.mapbox_token")
 
+# flat_test is the bare calibration world: no scenery, and its
+# coordinates are a placeholder rather than a place anyone flies,
+# so imagery over it is five megabytes of somewhere else. --all
+# leaves it out; asking for it by name still fetches it.
+SKIP_IN_ALL = {"flat_test"}
+
 HALF_EXTENT_M = 2000.0     # a 4 km square centred on home
 ZOOM = 16                  # about 1.8 m per pixel at 40 degrees latitude
 TIMEOUT = 30
@@ -113,8 +119,7 @@ PROVIDERS = {
     "mapbox": {
         "url": ("https://api.mapbox.com/v4/mapbox.satellite/"
                 "{z}/{x}/{y}@2x.jpg90?access_token={token}"),
-        "credit": "Mapbox Satellite (c) Mapbox (c) Maxar - needs an access "
-                  "token, and Mapbox's terms apply",
+        "credit": "Mapbox Satellite (c) Mapbox (c) Maxar",
         "needs_token": True,
         # @2x asks for 512 px tiles rather than 256, which is why this
         # one goes in at a zoom lower: the same ground at the same
@@ -128,8 +133,7 @@ PROVIDERS = {
     "mapbox-outdoors": {
         "url": ("https://api.mapbox.com/styles/v1/mapbox/outdoors-v12/tiles/"
                 "512/{z}/{x}/{y}@2x?access_token={token}"),
-        "credit": "Mapbox Outdoors (c) Mapbox (c) OpenStreetMap - needs an "
-                  "access token, and Mapbox's terms apply",
+        "credit": "Mapbox Outdoors (c) Mapbox (c) OpenStreetMap",
         "needs_token": True,
         "tile_px": 512,
         "zoom_offset": -1,
@@ -228,7 +232,8 @@ def main():
 
     if args.all:
         worlds = [env["key"] for env in sim_target.ENVIRONMENTS
-                  if world_latlon(env["world"])]
+                  if world_latlon(env["world"])
+                  and env["world"] not in SKIP_IN_ALL]
         print("Fetching %d environments from %s.\n" % (len(worlds), args.provider))
         failed = []
         for key in worlds:
@@ -251,7 +256,8 @@ def main():
             print(f"  {env['key']:11} {where:22} {'cached' if cached else ''}")
         print("\nProviders:")
         for name, provider in sorted(PROVIDERS.items()):
-            mark = (" (needs a token in ~/.mapbox_token)"
+            mark = (" - needs a token in ~/.mapbox_token, and "
+                    "Mapbox's terms apply"
                     if provider.get("needs_token") else "")
             print(f"  {name:16} {provider['credit']}{mark}")
         return 0
