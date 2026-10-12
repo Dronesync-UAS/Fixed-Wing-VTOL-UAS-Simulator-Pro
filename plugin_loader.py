@@ -46,6 +46,13 @@ import os
 PLUGIN_DIR = os.path.join(os.path.dirname(__file__), "plugins")
 
 
+# The plugins that were loaded, so one control can act on the others.
+# "New session" needs it: clearing a failure injection means pressing that
+# plugin's own toggle, and a plugin cannot import the station (the station
+# runs as __main__, so importing it would load a second copy of it).
+LOADED = []
+
+
 def load_plugins():
     plugins = []
     for filename in sorted(os.listdir(PLUGIN_DIR)):
@@ -59,4 +66,5 @@ def load_plugins():
             plugin = module.PLUGIN
             plugin["_module"] = module
             plugins.append(plugin)
+    LOADED[:] = plugins
     return plugins

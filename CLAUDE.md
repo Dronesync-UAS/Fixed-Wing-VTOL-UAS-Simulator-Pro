@@ -58,6 +58,13 @@ the low-altitude warning sounds:
 python3 tools/test_flight_display.py
 ```
 
+After changing ARM or NEW SESSION, run the recovery check - these two
+controls are the ones that bite hardest when they are wrong:
+
+```
+python3 tools/test_recovery.py
+```
+
 Other tools under `tools/` are self-describing; `--dry-run` and `--revert`
 exist on anything that edits world files, and world edits are always backed
 up and auto-restored if the result does not parse.

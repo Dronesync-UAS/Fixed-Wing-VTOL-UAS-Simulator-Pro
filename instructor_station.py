@@ -266,6 +266,11 @@ RAIL_ORDER = {
                     "mode_manual"],
     "Failure Injection": ["gps_failure", "data_link_loss", "rc_signal_loss",
                           "engine_failure", "motor_failure"],
+    # NEW SESSION first: it is the one an instructor reaches for between
+    # students, and alphabetical order buried it under the environment
+    # selector.
+    "Simulation Control": ["new_session", "environment", "freeze_resume",
+                           "reset_scenario", "reset_spawn", "set_home"],
 }
 
 
