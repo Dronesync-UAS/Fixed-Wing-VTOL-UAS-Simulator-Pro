@@ -105,18 +105,48 @@ ok("Gazebo is up", "%d topics" % len(topic_list))
 
 import sim_target                                            # noqa: E402
 
-print("  the station is set to world %r, model %r"
-      % (sim_target.WORLD, sim_target.MODEL))
+# WHICH WORLD THE STATION IS ON has to come from the station, not from
+# importing sim_target here. The station is normally started with
+# GCS_WORLD=<world> in its own window; this script has no such variable,
+# so its own import reads the REMEMBERED world from
+# ~/uas_sim_logs/gcs_world.json instead - which on 12 Oct 2026 made this
+# check report a mismatch that did not exist. The station publishes its
+# world in /terrain_info.
+station_world = None
+raw = station("/terrain_info")
+if raw:
+    try:
+        station_world = json.loads(raw).get("world")
+    except ValueError:
+        pass
+if station_world:
+    print("  the station says it is on world %r (model %r)"
+          % (station_world, sim_target.MODEL))
+    # Every camera and sensor topic below is built from sim_target.WORLD.
+    # Point it at the world the station is really on, or the expected
+    # topic names are the remembered world's and nothing matches.
+    sim_target.WORLD = station_world
+else:
+    station_world = sim_target.WORLD
+    print("  the station did not answer, so this is the REMEMBERED world "
+          "%r (model %r)" % (station_world, sim_target.MODEL))
 
 worlds_seen = sorted({t.split("/")[2] for t in topic_list
                       if t.startswith("/world/") and len(t.split("/")) > 2})
-if sim_target.WORLD in worlds_seen:
+if station_world in worlds_seen:
     ok("that world is the one Gazebo has loaded")
+elif len(worlds_seen) > 1:
+    # More than one world namespace in the topic list means a previous
+    # Gazebo left topics behind, or two are running.
+    bad("Gazebo shows more than one world: %s. The station is on %s"
+        % (", ".join(worlds_seen), station_world),
+        "stop everything and start again with tools/start_world.sh, which "
+        "kills the previous simulator first")
 else:
-    bad("Gazebo has %s loaded, the station expects %s"
-        % (", ".join(worlds_seen) or "no world", sim_target.WORLD),
-        "either restart Gazebo with the right world, or start the station "
-        "with GCS_WORLD=%s python3 instructor_station.py"
+    bad("Gazebo has %s loaded, the station is on %s"
+        % (", ".join(worlds_seen) or "no world", station_world),
+        "start the station in its own window with "
+        "GCS_WORLD=%s python3 instructor_station.py"
         % (worlds_seen[0] if worlds_seen else "training_area"))
 
 if any(("/model/%s/" % sim_target.MODEL) in t for t in topic_list):
@@ -146,6 +176,24 @@ for what, candidates, fix in CAMERAS:
         bad("%s camera is not publishing" % what,
             "this one ships with the aircraft - check PX4's model.sdf was "
             "not replaced by a PX4 update")
+    if not found:
+        print("       expected: %s" % candidates[0])
+
+# When a camera is missing, the useful thing is what Gazebo IS publishing
+# under that name - a sensor whose topic was overridden, or one that has
+# not been created yet, look identical until you see the list.
+image_topics = [t for t in topic_list
+                if t.endswith("/image") or "camera" in t.lower()]
+if image_topics:
+    print("\n  image topics Gazebo is actually publishing:")
+    for t in image_topics:
+        print("    " + t)
+else:
+    print("\n  Gazebo is publishing NO image topics at all. Every camera "
+          "sensor\n  failed to start, which is a rendering problem rather "
+          "than a missing\n  sensor - the laser rangefinder above also "
+          "needs rendering, so if that\n  one works, the cameras should "
+          "have.")
 
 if "/uas/payload/lrf" in topic_list:
     ok("laser rangefinder is publishing", "/uas/payload/lrf")
