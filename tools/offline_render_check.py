@@ -44,6 +44,9 @@ sl.link_health = {"last_msg_t": None}
 sl.command_acks = {}
 sl.MAV_RESULT_NAMES = {0: "accepted"}
 sl.send_command_and_wait = lambda *a, **k: (0, "accepted")
+sl.status_log = []
+sl.status_since = lambda *a, **k: []
+sl.wait_for_armed = lambda *a, **k: True
 sl.set_mode = lambda m, s=0, name=None: f"{name or 'mode'}: accepted by PX4."
 sys.modules["simulator_link"] = sl
 
@@ -80,9 +83,18 @@ print("plugins loaded:", len(mod.plugins))
 btns = mod.render_buttons()
 page = mod.PAGE_TEMPLATE.format(buttons=btns)
 page = page.replace('<div id="status">Ready.</div>', mod.EXTRA_PANELS + '<div id="status">Ready.</div>')
-page = page.replace("</body>", mod.EXTRA_STYLE + mod.EXTRA_SCRIPT + "</body>")
+# Assembled the way the server assembles it, flight display included -
+# this was building a page the server never serves, so the three tokens
+# below had been printing False since the display moved into its own
+# module and nothing noticed.
+import flight_display
+page = page.replace("</body>", mod.EXTRA_STYLE + mod.EXTRA_SCRIPT
+                    + mod._limits_script()
+                    + flight_display.STYLE + flight_display.script()
+                    + mod.LAYOUT_STYLE + mod.LAYOUT_SCRIPT + "</body>")
 print("full page assembled OK, length", len(page))
-for tok in ('id="hud"', 'id="flightpath"', 'fpv-wrap', "fetch('/flight_path')", "drawHud", "artificial", "roll_deg"):
+for tok in ('id="hud"', 'id="flightpath"', 'fpv-wrap', "fetch('/flight_path')",
+            "gcsDrawHud", "LOW ALTITUDE", "roll_deg", "GCS_LIMITS"):
     print(f"  contains {tok!r}:", tok in page)
 
 for pid in ("hold", "forward_flight", "hover_flight", "loiter", "mode_manual", "mode_position"):

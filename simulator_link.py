@@ -109,6 +109,15 @@ _ARM_BLOCKER_PREFIXES = ("preflight", "arming denied", "arm denied")
 _ARM_BLOCKER_MAX_AGE_S = 15.0
 _arm_blocker = {"text": None, "t": None}
 
+# Every STATUSTEXT PX4 sends, with the time it arrived, so a command can
+# report PX4's own words rather than only its COMMAND_ACK. A takeoff is the
+# case that needs it: PX4 accepts the command and THEN says what it is
+# really doing - "Using default takeoff altitude: 2.5 m", "Already higher
+# than takeoff altitude" - and none of that reaches the instructor through
+# the ack alone. Capped so a long session cannot grow it without bound.
+_STATUS_LOG_MAX = 60
+status_log = []
+
 # Link health, for the "how fresh is this data" readout (CAP722B 5.2(d)).
 # `last_msg_t` is a time.monotonic() stamp updated every time ANY MAVLink
 # message is processed; the instructor station turns it into an age.
@@ -305,6 +314,37 @@ def send_command_and_wait(command, *params, timeout=2.0):
     return None, "no acknowledgement from PX4"
 
 
+def status_since(since_t, contains=()):
+    """PX4's STATUSTEXT lines since a given time.monotonic() stamp.
+
+    `contains` narrows it to lines holding one of those words (lower case),
+    so a command can quote the messages that belong to it rather than
+    whatever else PX4 happened to say."""
+    out = []
+    for entry in list(status_log):
+        if entry["t"] < since_t:
+            continue
+        low = entry["text"].lower()
+        if contains and not any(word in low for word in contains):
+            continue
+        out.append(entry["text"])
+    return out
+
+
+def wait_for_armed(timeout=4.0):
+    """Block until PX4's heartbeat says the aircraft is armed, or give up.
+
+    The arming state comes from HEARTBEAT, which arrives at 1 Hz, so a
+    command sent the instant after an ARM ack would otherwise still see
+    the old value."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if telemetry.get("armed"):
+            return True
+        time.sleep(0.05)
+    return bool(telemetry.get("armed"))
+
+
 def set_mode(main_mode, sub_mode=0, name=None):
     """Switch PX4 flight mode via MAV_CMD_DO_SET_MODE and report back what
     PX4 actually did. param2/param3 carry the PX4 custom main/sub mode
@@ -435,6 +475,8 @@ def _read_one_message():
             if isinstance(text, bytes):
                 text = text.decode("utf-8", "replace")
             text = text.strip()
+            status_log.append({"text": text, "t": time.monotonic()})
+            del status_log[:-_STATUS_LOG_MAX]
             if text.lower().startswith(_ARM_BLOCKER_PREFIXES):
                 _arm_blocker["text"] = text
                 _arm_blocker["t"] = time.monotonic()

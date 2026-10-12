@@ -52,6 +52,9 @@ sl.master = _M()
 for name in ("reset_flight_state", "log_instructor_action", "mark_failure_injected",
              "mark_failure_cleared", "start_background_script", "stop_background_script"):
     setattr(sl, name, lambda *a, **k: None)
+sl.status_log = []
+sl.status_since = lambda *a, **k: []
+sl.wait_for_armed = lambda *a, **k: True
 sl.running_processes = {}
 sl.RESPONSE_TIMEOUT_S = 45
 sl.flight_path = [(23.5, 6.5, 100.0, 1.0), (23.5012, 6.5009, 120.0, 2.0)]
@@ -305,6 +308,28 @@ def main():
                   " const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;"
                   " let n = 0; for (let i = 3; i < d.length; i += 4) { if (d[i] > 40) n++; }"
                   " return n > 2000; }"))
+        print("4b4. the gauge keeps clear of the controls and the top bar")
+        # Pilot floats the two control columns over the picture, and the
+        # main screen runs behind the top bar. The tapes and the corner
+        # figures were printing underneath both. The horizon and the pitch
+        # ladder still run the full width - they have to line up with the
+        # real horizon - so what is checked is the margin the gauge works
+        # out for everything else.
+        page.click('#layouttabs button[data-layout="pilot"]')
+        page.wait_for_timeout(500)
+        safe = page.evaluate("() => window.gcsHudSafe('#hero canvas.hud')")
+        for sel, side in (("#rail-left", "left"), ("#rail-right", "right"),
+                          ("#topbar", "top")):
+            r = page.locator(sel).bounding_box()
+            if side == "left":
+                ok, got, want = safe["left"] >= r["x"] + r["width"], safe["left"], r["x"] + r["width"]
+            elif side == "right":
+                ok, got, want = safe["right"] <= r["x"], safe["right"], r["x"]
+            else:
+                ok, got, want = safe["top"] >= r["y"] + r["height"], safe["top"], r["y"] + r["height"]
+            check("gauge %s margin clears %s (%s vs %s)"
+                  % (side, sel, round(got), round(want)), ok)
+
         page.click('#viewtabs button[data-view="map"]')
         page.wait_for_timeout(250)
 
@@ -426,6 +451,10 @@ def main():
             out = sys.argv[sys.argv.index("--shot") + 1]
             # --nose puts the attitude overlay on screen over a stand-in for
             # bright desert, which is the only way to judge whether it reads.
+            if "--layout" in sys.argv:
+                page.click('#layouttabs button[data-layout="%s"]'
+                           % sys.argv[sys.argv.index("--layout") + 1])
+                page.wait_for_timeout(400)
             if "--view" in sys.argv:
                 page.click('#viewtabs button[data-view="%s"]'
                            % sys.argv[sys.argv.index("--view") + 1])

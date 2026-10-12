@@ -187,6 +187,47 @@ SCRIPT = """
   }
 
   // ---------- drawing helpers ----------
+  // ---------- where it is safe to draw ----------
+  // The main screen runs edge to edge and behind the top bar, so the tapes
+  // were printing under the two control columns and the corner figures
+  // under the bar itself. Rather than guess at margins that would be wrong
+  // the moment a panel is moved, measure what is actually on top of this
+  // canvas and keep inside it.
+  var OBSTRUCTIONS = ['#topbar', '#rail-left', '#rail-right', '#bottom'];
+  var GAP = 12;
+
+  function safeArea(cv) {
+    var box = cv.getBoundingClientRect();
+    var area = { left: GAP, right: GAP, top: GAP, bottom: GAP };
+    var midX = box.left + box.width / 2, midY = box.top + box.height / 2;
+    OBSTRUCTIONS.forEach(function (sel) {
+      var el = document.querySelector(sel);
+      if (!el) { return; }
+      var r = el.getBoundingClientRect();
+      if (!r.width || !r.height) { return; }
+      // Only what actually overlaps this canvas counts.
+      if (r.right <= box.left || r.left >= box.right
+          || r.bottom <= box.top || r.top >= box.bottom) { return; }
+      // Which side it is on, by where it sits rather than by whether it
+      // touches the edge: in the Pilot layout the control columns float ten
+      // pixels clear of the edge, and an edge test missed them completely.
+      var tall = Math.min(r.bottom, box.bottom) - Math.max(r.top, box.top)
+                 > box.height * 0.4;
+      var wide = Math.min(r.right, box.right) - Math.max(r.left, box.left)
+                 > box.width * 0.4;
+      if (tall && r.right <= midX) {
+        area.left = Math.max(area.left, r.right - box.left + GAP);
+      } else if (tall && r.left >= midX) {
+        area.right = Math.max(area.right, box.right - r.left + GAP);
+      } else if (wide && r.bottom <= midY) {
+        area.top = Math.max(area.top, r.bottom - box.top + GAP);
+      } else if (wide && r.top >= midY) {
+        area.bottom = Math.max(area.bottom, box.bottom - r.top + GAP);
+      }
+    });
+    return area;
+  }
+
   function cased(ctx, draw, colour, width) {
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     ctx.strokeStyle = 'rgba(0,0,0,0.78)'; ctx.lineWidth = width + 3.5;
@@ -312,6 +353,12 @@ SCRIPT = """
     var roll = t.roll_deg || 0, pitch = t.pitch_deg || 0;
     var pxPerDeg = h / 46;
 
+    // The horizon and the ladder belong on the picture's own centre - they
+    // have to line up with the real horizon in the camera image, so they
+    // ignore the safe area. Everything else lives inside it.
+    var safe = safeArea(cv);
+    var sL = safe.left, sR = w - safe.right, sT = safe.top, sB = h - safe.bottom;
+
     // --- pitch ladder and horizon ---
     ctx.save();
     ctx.translate(cx, cy);
@@ -389,23 +436,23 @@ SCRIPT = """
     ctx.closePath(); ctx.fill(); ctx.stroke();
 
     // --- the tapes ---
-    var tapeW = 60, tapeH = Math.min(h * 0.46, 300);
+    var tapeW = 60, tapeH = Math.min((sB - sT) * 0.56, 300);
     var speed = (t.airspeed_ms != null && t.airspeed_ms > 0.2)
               ? t.airspeed_ms : (t.groundspeed_ms || 0);
-    tape(ctx, 20, cy - tapeH / 2, tapeW, tapeH, speed, 24, 5, 1, -1, null);
-    tapeReadout(ctx, 20, cy, tapeW, speed.toFixed(1));
-    label(ctx, 'm/s', 20 + tapeW / 2, cy - tapeH / 2 - 11,
+    tape(ctx, sL, cy - tapeH / 2, tapeW, tapeH, speed, 24, 5, 1, -1, null);
+    tapeReadout(ctx, sL, cy, tapeW, speed.toFixed(1));
+    label(ctx, 'm/s', sL + tapeW / 2, cy - tapeH / 2 - 11,
           '600 11px -apple-system, sans-serif', INK);
 
     var alt = (t.altitude_m != null) ? t.altitude_m : 0;
     var ceiling = (window.GCS_LIMITS && window.GCS_LIMITS.ceiling_m) || null;
-    tape(ctx, w - 20 - tapeW, cy - tapeH / 2, tapeW, tapeH, alt, 60, 20, 5, 1, ceiling);
-    tapeReadout(ctx, w - 20 - tapeW, cy, tapeW, alt.toFixed(1));
-    label(ctx, 'm AGL', w - 20 - tapeW / 2, cy - tapeH / 2 - 11,
+    tape(ctx, sR - tapeW, cy - tapeH / 2, tapeW, tapeH, alt, 60, 20, 5, 1, ceiling);
+    tapeReadout(ctx, sR - tapeW, cy, tapeW, alt.toFixed(1));
+    label(ctx, 'm AGL', sR - tapeW / 2, cy - tapeH / 2 - 11,
           '600 11px -apple-system, sans-serif', INK);
 
     // --- the heading tape ---
-    headingTape(ctx, cx, 10, Math.min(w * 0.46, 420), t.heading_deg || 0);
+    headingTape(ctx, cx, sT, Math.min((sR - sL) * 0.46, 420), t.heading_deg || 0);
 
     // --- the message, colour coded ---
     var msg = banner();
@@ -414,7 +461,7 @@ SCRIPT = """
     var font = '800 30px -apple-system, sans-serif';
     ctx.font = font;
     var mw = ctx.measureText(msg.text).width + 34;
-    var my = cy - Math.min(h * 0.26, 150);
+    var my = Math.max(sT + 92, cy - Math.min(h * 0.26, 150));
     ctx.fillStyle = flash ? 'rgba(120,0,0,0.75)' : 'rgba(0,0,0,0.6)';
     ctx.fillRect(cx - mw / 2, my - 23, mw, 46);
     ctx.strokeStyle = colour; ctx.lineWidth = 2.5;
@@ -427,21 +474,22 @@ SCRIPT = """
     // attitude gyro sits across the middle of it, so the same figures run
     // down the two top corners instead, where nothing else is drawn.
     var mono = '600 13px "IBM Plex Mono", monospace';
+    var ty = sT + 10;
     label(ctx, 'BANK ' + roll.toFixed(0) + '°  PITCH ' + pitch.toFixed(0) + '°',
-          16, 20, '600 12px -apple-system, sans-serif', INK, 'left');
-    label(ctx, 'AS ' + (t.airspeed_ms != null ? t.airspeed_ms.toFixed(1) : '--'), 16, 42, mono, INK, 'left');
-    label(ctx, 'GS ' + (t.groundspeed_ms != null ? t.groundspeed_ms.toFixed(1) : '--'), 16, 62, mono, INK, 'left');
+          sL, ty, '600 12px -apple-system, sans-serif', INK, 'left');
+    label(ctx, 'AS ' + (t.airspeed_ms != null ? t.airspeed_ms.toFixed(1) : '--'), sL, ty + 22, mono, INK, 'left');
+    label(ctx, 'GS ' + (t.groundspeed_ms != null ? t.groundspeed_ms.toFixed(1) : '--'), sL, ty + 42, mono, INK, 'left');
 
     var bat = (t.battery_pct != null) ? t.battery_pct + '%' : '--';
     var sats = (t.satellites != null) ? t.satellites : '--';
     var armTxt = t.arm_ready === true ? 'ARM OK'
                : t.arm_ready === false ? 'ARM BLOCKED' : 'ARM ?';
     var armCol = t.arm_ready === true ? GREEN : t.arm_ready === false ? AMBER : INK;
-    label(ctx, (t.mode || '-').toUpperCase(), w - 16, 20,
+    label(ctx, (t.mode || '-').toUpperCase(), sR, ty,
           '700 14px -apple-system, sans-serif', INK, 'right');
-    label(ctx, 'BAT ' + bat, w - 16, 42, mono, INK, 'right');
-    label(ctx, 'SATS ' + sats, w - 16, 62, mono, INK, 'right');
-    label(ctx, armTxt, w - 16, 82, mono, armCol, 'right');
+    label(ctx, 'BAT ' + bat, sR, ty + 22, mono, INK, 'right');
+    label(ctx, 'SATS ' + sats, sR, ty + 42, mono, INK, 'right');
+    label(ctx, armTxt, sR, ty + 62, mono, armCol, 'right');
   }
 
   function fit(cv) {
@@ -458,6 +506,19 @@ SCRIPT = """
   // A seam for tools/test_flight_display.py: the banner wording, the colour
   // it is drawn in and the low-altitude state are decisions worth testing,
   // and reading them back off a canvas would prove nothing.
+  // For tools/test_console_browser.py: the margins the gauge worked out
+  // for a given canvas, so the test can check them against where the
+  // controls actually are instead of hunting for stray pixels - the
+  // horizon and pitch ladder run the full width on purpose.
+  window.gcsHudSafe = function (selector) {
+    var cv = document.querySelector(selector);
+    if (!cv) { return null; }
+    var box = cv.getBoundingClientRect();
+    var a = safeArea(cv);
+    return { left: box.left + a.left, right: box.right - a.right,
+             top: box.top + a.top, bottom: box.bottom - a.bottom };
+  };
+
   window.gcsHudState = function () {
     updateLowAlt();
     var b = banner();
