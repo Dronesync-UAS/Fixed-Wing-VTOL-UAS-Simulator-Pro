@@ -112,6 +112,13 @@ figures or the upload - run:
 python3 tools/test_mission.py
 ```
 
+After changing the surface maps - the normal, diffuse or roughness
+textures, or which world points at which - run:
+
+```
+python3 tools/test_surface_maps.py
+```
+
 After changing a world file, or the launcher, run the install check -
 there are two copies of every world and only one of them flies:
 

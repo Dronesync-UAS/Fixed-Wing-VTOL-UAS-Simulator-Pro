@@ -9,3 +9,4 @@ satellite/
 *.sdf.premag
 *.sdf.prespawn
 *.sdf.prefarground
+*.sdf.prenormal

@@ -357,7 +357,7 @@ CHECKS = ["offline_render_check", "test_console_browser", "test_flight_display",
           "test_night_ops", "test_sound_and_gear", "test_payload",
           "test_flight_log", "test_scenery", "test_terrain_fetch",
           "test_recovery", "test_range_profile", "test_install_worlds",
-          "test_mission"]
+          "test_mission", "test_surface_maps"]
 
 for name in CHECKS:
     path = os.path.join(REPO, "tools", name + ".py")

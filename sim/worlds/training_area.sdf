@@ -115,7 +115,7 @@
               <use_terrain_paging>false</use_terrain_paging>
               <texture>
                 <diffuse>file://media/ground_fine.png</diffuse>
-                <normal>file://media/flat_normal.png</normal>
+                <normal>file://media/ground_normal.png</normal>
                 <size>16</size>
               </texture>
               <uri>file://media/hoggar_real_heightmap.png</uri>

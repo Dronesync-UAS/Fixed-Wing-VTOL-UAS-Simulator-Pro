@@ -149,7 +149,7 @@
               <size>8000 8000 240</size>
               <texture>
                 <diffuse>file://media/grass_diffuse.png</diffuse>
-                <normal>file://media/flat_normal.png</normal>
+                <normal>file://media/ground_normal.png</normal>
                 <size>24</size>
               </texture>
             </heightmap>
