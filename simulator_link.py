@@ -12,6 +12,7 @@ answers.
 """
 
 import math
+import os
 import threading
 import subprocess
 import sys
@@ -25,12 +26,54 @@ import event_logger
 running_processes = {}
 
 
+# Where a background script's own output goes, so a script that dies on
+# startup can say why instead of vanishing.
+_SCRIPT_LOG_DIR = os.path.join(os.path.expanduser("~"), "uas_sim_logs")
+
+
 def start_background_script(name, command_list):
+    """Launch a helper script and say honestly whether it is running.
+
+    FIXED 12 Oct 2026: this said "<name> started." whatever happened. The
+    scripts are launched as `python3 <path>`, so a path that does not exist
+    still launches python3 successfully - python3 then exits with an error
+    nobody saw, and the button looked like it had worked. That is how the
+    GPS failure control could report an injection it had not made.
+    """
     proc = running_processes.get(name)
     if proc is not None and proc.poll() is None:
         return f"{name} is already running."
-    running_processes[name] = subprocess.Popen(command_list)
-    return f"{name} started."
+
+    # The script itself is the argument after the interpreter.
+    script = next((a for a in command_list[1:]
+                   if a.endswith((".py", ".sh"))), None)
+    if script and not os.path.isfile(script):
+        return (f"{name} not started - {script} is not there. "
+                "Check the path in the plugin that launches it.")
+
+    os.makedirs(_SCRIPT_LOG_DIR, exist_ok=True)
+    log_path = os.path.join(_SCRIPT_LOG_DIR, f"{name}.log")
+    try:
+        handle = open(log_path, "wb")
+        proc = subprocess.Popen(command_list, stdout=handle,
+                                stderr=subprocess.STDOUT)
+    except OSError as exc:
+        return f"{name} not started - {exc}."
+    running_processes[name] = proc
+
+    # Give it a moment: a script that is going to fail on its imports fails
+    # straight away, and saying so now is worth the pause.
+    time.sleep(0.5)
+    if proc.poll() is not None:
+        try:
+            with open(log_path, "r", errors="replace") as handle:
+                tail = handle.read().strip().splitlines()[-1:]
+        except OSError:
+            tail = []
+        reason = tail[0][:160] if tail else f"exit code {proc.returncode}"
+        running_processes.pop(name, None)
+        return f"{name} started and immediately stopped - {reason}"
+    return f"{name} started. Its output is in {log_path}."
 
 
 def stop_background_script(name):
