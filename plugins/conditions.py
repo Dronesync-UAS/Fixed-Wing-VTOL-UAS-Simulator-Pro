@@ -173,6 +173,9 @@ PLUGIN = {
     "label": "Conditions",
     "category": "Simulation Control",
     "style": "normal",
+    # A setting, not an action: it applies the moment its value
+    # changes rather than waiting for its own button.
+    "apply_on_change": True,
     "inputs": [
         {"name": "force", "label": "Beaufort force", "default": DEFAULT_FORCE,
          "min": 0, "max": max(BY_FORCE), "step": 1},

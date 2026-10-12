@@ -646,6 +646,25 @@ def main():
               page.evaluate("""() => [...document.querySelectorAll('.railbody')]
                   .every(b => getComputedStyle(b).overflowY === 'hidden')"""))
 
+        print("7a1a. settings apply the moment they change")
+        # Asked for 12 Oct 2026. NOT every control: a number beside an
+        # ACTION button is an argument to that action, and firing on
+        # change would send the aircraft climbing while somebody is
+        # still typing the second digit. Only plugins that declare
+        # themselves settings may do it.
+        settings = page.evaluate(
+            """() => [...document.querySelectorAll('[data-apply-on-change="1"]')]
+                 .map(b => b.id).sort()""")
+        check("the settings that apply instantly are marked (%d)"
+              % len(settings), len(settings) >= 5)
+        for wanted in ("btn-ceiling", "btn-operating_envelope",
+                       "btn-time_of_day", "btn-weather", "btn-wind_gust"):
+            check("%s applies on change" % wanted, wanted in settings)
+        for never in ("btn-arm", "btn-takeoff", "btn-land", "btn-climb_to",
+                      "btn-flight_termination", "btn-forward_flight"):
+            check("%s does NOT fire on a typed value" % never,
+                  never not in settings)
+
         print("7a1b. the Mission tab in settings")
         page.click("#settings-open")
         page.wait_for_timeout(300)

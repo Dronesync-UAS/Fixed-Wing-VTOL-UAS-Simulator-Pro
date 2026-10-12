@@ -139,6 +139,9 @@ PLUGIN = {
     "label": "Set Weather",
     "category": "Experimental - In Development",
     "style": "experimental",
+    # A setting, not an action: it applies the moment its value
+    # changes rather than waiting for its own button.
+    "apply_on_change": True,
     "inputs": [
         {"name": "condition", "label": "Condition", "type": "select",
          "default": "clear",

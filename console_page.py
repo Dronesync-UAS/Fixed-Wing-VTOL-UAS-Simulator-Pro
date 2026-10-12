@@ -1728,6 +1728,50 @@ SCRIPT = """
       }).catch(function () { say('The station did not answer.', true); });
   };
 
+  // ---------- settings that apply the moment they change ----------
+  // Asked for 12 Oct 2026: "any manual changes on any numerical value in
+  // the command columns must respond to the change as soon as the value
+  // has been changed".
+  //
+  // NOT EVERY CONTROL, and this is the important part. A number beside a
+  // BUTTON is an argument to that button - "Climb (m) 60" next to CLIMB
+  // means climb to 60 when pressed. Firing on change there would send
+  // the aircraft climbing while somebody is still typing the second
+  // digit. So a plugin has to declare itself as a setting
+  // (apply_on_change), and only those fire. Everything else keeps its
+  // button, which is what makes the button honest.
+  //
+  // Debounced, because a stepper held down emits a value every 45 ms and
+  // each one would otherwise be a command to PX4.
+  var applyTimers = {};
+  document.addEventListener('change', function (e) {
+    var input = e.target.closest ? e.target.closest('.param-input') : null;
+    if (!input) { return; }
+    var id = input.dataset.plugin;
+    var button = document.getElementById('btn-' + id);
+    if (!button || button.dataset.applyOnChange !== '1') { return; }
+    if (applyTimers[id]) { clearTimeout(applyTimers[id]); }
+    applyTimers[id] = setTimeout(function () {
+      applyTimers[id] = null;
+      window.gcsAction(id);
+    }, 350);
+  });
+  // 'input' as well as 'change': a number box fires change only when it
+  // loses focus, and an instructor who types a figure and then looks at
+  // the picture never gives it back.
+  document.addEventListener('input', function (e) {
+    var input = e.target.closest ? e.target.closest('.param-input') : null;
+    if (!input || input.type === 'text') { return; }
+    var id = input.dataset.plugin;
+    var button = document.getElementById('btn-' + id);
+    if (!button || button.dataset.applyOnChange !== '1') { return; }
+    if (applyTimers[id]) { clearTimeout(applyTimers[id]); }
+    applyTimers[id] = setTimeout(function () {
+      applyTimers[id] = null;
+      window.gcsAction(id);
+    }, 700);
+  });
+
   function refreshFailures() {
     fetch('/failure_status').then(function (r) { return r.json(); }).then(function (d) {
       for (var id in d) {

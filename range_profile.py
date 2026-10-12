@@ -50,6 +50,17 @@ STATE_FILE = os.path.join(os.path.expanduser("~/uas_sim_logs"),
 CEILING_M = 120.0
 GROUNDSPEED_MS = 30.0
 
+# 12 Oct 2026: "in settings give an option to set altitude up to 9000ft
+# (also refer in meters as default)". 9000 ft is 2743.2 m exactly
+# (1 ft = 0.3048 m), so the figure offered is 2750 m - a round number in
+# the unit the station works in, a little above the 9000 ft asked for.
+FEET_PER_METRE = 1.0 / 0.3048
+MAX_CEILING_M = 2750.0
+CEILING_FLOOR_M = 30.0
+# The ceiling the instructor has set, if any. None means "whatever the
+# profile says", which is the CAA 120 m.
+_ceiling_override = {"m": None}
+
 PROFILES = {
     "caa": {
         "label": "CAA - 500 m",
@@ -114,8 +125,51 @@ def limits():
     """Just the three numbers, in the shape the station's LIMITS dict
     wants them."""
     p = active()
-    return {"range_m": p["range_m"], "ceiling_m": p["ceiling_m"],
+    ceiling = (p["ceiling_m"] if _ceiling_override["m"] is None
+               else _ceiling_override["m"])
+    return {"range_m": p["range_m"], "ceiling_m": ceiling,
             "groundspeed_ms": p["groundspeed_ms"]}
+
+
+def feet(metres):
+    return metres * FEET_PER_METRE
+
+
+def set_ceiling(metres):
+    """Set the height limit, in metres. Returns (ok, message).
+
+    Kept separate from the envelope: the envelope is about distance and
+    is a named thing that goes in the record, while the ceiling is a
+    number an instructor raises for a particular exercise. Both end up
+    in the flight log.
+    """
+    try:
+        wanted = float(metres)
+    except (TypeError, ValueError):
+        return False, "Not changed - '%s' is not a height." % (metres,)
+    if not CEILING_FLOOR_M <= wanted <= MAX_CEILING_M:
+        return False, ("Not changed - the ceiling has to be between %g m and "
+                       "%g m (%.0f ft)."
+                       % (CEILING_FLOOR_M, MAX_CEILING_M, feet(MAX_CEILING_M)))
+    _ceiling_override["m"] = wanted
+    try:
+        from simulator_link import log_instructor_action
+        log_instructor_action("ceiling", "ceiling_m=%.0f" % wanted)
+    except Exception:       # noqa: BLE001
+        pass
+    extra = ""
+    if wanted > CEILING_M:
+        extra = (" That is above the %g m a student is taught to, so it is "
+                 "an instructor exercise and the flight log records it."
+                 % CEILING_M)
+    return True, ("Ceiling set to %.0f m (%.0f ft).%s"
+                  % (wanted, feet(wanted), extra))
+
+
+def ceiling_m():
+    p = active()
+    return (p["ceiling_m"] if _ceiling_override["m"] is None
+            else _ceiling_override["m"])
 
 
 def choose(key):
@@ -166,4 +220,7 @@ def describe():
     p = active()
     return {"profile": _active["key"], "label": p["label"],
             "student_safe": p["student_safe"], "range_m": p["range_m"],
-            "ceiling_m": p["ceiling_m"]}
+            "ceiling_m": ceiling_m(),
+            "ceiling_ft": round(feet(ceiling_m())),
+            "ceiling_raised": _ceiling_override["m"] is not None
+                              and _ceiling_override["m"] > CEILING_M}

@@ -54,6 +54,9 @@ PLUGIN = {
     "label": "Operating envelope",
     "category": "Simulation Control",
     "style": "normal",
+    # A setting, not an action: it applies the moment its value
+    # changes rather than waiting for its own button.
+    "apply_on_change": True,
     "inputs": [{"name": "profile", "label": "Envelope", "type": "select",
                 "default": range_profile.active_key(),
                 "options": [{"value": key,

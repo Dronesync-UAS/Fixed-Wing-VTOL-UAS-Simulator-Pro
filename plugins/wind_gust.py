@@ -123,6 +123,9 @@ PLUGIN = {
     "label": "Wind On / Off",
     "category": "Experimental - In Development",
     "style": "experimental",
+    # A setting, not an action: it applies the moment its value
+    # changes rather than waiting for its own button.
+    "apply_on_change": True,
     "inputs": [
         {"name": "speed_ms", "label": "Speed (m/s)", "default": 8, "min": 0, "step": 1},
         {"name": "direction_deg", "label": "From (°true)", "default": 270, "min": 0, "step": 10},

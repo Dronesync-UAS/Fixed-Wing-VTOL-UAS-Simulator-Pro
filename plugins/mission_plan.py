@@ -24,12 +24,15 @@ NOT FLOWN. The patterns are checked arithmetically in
 tools/test_mission.py; nothing has been uploaded to a running PX4.
 """
 import mission
+import mission_store
 import mission_upload
+import sim_target
 from simulator_link import log_instructor_action, telemetry
 
 # What was last planned, so UPLOAD and START have something to act on
 # and the instructor is not asked to describe it three times.
-planned = {"items": None, "summary": None, "what": None}
+planned = {"items": None, "summary": None, "what": None,
+           "parameters": None}
 
 
 def _here():
@@ -41,7 +44,7 @@ def _here():
 
 def mission_plan(pattern="survey", altitude_m=100, size_m=400,
                  bearing_deg=0, radius_m=150, fixed_wing="1",
-                 action="plan"):
+                 action="plan", name=""):
     try:
         alt = float(altitude_m)
         size = float(size_m)
@@ -63,6 +66,38 @@ def mission_plan(pattern="survey", altitude_m=100, size_m=400,
         if not planned["items"]:
             return "Nothing to start - plan and upload a mission first."
         ok, said = mission_upload.start()
+        return said
+
+    if act == "save":
+        if not planned["items"]:
+            return "Nothing to save - plan a mission first."
+        ok, said, _ = mission_store.save(
+            name or planned["what"], planned["what"],
+            planned["parameters"], planned["items"], planned["summary"],
+            world=sim_target.WORLD)
+        return said
+
+    if act == "load":
+        if not name:
+            return ("Which one? Type its name in the box. %s"
+                    % mission_store._what_there_is())
+        record, said = mission_store.load(name)
+        if record is None:
+            return said
+        planned["items"] = record["items"]
+        planned["summary"] = record.get("summary") or {}
+        planned["what"] = record.get("pattern")
+        planned["parameters"] = record.get("parameters")
+        return said + "  Press UPLOAD to send it, then START to fly it."
+
+    if act == "list":
+        return "Saved missions: %s" % (", ".join(mission_store.names())
+                                       or "none yet.")
+
+    if act == "delete":
+        if not name:
+            return "Which one? Type its name in the box."
+        ok, said = mission_store.delete(name)
         return said
 
     # Planning.
@@ -93,6 +128,12 @@ def mission_plan(pattern="survey", altitude_m=100, size_m=400,
     planned["items"] = items
     planned["summary"] = summary
     planned["what"] = pattern
+    # The recipe as well as the result, so a saved mission can be
+    # rebuilt later as well as re-flown unchanged.
+    planned["parameters"] = {
+        "pattern": pattern, "altitude_m": alt, "size_m": size,
+        "bearing_deg": bearing, "radius_m": radius,
+        "fixed_wing": wing, "centre_lat": lat, "centre_lon": lon}
     log_instructor_action(
         "mission_plan",
         "pattern=%s alt=%g size=%g bearing=%g waypoints=%d"
@@ -134,7 +175,12 @@ PLUGIN = {
          "default": "plan",
          "options": [{"value": "plan", "label": "Plan it (shows the figures)"},
                      {"value": "upload", "label": "Upload the planned mission"},
-                     {"value": "start", "label": "Start the uploaded mission"}]},
+                     {"value": "start", "label": "Start the uploaded mission"},
+                     {"value": "save", "label": "Save it under the name below"},
+                     {"value": "load", "label": "Load the name below"},
+                     {"value": "list", "label": "List what is saved"},
+                     {"value": "delete", "label": "Delete the name below"}]},
+        {"name": "name", "label": "Saved name", "type": "text", "default": ""},
     ],
     "handler": mission_plan,
 }

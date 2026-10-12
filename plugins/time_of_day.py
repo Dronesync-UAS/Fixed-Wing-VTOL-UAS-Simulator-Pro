@@ -111,6 +111,9 @@ PLUGIN = {
     "label": "Set lighting",
     "category": "Simulation Control",
     "style": "normal",
+    # A setting, not an action: it applies the moment its value
+    # changes rather than waiting for its own button.
+    "apply_on_change": True,
     "inputs": [{"name": "when", "label": "Time of day", "type": "select",
                 "default": "day",
                 "options": [{"value": key, "label": TIMES[key]["label"]}

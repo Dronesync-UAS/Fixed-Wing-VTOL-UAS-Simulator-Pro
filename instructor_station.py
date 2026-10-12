@@ -456,7 +456,8 @@ SETTINGS_GROUPS = [
     # setting, and burying it under Session would hide the one thing an
     # instructor wants a clear panel for.
     ("Mission", ["mission_plan"]),
-    ("Session", ["operating_envelope", "new_session", "reset_scenario",
+    ("Session", ["operating_envelope", "ceiling", "new_session",
+                 "reset_scenario",
                  "reset_spawn", "set_home", "freeze", "external_view"]),
 ]
 
@@ -503,7 +504,7 @@ RAIL_ORDER = {
     # students, and alphabetical order buried it under the environment
     # selector.
     "Simulation Control": ["mission_plan", "new_session",
-                           "operating_envelope", "environment",
+                           "operating_envelope", "ceiling", "environment",
                            "time_of_day", "aircraft_lights", "freeze_resume",
                            "reset_scenario", "reset_spawn", "set_home"],
 }
@@ -557,6 +558,7 @@ RAIL_LABELS = {
     "wind_gust": "Wind on / off",
     "operating_envelope": "Operating envelope",
     "mission_plan": "Mission",
+    "ceiling": "Ceiling",
 }
 
 # Sections that start collapsed on a console that has never been arranged:
@@ -740,6 +742,14 @@ def _render_inputs(p):
                 selected = " selected" if opt["value"] == inp.get("default") else ""
                 options += f'<option value="{opt["value"]}"{selected}>{opt["label"]}</option>'
             control = f'<select {common}>{options}</select>'
+        elif inp.get("type") == "text":
+            # A plain text box. Added 12 Oct 2026 for the name a mission
+            # is saved under - the only thing so far that is neither a
+            # quantity nor a choice from a fixed set.
+            placeholder = inp.get("placeholder", "")
+            control = (f'<input type="text" {common} '
+                       f'value="{inp.get("default", "")}" '
+                       f'placeholder="{placeholder}" autocomplete="off">')
         else:
             attrs = f'value="{inp.get("default", "")}"'
             if "min" in inp:
@@ -794,7 +804,13 @@ def _control_html(p, status):
     elif p["id"] == "disarm":
         klass += " disarm"
     label = RAIL_LABELS.get(p["id"], p["label"])
-    button = (f'<button id="btn-{p["id"]}" class="{klass}" '
+    # A plugin that calls itself a setting applies the moment its value
+    # changes, rather than waiting for its button. Declared per plugin
+    # rather than guessed: a number beside an ACTION button is an
+    # argument to that action, and firing it on change would send the
+    # aircraft climbing while somebody is still typing the second digit.
+    on_change = ' data-apply-on-change="1"' if p.get("apply_on_change") else ''
+    button = (f'<button id="btn-{p["id"]}" class="{klass}"{on_change} '
               f'onclick="send(\'{p["id"]}\')">{dot}{label}</button>')
     fields = _render_inputs(p)
     return f'<div class="stack">{fields}{button}</div>' if fields else button
