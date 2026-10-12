@@ -119,7 +119,21 @@ ROTOR_DETUNE = [-0.017, -0.006, 0.007, 0.018]
 # An armed aircraft's rotors are turning even with the stick down, so the
 # throttle is floored before it becomes a pitch. Without this, arming is
 # silent and the first sound is the takeoff, which is wrong.
-IDLE_FLOOR = 0.12
+#
+# RAISED 12 Oct 2026 from 0.12, together with plugins/idle_spin.py, which
+# raises the rotors' actual idle speed in the simulation from PX4's
+# 10 rad/s to 130 - about 17% of hover. This is the audible half of the
+# same change: arming should be the moment the aircraft becomes
+# dangerous, and it should sound like it.
+IDLE_FLOOR = 0.18
+
+# How long the rotors take to come up to idle when the aircraft is armed,
+# and to wind down when it is disarmed. A real multirotor spools up over
+# about a second and a half and runs down slower, because nothing is
+# driving it down. The ramp is the whole point: a note that simply
+# appears at full idle sounds like a switch, not like a machine.
+SPOOL_UP_S = 1.6
+SPOOL_DOWN_S = 2.6
 
 # Seconds for a voice to fade in or out. PX4 ramps its motors; a hard cut
 # sounds like a fault.
@@ -150,6 +164,7 @@ SCRIPT = """
   var HOVER_IDLE = __HOVER_IDLE_HZ__, HOVER_FULL = __HOVER_FULL_HZ__;
   var PUSHER_IDLE = __PUSHER_IDLE_HZ__, PUSHER_FULL = __PUSHER_FULL_HZ__;
   var IDLE_FLOOR = __IDLE_FLOOR__;
+  var SPOOL_UP = __SPOOL_UP_S__, SPOOL_DOWN = __SPOOL_DOWN_S__;
   var FADE = __FADE_S__;
   var HOVER_GAIN = __HOVER_VOICE_GAIN__, PUSHER_GAIN = __PUSHER_VOICE_GAIN__;
 
@@ -309,9 +324,35 @@ SCRIPT = """
     rig.master.gain.setTargetAtTime(0, rig.ctx.currentTime, FADE / 3);
   }
 
+  // ---------- the spool ----------
+  // How far up the rotors are, 0 to 1, independent of the throttle. It
+  // follows the armed state with a ramp rather than a step, because
+  // that ramp IS the sound of arming - a note that appears at full idle
+  // reads as a switch being thrown, not as a machine starting.
+  var spool = { level: 0, armed: false, at: 0 };
+
+  function updateSpool(armed, now) {
+    if (armed !== spool.armed) {
+      spool.armed = armed;
+      spool.at = now;
+    }
+    var seconds = (now - spool.at) / 1000;
+    var span = armed ? SPOOL_UP : SPOOL_DOWN;
+    var target = armed ? 1 : 0;
+    var from = armed ? 0 : 1;
+    if (seconds >= span) { spool.level = target; }
+    else {
+      var t = seconds / span;
+      // Eased, so it leaves and arrives smoothly instead of ramping
+      // linearly and stopping dead.
+      spool.level = from + (target - from) * (t * t * (3 - 2 * t));
+    }
+    return spool.level;
+  }
+
   // ---------- what is running, and how hard ----------
   // Split out so the test can drive it without an audio context.
-  window.gcsMotorDemand = function (t) {
+  window.gcsMotorDemand = function (t, now) {
     var thr = Number(t.throttle_pct);
     if (!isFinite(thr)) { thr = 0; }
     thr = Math.max(0, Math.min(100, thr)) / 100;
@@ -321,18 +362,23 @@ SCRIPT = """
     var fixedWing = (vs === 'Fixed wing');
     var toFixedWing = (vs === 'Transitioning to fixed wing');
 
+    var spooled = updateSpool(armed, (now == null) ? Date.now() : now);
+
     // PX4 stops the four hover motors once the standard_vtol is in
     // fixed-wing flight, and runs them through both transitions.
-    var hover = (armed && !fixedWing) ? 1 : 0;
+    // Multiplied by the spool so arming winds them up and disarming
+    // winds them down, rather than switching them.
+    var hover = fixedWing ? 0 : spooled;
     // The pusher runs in fixed wing, and spins up during the forward
     // transition. The back-transition to hover is flown without it.
-    var pusher = (armed && (fixedWing || toFixedWing)) ? 1 : 0;
+    var pusher = (fixedWing || toFixedWing) ? spooled : 0;
 
-    var effort = armed ? Math.max(thr, IDLE_FLOOR) : 0;
+    var effort = Math.max(thr, IDLE_FLOOR) * spooled;
     return {
       hover: hover,
       pusher: pusher,
       effort: effort,
+      spool: Math.round(spooled * 1000) / 1000,
       hoverHz: HOVER_IDLE + (HOVER_FULL - HOVER_IDLE) * effort,
       pusherHz: PUSHER_IDLE + (PUSHER_FULL - PUSHER_IDLE) * effort
     };
@@ -395,7 +441,9 @@ def script():
             .replace("__HOVER_FULL_HZ__", repr(HOVER_FULL_HZ))
             .replace("__PUSHER_IDLE_HZ__", repr(PUSHER_IDLE_HZ))
             .replace("__PUSHER_FULL_HZ__", repr(PUSHER_FULL_HZ))
-            .replace("__IDLE_FLOOR__", repr(IDLE_FLOOR))
+                  .replace("__IDLE_FLOOR__", repr(IDLE_FLOOR))
+            .replace("__SPOOL_UP_S__", repr(SPOOL_UP_S))
+            .replace("__SPOOL_DOWN_S__", repr(SPOOL_DOWN_S))
             .replace("__FADE_S__", repr(FADE_S))
             .replace("__HOVER_VOICE_GAIN__", repr(HOVER_VOICE_GAIN))
             .replace("__PUSHER_VOICE_GAIN__", repr(PUSHER_VOICE_GAIN)))

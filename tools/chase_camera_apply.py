@@ -66,9 +66,21 @@ SENSOR_BLOCK = """\
 {i}     tools/chase_camera_apply.py; sim_target.CHASE_CAMERA holds the same
 {i}     link and sensor names, and the station's topic is built from them.
 {i}     Deliberately small and slow - this is a second rendered camera. -->
+{i}<!-- LOWERED AND LEVELLED 12 Oct 2026. It was 2.2 m above the aircraft
+{i}     pitched 0.24 rad down, which centred the aircraft but put the
+{i}     horizon only a sixth of the way down from the top of the frame -
+{i}     so the picture was almost all ground. The arithmetic: the vertical
+{i}     half-angle of a 1.05 rad lens at 16:9 is atan(tan(0.525)*9/16) =
+{i}     0.31 rad, so a 0.24 rad down-tilt puts the horizon 77% of the way
+{i}     from the middle to the top edge.
+{i}
+{i}     At 1.1 m up and 0.12 rad down the horizon sits 39% of the way up
+{i}     from the middle - about a third of the frame is sky - and the
+{i}     aircraft is still within 2 degrees of the centre, because raising
+{i}     the camera by h and tilting down by atan(h/9) are the same angle. -->
 {i}<sensor name="{sensor}" type="camera">
 {i}  <gz_frame_id>{link}</gz_frame_id>
-{i}  <pose>-9 0 2.2 0 0.24 0</pose>
+{i}  <pose>-9 0 1.1 0 0.12 0</pose>
 {i}  <always_on>1</always_on>
 {i}  <update_rate>15</update_rate>
 {i}  <camera>

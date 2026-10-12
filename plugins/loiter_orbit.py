@@ -37,8 +37,33 @@ it kept the 1 m/s that activate() sets - a lap of a 150 m circle in a
 quarter of an hour, which from the ground looks like a hover. A speed is
 now sent, and PX4 still clamps it to what the radius can take.
 
-NOT YET FLOWN. The reasoning above is read off the PX4 source; nobody has
-watched the aircraft fly a circle with it.
+THE NOSE. 12 Oct 2026, after flying it: the aircraft went round the
+circle sideways, crabbing, with its nose pointed at the middle. That was
+this file's own default - it sent ORBIT_YAW_BEHAVIOUR 0, HOLD FRONT TO
+CIRCLE CENTER, which is MAVLink's default and is what you want when the
+camera is the point of the exercise. It is not what "loiter" means to a
+pilot: a loiter is a circle flown nose-first.
+
+The default is now 3, HOLD FRONT TANGENT TO CIRCLE, which PX4 implements
+in FlightTaskOrbit.cpp lines 350-354:
+
+        _yaw_setpoint = atan2f(signFromBool(_started_clockwise) * center_to_position(0),
+                               -signFromBool(_started_clockwise) * center_to_position(1));
+        _yawspeed_setpoint = _orbit_velocity / _orbit_radius;
+
+- the nose on the tangent, with the yaw rate fed forward so it turns at
+exactly the rate the circle needs rather than chasing it. Pointing at
+the centre is still offered, because circling a target with the camera
+on it is a real exercise; it is just not the default any more.
+
+WHICH HALF OF THE AIRCRAFT IS FLYING MATTERS. FlightTaskOrbit is a
+MULTICOPTER task. In hover the aircraft can crab, which is why the wrong
+yaw behaviour was so visible. In fixed-wing flight PX4 does not use this
+task at all and a wing cannot fly sideways anyway - so if the circle
+still looks wrong after this, check whether the aircraft is in hover
+when it is commanded.
+
+NOT YET RE-FLOWN with the tangent default.
 """
 import math
 
@@ -57,14 +82,15 @@ MAV_CMD_DO_ORBIT = 34
 # MAVLink's ORBIT_YAW_BEHAVIOUR, checked against common.xml:
 #   0 HOLD_FRONT_TO_CIRCLE_CENTER   nose at the centre (MAVLink's default)
 #   3 HOLD_FRONT_TANGENT_TO_CIRCLE  nose along the flight path
-# Both are offered, because they are two different exercises. Pointing at
-# the centre is what you want when the camera is the point - the aircraft
-# circles a thing and keeps looking at it. Pointing along the track is what
-# a fixed wing does naturally and what a student flying a circuit expects.
+# Both are offered, because they are two different exercises. Pointing
+# along the track is a LOITER as a pilot means it - a circle flown
+# nose-first - and is the default. Pointing at the centre is for when
+# the camera is the point: the aircraft circles a thing and keeps
+# looking at it, crabbing sideways round the circle to do so.
 YAW_BEHAVIOURS = {"centre": 0, "track": 3}
 
 
-def loiter(radius_m=DEFAULT_RADIUS_M, speed_ms=DEFAULT_SPEED_MS, nose="centre"):
+def loiter(radius_m=DEFAULT_RADIUS_M, speed_ms=DEFAULT_SPEED_MS, nose="track"):
     yaw_behaviour = YAW_BEHAVIOURS.get(str(nose).lower())
     if yaw_behaviour is None:
         return f"Loiter not sent - '{nose}' is not a nose direction."
@@ -107,8 +133,8 @@ def loiter(radius_m=DEFAULT_RADIUS_M, speed_ms=DEFAULT_SPEED_MS, nose="centre"):
         f"radius_m={radius:g} speed_ms={speed:g} nose={nose} "
         f"centre={centre_lat:.6f},{centre_lon:.6f} result={text}")
     if result == 0:  # MAV_RESULT_ACCEPTED
-        facing = ("nose pointing at the centre" if nose == "centre"
-                  else "nose along the track")
+        facing = ("nose pointing at the centre, crabbing round the circle"
+                  if nose == "centre" else "nose along the track")
         return (f"Loitering clockwise in a {radius:g} m circle at {speed:g} m/s, "
                 f"{facing}. The centre is one radius off the right wing of "
                 "where the aircraft was - not the home point.")
@@ -128,9 +154,9 @@ PLUGIN = {
          "max": 450, "step": 10},
         {"name": "speed_ms", "label": "Speed (m/s)", "default": 8, "min": 1,
          "max": 25, "step": 1},
-        {"name": "nose", "label": "Nose", "type": "select", "default": "centre",
-         "options": [{"value": "centre", "label": "At the centre"},
-                     {"value": "track", "label": "Along the track"}]},
+        {"name": "nose", "label": "Nose", "type": "select", "default": "track",
+         "options": [{"value": "track", "label": "Along the track"},
+                     {"value": "centre", "label": "At the centre"}]},
     ],
     "handler": loiter,
 }

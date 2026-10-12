@@ -644,22 +644,36 @@ def status():
 # the view from the STARBOARD side.
 # ---------------------------------------------------------------------
 
-chase = {"az_deg": 0.0, "el_deg": 13.8, "preset": "behind"}
+chase = {"az_deg": 0.0, "el_deg": 7.0, "preset": "behind"}
 
 # The angles each named view needs. Elevation is positive upwards: the
 # camera rises and tilts down to keep the aircraft in frame.
-#   behind    reproduces the old fixed chase camera (9 back, 2.2 up)
+#   behind    the default: over the aircraft's shoulder
 #   port      off the left wing, looking right across the aircraft
 #   starboard off the right wing
 #   nose      ahead of the aircraft, looking back at it
 #   top       high above and behind, looking down - the circuit view
+#   low       below and behind, looking up - the aircraft against the sky
+#
+# ELEVATION LOWERED 12 Oct 2026. These started at 13.8 degrees, which
+# reproduced the old fixed camera at 9 m back and 2.2 m up. On screen
+# that was almost all ground: the camera's vertical half-angle is
+# atan(tan(0.6) * 9/16) = 0.367 rad = 21 degrees, so a 13.8 degree
+# down-tilt puts the horizon two thirds of the way from the middle to
+# the top of the frame.
+#
+# At 7 degrees the horizon sits a third of the way up from the middle,
+# which is about a third of the frame in sky - enough to judge attitude
+# against, which is what an external view is for. The aircraft stays in
+# the middle whatever the elevation, because the boom tilts the camera
+# by the same angle it raises it.
 CHASE_PRESETS = {
-    "behind": (0.0, 13.8),
-    "port": (-90.0, 13.8),
-    "starboard": (90.0, 13.8),
-    "nose": (180.0, 10.0),
-    "top": (0.0, 70.0),
-    "low": (0.0, -20.0),
+    "behind": (0.0, 7.0),
+    "port": (-90.0, 7.0),
+    "starboard": (90.0, 7.0),
+    "nose": (180.0, 6.0),
+    "top": (0.0, 60.0),
+    "low": (0.0, -14.0),
 }
 
 _chase_node = None

@@ -247,8 +247,29 @@ def browser_checks():
             for line in errors[:4]:
                 print("        " + line)
 
+        # The rotors now spool up over a second and a half rather than
+        # switching on, so a demand taken at the instant of arming is
+        # correctly zero. These helpers drive the clock forward past the
+        # spool so the steady state can be checked; the spool itself is
+        # checked on its own below.
+        clock = [1000000.0]
+
+        def raw(ms, **telem):
+            """One reading, ms after the previous one."""
+            clock[0] += ms
+            return page.evaluate(
+                "a => window.gcsMotorDemand(a[0], a[1])", [telem, clock[0]])
+
         def demand(**telem):
-            return page.evaluate("t => window.gcsMotorDemand(t)", telem)
+            """A reading once the spool has settled.
+
+            Two calls, not one: the first is what tells the spool the
+            armed state changed, and it is correctly still at the old
+            level on that call. Asking once and expecting the new steady
+            state was this test's own mistake, not the code's.
+            """
+            raw(10, **telem)
+            return raw(6000, **telem)
 
         off = demand(armed=False, vtol_state="Hover", throttle_pct=0)
         check("disarmed: nothing turns", off["hover"] == 0 and off["pusher"] == 0)
@@ -271,12 +292,35 @@ def browser_checks():
         check("back to hover: the rotors only, the pusher is stopped",
               back["hover"] == 1 and back["pusher"] == 0)
 
+        print("   the rotors spool up rather than switching on")
+        # Start from a settled, disarmed aircraft.
+        raw(6000, armed=False, vtol_state="Hover", throttle_pct=0)
+        hover = dict(armed=True, vtol_state="Hover", throttle_pct=0)
+        start = raw(10, **hover)
+        check("nothing is turning in the first hundredth of a second (%.2f)"
+              % start["spool"], start["spool"] < 0.05)
+        part = raw(700, **hover)
+        check("part way up after seven tenths of a second (%.2f)"
+              % part["spool"], 0.2 < part["spool"] < 0.9)
+        up = raw(2000, **hover)
+        check("fully up after a couple of seconds (%.2f)" % up["spool"],
+              up["spool"] > 0.99)
+        stopping = dict(armed=False, vtol_state="Hover", throttle_pct=0)
+        raw(10, **stopping)
+        # At 700 ms the spin-up was 41% of the way there; the run-down is
+        # slower, so at the same 700 ms it must still be well above 59%.
+        winding = raw(690, **stopping)
+        check("and winds down slower than it wound up (%.2f left)"
+              % winding["spool"], 0.6 < winding["spool"] < 1.0)
+        settled = raw(6000, **stopping)
+        check("then stops (%.2f)" % settled["spool"], settled["spool"] == 0)
+
         quiet = demand(armed=True, vtol_state="Hover", throttle_pct=5)
         loud = demand(armed=True, vtol_state="Hover", throttle_pct=100)
         check("the pitch follows the throttle",
               loud["hoverHz"] > quiet["hoverHz"] + 40)
-        check("an armed aircraft is never silent",
-              quiet["effort"] >= 0.12 - 1e-9)
+        check("an armed aircraft is never silent (%.2f)" % quiet["effort"],
+              quiet["effort"] >= 0.17)
         check("the pusher is pitched apart from the rotors",
               abs(loud["pusherHz"] - loud["hoverHz"]) > 20)
 

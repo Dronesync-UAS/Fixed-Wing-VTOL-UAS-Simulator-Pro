@@ -101,6 +101,11 @@ MANUAL = [
     ("weather", "Weather and wind within the exercise's limits"),
     ("brief", "Student briefed on the exercise and the abort call"),
     ("failures", "Failure injections off unless the exercise needs them"),
+    # Added 12 Oct 2026. Every light now starts OFF - the station sends
+    # "all off" as soon as Gazebo is up - so switching them on is a
+    # deliberate act, which is what it is on a real aircraft. Settings >
+    # Aircraft > Navigation lights.
+    ("lights", "Aircraft lights set for the conditions"),
     ("limits", "Height, range and speed limits agreed for this exercise"),
 ]
 

@@ -290,35 +290,58 @@ flight_recorder.start()
 on_failure(flight_recorder.note_failure)
 
 
-def _set_starting_conditions():
-    """Put a little air in the world before anyone flies in it.
+# How long to wait before touching the simulator at start-up. Gazebo
+# takes fifteen to thirty seconds to come up and PX4 a little longer, and
+# anything sent before they are listening goes nowhere. Failing here is
+# not an error - it usually just means the station was started first,
+# which is the normal order.
+SETTLE_S = 25.0
 
-    Every world ships with its wind at exactly zero, and an aircraft
-    hovering in mathematically still air sits as though nailed down. One
-    metre a second is barely perceptible and well inside anything the
-    airframe cares about, but it is not zero. See plugins/conditions.py
-    for the whole argument, and press Calm in Settings > Environment to
-    switch it off.
 
-    Deferred rather than done here: Gazebo takes fifteen to thirty
-    seconds to come up, and a wind command sent before it is listening
-    goes nowhere. Failing is not an error - it only means the simulator
-    is not running yet, which is the normal case when the station is
-    started first.
+def _prepare_the_aircraft():
+    """Three things that have to happen once the simulator is up.
+
+    All deferred onto one thread, in the order they matter:
+
+    1. ALL LIGHTS OFF. A Gazebo <light> in a model file is ON the moment
+       the world loads - SDF has no "off" element, only the runtime
+       message aircraft_lights sends. So the aircraft came up with all
+       six burning while the console showed them off. They are now off
+       at the start and switching them on is a deliberate act during the
+       pre-flight check, which is what it is on a real aircraft.
+
+    2. IDLE SPIN. PX4's own airframe file leaves the hover rotors at
+       10 rad/s when armed, which on screen is a propeller that is not
+       moving. See plugins/idle_spin.py for the arithmetic.
+
+    3. A LITTLE AIR. Every world ships with its wind at exactly zero,
+       and an aircraft hovering in mathematically still air sits as
+       though nailed down. See plugins/conditions.py.
+
+    Each is a control the instructor can undo: Settings > Aircraft for
+    the lights and the idle spin, Settings > Environment for the air.
     """
-    conditions = plugins_by_id.get("conditions")
-    if conditions is None:
-        return
-    module = conditions.get("_module")
-    if module is None:
-        return
 
     def later():
-        time.sleep(25.0)
+        time.sleep(SETTLE_S)
         try:
-            module.apply_force(module.DEFAULT_FORCE, quiet=True)
+            aircraft_lights.all_off()
         except Exception:                                  # noqa: BLE001
             pass
+        for plugin_id, call in (("idle_spin", "apply_idle"),
+                                ("conditions", "apply_force")):
+            plugin = plugins_by_id.get(plugin_id)
+            module = plugin.get("_module") if plugin else None
+            handler = getattr(module, call, None) if module else None
+            if handler is None:
+                continue
+            try:
+                if plugin_id == "conditions":
+                    handler(module.DEFAULT_FORCE, quiet=True)
+                else:
+                    handler(quiet=True)
+            except Exception:                              # noqa: BLE001
+                pass
 
     threading.Thread(target=later, daemon=True).start()
 
@@ -326,7 +349,7 @@ def _set_starting_conditions():
 plugins = load_plugins()
 plugins_by_id = {p["id"]: p for p in plugins}
 
-_set_starting_conditions()
+_prepare_the_aircraft()
 
 # Group plugins by category, in a sensible fixed order
 CATEGORY_ORDER = ["Flight Ops", "Flight Mode", "Function Test", "Failure Injection", "Simulation Control", "Camera", "Experimental - In Development"]
@@ -349,14 +372,40 @@ CATEGORY_ORDER = ["Flight Ops", "Flight Mode", "Function Test", "Failure Injecti
 #
 # These are plugin IDs, not categories, because the order matters and the
 # categories do not carry one.
+# REBALANCED 12 Oct 2026, after seeing it on a real screen. Everything
+# was on the left and the last group - the one holding LAND and DISARM -
+# ran off the bottom of the window, so the two controls a student needs
+# in a hurry were the two they had to scroll to find. The right rail
+# meanwhile held five buttons and a lot of nothing.
+#
+# The split is now by what the control DOES, and it reads left to right:
+#
+#   LEFT   makes the aircraft fly, in the order a sortie is flown: arm,
+#          take off, then the three manoeuvres. Every control here has a
+#          number to set first, which is why they are together.
+#   RIGHT  changes or ends what it is doing. HOLD, RETURN, LAND, DISARM
+#          are the four a student reaches for without thinking, so they
+#          are at the TOP of the column, in a fixed place, and nothing
+#          can push them down. Below them: change height, change mode,
+#          and the one control that ends a flight badly. The message
+#          panel fills the rest.
+#
+# THE RAILS DO NOT SCROLL. Everything in them has to be on screen at
+# once at 1280x720, and the browser check fails the build if it is not -
+# so this list is a budget, not a wish. Climb / descend moved to the
+# right on 12 Oct 2026 for exactly that reason: the left column was
+# eight pixels too tall.
+#
+# Set home and Freeze left the rails entirely: neither is a flying
+# control, and both are now in Settings > Session.
 LEFT_RAIL = [
     ("Launch", ["arm", "takeoff"]),
-    ("In flight", ["climb_to", "hover_flight", "forward_flight", "loiter"]),
-    ("Recover", ["hold", "rtl", "land", "disarm"]),
+    ("Manoeuvre", ["hover_flight", "forward_flight", "loiter"]),
 ]
 RIGHT_RAIL = [
+    ("Recover", ["hold", "rtl", "land", "disarm"]),
+    ("Adjust", ["climb_to"]),
     ("Flight mode", ["mode_position", "mode_manual"]),
-    ("Navigation setup", ["set_home", "freeze"]),
     ("Emergency", ["flight_termination"]),
 ]
 
@@ -366,9 +415,10 @@ RIGHT_RAIL = [
 SETTINGS_GROUPS = [
     ("Environment", ["environment", "conditions", "time_of_day", "weather",
                      "wind_gust"]),
-    ("Aircraft", ["aircraft_lights", "start_video", "start_stabilizer"]),
+    ("Aircraft", ["aircraft_lights", "idle_spin", "start_video",
+                  "start_stabilizer"]),
     ("Session", ["new_session", "reset_scenario", "reset_spawn",
-                 "external_view"]),
+                 "set_home", "freeze", "external_view"]),
 ]
 
 # Kept so the classic page at /classic, which is still served, goes on
@@ -653,7 +703,13 @@ def _render_inputs(p):
             attrs += f' step="{inp.get("step", "any")}"'
             control = f'<input type="number" {common} {attrs}>'
 
-        fields += (f'<label class="field"><span>{inp["label"]}</span>'
+        # "wide" on a drop-down, so the rail can put a number box and
+        # its label side by side - which saves a line per number, and a
+        # rail that does not scroll is a rail where every line counts -
+        # while leaving a drop-down the full width it needs to show its
+        # longest option.
+        klass = "field wide" if inp.get("type") == "select" else "field"
+        fields += (f'<label class="{klass}"><span>{inp["label"]}</span>'
                    f'{control}</label>')
     return fields
 

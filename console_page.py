@@ -128,14 +128,67 @@ TEMPLATE = """<!DOCTYPE html>
      across the roll arc - the part of the gauge an instructor is reading
      while the message is still fading. The left is empty except for the
      bank/pitch line, so it goes there. */
+  /* The message panel, at the foot of the right rail. Sized to fill
+     whatever is left under the last control, so it is always in the
+     same place and always the same shape. */
   #status {
-    position: absolute; left: 16px; top: 92px; z-index: 45;
-    max-width: 540px; display: flex; align-items: center; gap: 9px;
-    padding: 7px 15px; border-radius: 8px; background: rgba(0,0,0,0.78);
-    box-shadow: 0 3px 12px rgba(0,0,0,0.45); font-size: 13px; font-weight: 500;
-    transition: opacity 500ms;
+    /* Takes whatever is left under the last control, and gives it back
+       when the screen is short: on a 1280x720 laptop the controls come
+       first and the message gets two lines. It is the only thing in the
+       rail allowed to shrink, which is what makes "the rails never
+       scroll" a promise that can be kept. */
+    flex: 1 1 auto; min-height: 40px; margin-top: 8px;
+    display: flex; flex-direction: column; gap: 5px; overflow: hidden;
+    padding: 8px 10px; border-radius: 9px;
+    background: rgba(255,255,255,0.05);
+    border-left: 4px solid rgba(255,255,255,0.3);
+    transition: background 200ms, border-color 200ms, opacity 400ms;
   }
-  #status.alert { background: rgba(120,26,26,0.94); }
+  #status .msg-head {
+    font-size: 9.5px; letter-spacing: 1px; font-weight: 700; color: var(--dim);
+  }
+  #status .msg-text {
+    flex: 1 1 auto; min-height: 0; overflow: auto;
+    font-size: 11.5px; line-height: 1.35; color: var(--ink);
+  }
+  #status .msg-age { font-size: 9.5px; color: var(--dim); }
+  /* On a short screen the heading and the age are the first things to
+     go - the message itself is the point. */
+  /* A 1280x720 laptop is the smallest screen this is taught on, and the
+     rails have to hold everything on it without scrolling. Below 800 px
+     tall the whole rail tightens: the message loses its heading, the
+     buttons lose two pixels each, and the gaps close by one. Measured,
+     not guessed - the browser check fails the build if either rail
+     overflows at 1280x720. */
+  @media (max-height: 800px) {
+    #status { margin-top: 6px; padding: 5px 9px; min-height: 22px; }
+    #status .msg-head, #status .msg-age { display: none; }
+    .rail button { min-height: 30px; }
+    .rail button.danger { min-height: 36px; }
+    .rail .railbody, .rail .items { gap: 3px; }
+    .rail .head { padding: 1px 2px; margin-top: 0; }
+  }
+  /* Three states, because "what the station just said" and "something
+     is wrong" should not look the same at a glance. */
+  #status.empty { opacity: 0.45; }
+  #status.empty .msg-text { color: var(--dim); }
+  #status.ok {
+    background: rgba(26,70,44,0.5); border-left-color: #57cc7f;
+  }
+  #status.ok .msg-head { color: #8fe3a9; }
+  #status.alert {
+    background: rgba(120,26,26,0.92); border-left-color: #ff6b6b;
+  }
+  #status.alert .msg-head { color: #ffb3b3; }
+  #status.alert .msg-text { color: #ffe0e0; }
+  /* An alert pulses for a few seconds so it is caught out of the corner
+     of the eye, then settles - a panel that pulses for ever stops being
+     a signal. */
+  #status.alert.fresh { animation: msgpulse 900ms ease-in-out 4; }
+  @keyframes msgpulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255,80,80, 0); }
+    50% { box-shadow: 0 0 0 4px rgba(255,80,80, 0.45); }
+  }
 
   /* ---------- limit banner (CAP722B 5.3(c)) ---------- */
   #limit-banner {
@@ -214,7 +267,20 @@ TEMPLATE = """<!DOCTYPE html>
      resized, and turned on its side into a horizontal bar. Docked is just
      the frame it has before anyone moves it. */
   .rail { position: absolute; z-index: 30; display: flex; flex-direction: column; overflow: hidden; }
-  .rail .railbody { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 6px; overflow: auto; }
+  /* NO SCROLLING, as of 12 Oct 2026. The rail used to scroll, and the
+     scrollbar sat over the right-hand end of every control in it - which
+     is exactly where the number boxes and the drop-downs are. A control
+     a mouse cannot reach might as well not be there.
+     So the rails are fixed: everything in them is on screen at once, and
+     tools/test_console_browser.py fails the build if the content of
+     either one is taller than the rail at 1280x720, which is the
+     smallest screen this is taught on. If a new control will not fit,
+     something has to move to the settings window - that is the trade,
+     and it is made on purpose. */
+  .rail .railbody {
+    flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 4px;
+    overflow: hidden;
+  }
   .rail.floating { border-radius: 10px; box-shadow: 0 6px 22px rgba(0,0,0,0.55); }
   /* The handle is on screen whether the panel is docked or floating. It was
      only drawn once floating, so the one gesture that got a docked panel
@@ -255,21 +321,11 @@ TEMPLATE = """<!DOCTYPE html>
   .rail.horizontal button { width: auto; min-width: 86px; white-space: nowrap; }
   .rail.horizontal .stack { min-width: 104px; }
   .rail.horizontal hr { display: none; }
-  /* The scrollbar used to float over the right-hand edge of whatever was
-     under it, which on a number box is exactly where its up/down arrows
-     are - "Distance (m)" could not be nudged while the pointer was near
-     the scrollbar. scrollbar-gutter reserves the space instead of
-     borrowing it. */
-  .rail .railbody { scrollbar-gutter: stable; padding-right: 2px; }
-  .rail { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.35) transparent; }
-  .rail::-webkit-scrollbar { width: 10px; }
-  .rail::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.35); border-radius: 4px; }
-  .rail::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.55); }
   /* Each section collapses, because the right rail holds more controls than
      fit on a laptop screen and an instructor only uses a few per lesson. */
   .rail .head {
     width: 100%; display: flex; align-items: center; justify-content: space-between;
-    gap: 6px; background: none; border: 0; padding: 4px 2px; margin-top: 2px;
+    gap: 6px; background: none; border: 0; padding: 2px 2px; margin-top: 1px;
     font-size: 10px; font-weight: 600; color: var(--dim); cursor: pointer;
     letter-spacing: 1px; text-transform: uppercase; text-align: left;
   }
@@ -277,7 +333,7 @@ TEMPLATE = """<!DOCTYPE html>
   .rail .head .chev { transition: transform 120ms; font-size: 9px; }
   .rail .group.shut .chev { transform: rotate(-90deg); }
   .rail .group.shut .items { display: none; }
-  .rail .items { display: flex; flex-direction: column; gap: 6px; }
+  .rail .items { display: flex; flex-direction: column; gap: 4px; }
   .rail .head.danger { color: #ffd0a8; }
   .rail hr { border: 0; border-top: 1px solid rgba(255,255,255,0.18); margin: 3px 0; width: 100%; }
   /* Labels are written for a wide panel ("RETURN TO LAUNCH", "HOVER FLIGHT
@@ -285,8 +341,8 @@ TEMPLATE = """<!DOCTYPE html>
      lines, and leave the status dot out of the centring so a lit control
      does not sit off-axis from an unlit one. */
   .rail button {
-    width: 100%; min-height: 34px; border: 0; border-radius: 8px; cursor: pointer;
-    font-size: 11.5px; font-weight: 500; color: var(--ink); padding: 5px 8px;
+    width: 100%; min-height: 32px; border: 0; border-radius: 8px; cursor: pointer;
+    font-size: 11.5px; font-weight: 500; color: var(--ink); padding: 4px 8px;
     line-height: 1.2; display: flex; align-items: center; justify-content: center;
     gap: 6px; text-align: center; position: relative;
   }
@@ -299,17 +355,46 @@ TEMPLATE = """<!DOCTYPE html>
   .rail button.warning { background: rgba(123,26,45,0.95); color: #ffc3cd; }
   .rail button.warning.on { background: var(--bad); color: #fff; font-weight: 600; }
   .rail button.danger {
-    min-height: 44px; border: 2px solid #ff6b6b; color: #ffd6d6; font-weight: 700;
+    min-height: 40px; border: 2px solid #ff6b6b; color: #ffd6d6; font-weight: 700;
     background: repeating-linear-gradient(45deg, #5a1414 0 9px, #46100f 9px 18px);
     justify-content: center; text-align: center;
   }
   .rail button.experimental { background: #3a2a52; color: #e2d4ff; }
   .rail .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: rgba(255,255,255,0.28); }
   .rail .dot.on { background: #ffffff; box-shadow: 0 0 7px rgba(255,255,255,0.95); }
-  .rail .field { display: flex; flex-direction: column; gap: 2px; font-size: 10px; color: var(--dim); width: 100%; }
+  /* Label beside the box, not above it. A rail that does not scroll is
+     a rail where every line counts, and six numbers on their own lines
+     was 70 px of label. A drop-down keeps the full width - its options
+     are words, not two digits - which is what .wide is for. */
+  .rail .field {
+    display: flex; flex-direction: row; align-items: center; gap: 5px;
+    font-size: 9px; color: var(--dim); width: 100%;
+  }
+  .rail .field > span { flex: 0 0 46px; text-align: right; line-height: 1.05; }
+  .rail .field > input, .rail .field > select { flex: 1 1 auto; min-width: 0; }
+  /* The spinner arrows on a number box eat fourteen pixels and then
+     clip the third digit - "100" came out as "10C". Nobody sets a
+     cruise height by clicking an arrow eleven times; the keyboard and
+     the mouse wheel both still work. */
+  .rail .field > input[type=number] {
+    -moz-appearance: textfield; appearance: textfield; text-align: center;
+  }
+  .rail .field > input[type=number]::-webkit-outer-spin-button,
+  .rail .field > input[type=number]::-webkit-inner-spin-button {
+    -webkit-appearance: none; margin: 0;
+  }
+  .rail .field.wide { flex-direction: column; align-items: stretch; gap: 1px; }
+  .rail .field.wide > span { flex: none; text-align: left; }
   .rail .field input, .rail .field select {
     width: 100%; background: #0d1219; color: var(--ink); border: 1px solid #2b3442;
-    border-radius: 6px; padding: 5px 7px; font-family: inherit; font-size: 12px;
+    border-radius: 6px; padding: 3px 6px; font-family: inherit; font-size: 11.5px;
+  }
+  /* A control with numbers to set is one block, not three loose rows -
+     it reads as "these belong to that button", which is what a GCS
+     looks like and what the loose version did not. */
+  .rail .stack {
+    display: flex; flex-direction: column; gap: 3px; padding: 3px 5px 4px;
+    border-radius: 9px; background: rgba(255,255,255,0.045);
   }
   .rail .stack { display: flex; flex-direction: column; gap: 4px; width: 100%; }
 
@@ -439,8 +524,12 @@ TEMPLATE = """<!DOCTYPE html>
   /* The chase strip is secondary to the payload one, so it is quieter -
      and pushed left, clear of the heading tape the flight gauge draws
      across the top middle of that view. */
+  /* Clear of the left rail, which floats at x=10 and is up to 162 wide
+     in Station layout. At left:14 this strip printed straight over the
+     rail's own heading - visible the moment it was looked at on a real
+     screen rather than in a test. */
   #hero > .view > .chasebar {
-    left: 14px; transform: none; opacity: 0.92;
+    left: 176px; transform: none; opacity: 0.92;
   }
   /* In Pilot layout the picture starts at the top of the window and the
      bar floats over it, so a strip pinned to the top of the picture
@@ -710,7 +799,6 @@ TEMPLATE = """<!DOCTYPE html>
   </div>
 </div>
 
-<div id="status">Console ready.</div>
 <div id="irnote">Simulated infrared - a rendering of the colour camera, not a thermal sensor.</div>
 <div id="limit-banner" class="limit-banner"></div>
 
@@ -807,7 +895,20 @@ TEMPLATE = """<!DOCTYPE html>
     <span class="name"><i class="dots"></i>Instructor</span>
     <button class="turn" title="Turn this panel on its side" aria-label="Turn this panel on its side">&#8646;</button>
   </div>
-  <div class="railbody">__RIGHT_RAIL__</div>
+  <div class="railbody">__RIGHT_RAIL__
+    <!-- THE MESSAGE PANEL. Every reply from the station lands here.
+         It used to be a small box floating in a corner of the picture,
+         which was both easy to miss and - for an alert, which never
+         faded - permanently in the way. Here it is always in the same
+         place, at eye level in the column the instructor is already
+         working, and it fills the space under TERMINATE that nothing
+         else needs. -->
+    <div id="status" class="empty">
+      <div class="msg-head">MESSAGE</div>
+      <div class="msg-text" id="status-text">Console ready.</div>
+      <div class="msg-age" id="status-age"></div>
+    </div>
+  </div>
   <div class="railgrip"></div>
 </div>
 
@@ -1017,16 +1118,50 @@ SCRIPT = """
   // alert does not fade, because an alert is a thing that went wrong and
   // the instructor may be looking at the aircraft when it appears.
   var sayTimer = null;
+  // EVERY message clears itself, which the first version did not: an
+  // alert stayed on screen for the rest of the flight, so by the end of
+  // a lesson the panel was showing something that had happened twenty
+  // minutes earlier. An ordinary reply goes after half a minute, an
+  // alert after two - long enough to walk back to the screen, short
+  // enough that it is never stale.
+  var SAY_CLEAR_S = 30, ALERT_CLEAR_S = 120;
+  var saidAt = null;
+
+  // Test seams. Waiting two minutes to prove an alert clears is not a
+  // test anyone runs, so the check shortens the timers instead.
+  window.gcsSayClearSeconds = function (ordinary, alert) {
+    SAY_CLEAR_S = ordinary;
+    ALERT_CLEAR_S = alert;
+  };
+
   function say(text, alert) {
     var s = el('status');
-    s.innerText = text;
-    s.className = alert ? 'alert' : '';
-    s.style.opacity = '1';
-    if (sayTimer) { clearTimeout(sayTimer); sayTimer = null; }
-    if (!alert) {
-      sayTimer = setTimeout(function () { s.style.opacity = '0'; }, 6000);
-    }
+    el('status-text').innerText = text;
+    s.className = alert ? 'alert fresh' : 'ok';
+    saidAt = Date.now();
+    if (sayTimer) { clearTimeout(sayTimer); }
+    sayTimer = setTimeout(function () {
+      el('status-text').innerText = 'Nothing to report.';
+      el('status-age').innerText = '';
+      s.className = 'empty';
+      saidAt = null;
+    }, (alert ? ALERT_CLEAR_S : SAY_CLEAR_S) * 1000);
+    // The pulse is a one-off; take the class off so a later alert can
+    // restart it rather than finding it already applied.
+    setTimeout(function () { s.classList.remove('fresh'); }, 4000);
   }
+
+  // How long ago it was said. An instructor who looks away and back
+  // needs to know whether the panel is reporting now or a minute ago.
+  setInterval(function () {
+    if (!saidAt) { return; }
+    var seconds = Math.round((Date.now() - saidAt) / 1000);
+    el('status-age').innerText = seconds < 3 ? 'just now'
+      : (seconds < 60 ? seconds + ' s ago'
+         : Math.round(seconds / 60) + ' min ago');
+  }, 1000);
+
+  window.gcsSay = say;
 
   // ---------- layout geometry ----------
   // Pilot floats the rails over the picture; Station insets the picture so

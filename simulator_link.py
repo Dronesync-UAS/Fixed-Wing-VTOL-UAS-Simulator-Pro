@@ -476,6 +476,42 @@ def read_param(name, timeout=2.0):
     return None
 
 
+def set_param(name, value, integer=True, timeout=2.0):
+    """Set one PX4 parameter and confirm it took. Returns None, or why not.
+
+    PX4 answers a PARAM_SET with a PARAM_VALUE carrying what the
+    parameter actually ended up as, so this reads it back rather than
+    assuming. A parameter that silently clamped to its own limit looks
+    exactly like one that was set, and this station has been caught by
+    that kind of thing before.
+
+    Nothing is saved to PX4's parameter file: the setting lasts for this
+    run of the simulator, and the station re-applies it next time. That
+    is deliberate - a station that quietly rewrote the autopilot's saved
+    configuration would be a nasty surprise to anyone who later flew the
+    same build without it.
+    """
+    _param_values.pop(name, None)
+    kind = (mavutil.mavlink.MAV_PARAM_TYPE_INT32 if integer
+            else mavutil.mavlink.MAV_PARAM_TYPE_REAL32)
+    try:
+        master.mav.param_set_send(
+            master.target_system, master.target_component,
+            name.encode("ascii"), float(value), kind)
+    except Exception as exc:                               # noqa: BLE001
+        return f"could not send {name} ({exc})"
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if name in _param_values:
+            got = _param_values[name]
+            if abs(got - float(value)) > 0.51:
+                return (f"{name} came back as {got:g}, not {float(value):g} - "
+                        "PX4 clamped it to its own limit")
+            return None
+        time.sleep(0.05)
+    return f"{name} was sent but PX4 did not confirm it"
+
+
 def failure_injection_blocked():
     """A sentence explaining why injection will not work, or None.
 

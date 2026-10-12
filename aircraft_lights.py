@@ -155,6 +155,26 @@ def set_on(on):
     return _state["failed"]
 
 
+def all_off():
+    """Switch every light off, whatever the station thinks they are.
+
+    Added 12 Oct 2026. A Gazebo <light> in a model file is ON the moment
+    the world loads - there is no "off" element in SDF, only the runtime
+    light_config message this module sends. So the aircraft came up with
+    all six lights burning and nothing in the console claiming they were
+    on, which is the worst of both. The station now sends this once,
+    shortly after start-up, so the lights begin off and switching them
+    on is a deliberate act during the pre-flight check.
+    """
+    _state["on"] = False
+    _state["armed"] = False
+    sent = 0
+    for name in ALL:
+        if set_light(name, False):
+            sent += 1
+    return sent
+
+
 def set_armed(armed):
     """The beacon follows the armed state, as a real one follows the
     engines. Called from the telemetry loop."""

@@ -568,6 +568,82 @@ def main():
         check("it moved (%s -> %s)" % (round(start["x"]), round(moved["x"])),
               abs(moved["x"] - start["x"]) > 80)
 
+        print("7a2. the rails hold everything without scrolling")
+        # BEFORE 7b on purpose: that section drags a rail off the edge
+        # and turns it on its side, and this one is about the rails in
+        # their normal docked shape.
+        # The rails used to scroll, and the scrollbar sat over the right
+        # end of every control in them - which is where the number boxes
+        # and the drop-downs are. They do not scroll any more, so this
+        # check is the thing that keeps that promise: if a new control
+        # does not fit on the smallest screen this is taught on, the
+        # build fails and something has to move into the settings
+        # window. That is the trade, and it is made on purpose.
+        RAIL_PROBE = """() => {
+            const out = {};
+            for (const side of ['left', 'right']) {
+              const body = document.querySelector('#rail-' + side + ' .railbody');
+              out[side] = Math.round(body.scrollHeight - body.clientHeight);
+            }
+            out.clipped = [...document.querySelectorAll('.rail .field input')]
+              .filter(i => i.scrollWidth > i.clientWidth + 1).length;
+            return out;
+        }"""
+        for width, height in ((1600, 900), (1366, 768), (1280, 720)):
+            page.set_viewport_size({"width": width, "height": height})
+            page.wait_for_timeout(350)
+            fit = page.evaluate(RAIL_PROBE)
+            check("at %dx%d nothing overflows the left rail (%s px)"
+                  % (width, height, fit["left"]), fit["left"] == 0)
+            check("at %dx%d nothing overflows the right rail (%s px)"
+                  % (width, height, fit["right"]), fit["right"] == 0)
+            check("at %dx%d no number box clips its own value (%s)"
+                  % (width, height, fit["clipped"]), fit["clipped"] == 0)
+        page.set_viewport_size({"width": 1600, "height": 900})
+        page.wait_for_timeout(350)
+        check("and there is no scrollbar to cover the controls",
+              page.evaluate("""() => [...document.querySelectorAll('.railbody')]
+                  .every(b => getComputedStyle(b).overflowY === 'hidden')"""))
+
+        print("7a3. the message panel")
+        # It used to be a small box floating over a corner of the
+        # picture, and an alert never cleared - so by the end of a
+        # lesson it was showing something from twenty minutes earlier.
+        where = page.evaluate("""() => {
+            const s = document.getElementById('status');
+            const rail = document.getElementById('rail-right');
+            const term = document.getElementById('btn-flight_termination');
+            const sb = s.getBoundingClientRect(), tb = term.getBoundingClientRect();
+            return { inRail: rail.contains(s), belowTerminate: sb.top >= tb.bottom - 1,
+                     width: Math.round(sb.width), height: Math.round(sb.height) };
+        }""")
+        check("it lives in the right rail", where["inRail"])
+        check("below the TERMINATE button", where["belowTerminate"])
+        check("and fills the column (%s px wide, %s tall)"
+              % (where["width"], where["height"]),
+              where["width"] > 90 and where["height"] > 60)
+        page.evaluate("() => window.gcsSay && window.gcsSay('Test reply', false)")
+        page.wait_for_timeout(200)
+        check("an ordinary reply shows green",
+              "ok" in (page.get_attribute("#status", "class") or ""))
+        page.evaluate("() => window.gcsSay && window.gcsSay('Test alert', true)")
+        page.wait_for_timeout(200)
+        check("an alert shows red",
+              "alert" in (page.get_attribute("#status", "class") or ""))
+        check("and says what it is", "Test alert" in page.inner_text("#status-text"))
+        # Both clear themselves. Driven by shortening the timers rather
+        # than waiting two minutes.
+        page.evaluate("""() => { window.gcsSayClearSeconds(0.3, 0.3);
+                                 window.gcsSay('Goes away', true); }""")
+        page.wait_for_timeout(900)
+        check("and an alert does not stay on screen for ever (%s)"
+              % page.inner_text("#status-text")[:30],
+              "empty" in (page.get_attribute("#status", "class") or ""))
+        # Put the real timers back: later sections read this panel, and
+        # with a third of a second on the clock they would all find it
+        # empty.
+        page.evaluate("() => window.gcsSayClearSeconds(30, 120)")
+
         print("7b. a rail undocks, moves, resizes and turns on its side")
         rail = page.locator("#rail-right")
         before = rail.bounding_box()
@@ -613,11 +689,13 @@ def main():
               % (round(wider["width"]), round(wider["height"]),
                  round(turned["width"]), round(turned["height"])),
               turned["width"] > turned["height"])
-        # GPS failure used to live in this rail, then New session did;
-        # both have moved (a window and the settings panel), so the check
-        # follows whatever the rail still holds - Set home here.
+        # GPS failure used to live in this rail, then New session did,
+        # then Set home here. All three have moved. The check follows
+        # whatever the rail still holds, and LAND is one that is not
+        # going to move again - it is in the rail precisely so a student
+        # never has to look for it.
         check("its buttons still reachable",
-              page.locator("#rail-right #btn-set_home").count() == 1)
+              page.locator("#rail-right #btn-land").count() == 1)
 
         print("7c. the picture is not inset for a panel that left the edge")
         set_layout("station")
@@ -657,7 +735,7 @@ def main():
         page.click('#win-motors .airframe .rotor[data-motor="motor_test_3"]')
         page.wait_for_timeout(400)
         check("clicking one runs that motor's test (%s)"
-              % page.inner_text("#status")[:40],
+              % page.inner_text("#status-text")[:40],
               page.locator('#win-motors .airframe .rotor.lit').count() >= 1)
         # Opened clear of everything an instructor reads, and draggable.
         box = page.locator("#win-motors").bounding_box()
@@ -767,8 +845,8 @@ def main():
         page.wait_for_timeout(500)
         check("starting the exercise puts the list away",
               page.locator("#preflight.open").count() == 0)
-        check("and says what was not green (%s)" % page.inner_text("#status")[:60],
-              "not green" in page.inner_text("#status"))
+        check("and says what was not green (%s)" % page.inner_text("#status-text")[:60],
+              "not green" in page.inner_text("#status-text"))
 
         print("8. telemetry reached the readouts")
         check("altitude shown", "12.5" in page.inner_text("#p-alt"))
