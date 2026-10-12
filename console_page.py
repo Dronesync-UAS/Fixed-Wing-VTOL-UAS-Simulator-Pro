@@ -771,6 +771,7 @@ TEMPLATE = """<!DOCTYPE html>
       <button data-pay="track" id="pay-track" title="Then click the target you want held">TRACK</button>
       <button data-pay="photo" title="Save a photograph with its position">PHOTO</button>
       <button data-pay="record" id="pay-record" title="Start or stop recording">REC</button>
+      <button data-pay="stab" id="pay-stab" title="Hold the line of sight while the aircraft moves">STAB</button>
       <button data-pay="centre" title="Point it straight ahead">Centre</button>
       <button data-pay="stow" title="Point it straight down">Stow</button>
     </div>
@@ -1691,6 +1692,7 @@ SCRIPT = """
     track.className = (d.mode === 'lock' || d.mode === 'acquiring' || pay.picking)
       ? 'on' : '';
     track.innerText = (d.mode === 'lock') ? 'UNLOCK' : 'TRACK';
+    el('pay-stab').className = d.stabilised ? 'on' : '';
     var rec = el('pay-record');
     rec.className = d.recording && d.recording.on ? 'rec' : '';
     rec.innerText = (d.recording && d.recording.on)
@@ -1748,8 +1750,12 @@ SCRIPT = """
     g.fillText((d.zoom).toFixed(1) + 'x  ' + d.fov_deg.toFixed(0)
                + '\u00b0 FOV (digital zoom)', 14, h - 40);
     g.fillStyle = 'rgba(255,255,255,0.7)';
-    g.fillText(locked ? 'TARGET LOCK' : 'UNSTABILISED - the mount is '
-               + 'bolted to the airframe', 14, h - 22);
+    g.fillText(locked ? 'TARGET LOCK'
+               : (d.stabilised
+                  ? 'STABILISED  brg ' + Math.round(d.world_az_deg)
+                    + '\u00b0  depr ' + Math.round(d.world_el_deg) + '\u00b0'
+                  : 'UNSTABILISED - the picture will roll with the aircraft'),
+               14, h - 22);
   }
   setInterval(function () { if (state.hero === 'payload') { payReticle(); } }, 200);
 
@@ -1766,6 +1772,10 @@ SCRIPT = """
     else if (what === 'zoomout') { payCall('/payload_zoom?steps=-1'); }
     else if (what === 'lase') { payCall('/payload_lase'); }
     else if (what === 'photo') { payCall('/payload_photo'); }
+    else if (what === 'stab') {
+      var on = pay.status && pay.status.stabilised;
+      payCall('/payload_stabilise?on=' + (on ? '0' : '1'));
+    }
     else if (what === 'centre') { payCall('/payload_centre'); }
     else if (what === 'stow') { payCall('/payload_stow'); }
     else if (what === 'record') {

@@ -8,11 +8,18 @@ the angles.
 
 THE TWO THINGS IT DOES
 ----------------------
-MANUAL POINTING. The operator drags in the picture; the station adds that
-drag to the current pan and tilt and publishes two joint positions. There
-is no stabilisation - the mount is bolted to the airframe - so the picture
-moves when the aircraft does. That is what an unstabilised mount does, and
-the console says so rather than pretending otherwise.
+MANUAL POINTING. The operator drags in the picture; the station adds
+that drag to the current aim and publishes two joint positions.
+
+STABILISED, although the mount is not. A real EO/IR ball holds its line
+of sight while the aircraft rolls; the one in the model is two joints
+bolted to the airframe with no inertial loop of its own, so left alone
+the picture would roll with the aircraft. The station holds it instead:
+a manual aim is remembered as a bearing and a depression IN THE WORLD,
+and the joint angles are recomputed from the aircraft's own attitude ten
+times a second. It can be switched off, which shows what the bare mount
+does - worth seeing once, not worth flying a lesson on - and the console
+says which it is.
 
 TARGET LOCK. The operator clicks a point. The station slews the boresight
 onto it, waits for the gimbal to settle, measures the range, and works out
@@ -106,6 +113,11 @@ state = {
     "tilt_deg": 30.0,
     "zoom": 1.0,
     "mode": "manual",          # manual | acquiring | lock
+    # See STABILISED above. When this is on, an aim is remembered as a
+    # direction in the world and the joints are driven from it.
+    "stabilise": True,
+    "world_az_deg": 0.0,       # bearing from north, clockwise
+    "world_el_deg": 30.0,      # depression below the horizon
     "target": None,            # {"lat":, "lon":, "alt_amsl":}
     "range_m": None,
     "range_source": None,      # "laser" | "computed" | None
@@ -349,14 +361,55 @@ def _aircraft():
     }
 
 
-def aim(pan_deg, tilt_deg, break_lock=True):
-    """Point the gimbal. Any manual aim drops a target lock by default."""
+def world_from_body(roll_deg, pitch_deg, yaw_deg, pan_deg, tilt_deg):
+    """The bearing and depression, in the world, that a body aim points at.
+
+    Bearing is from north, clockwise; depression is positive downwards -
+    the same pair the operator already reads, measured against the ground
+    instead of against the airframe.
+    """
+    north, east, down = boresight_ned(roll_deg, pitch_deg, yaw_deg,
+                                      pan_deg, tilt_deg)
+    bearing = math.degrees(math.atan2(east, north)) % 360.0
+    depression = math.degrees(math.asin(clamp(down, -1.0, 1.0)))
+    return bearing, depression
+
+
+def body_from_world(roll_deg, pitch_deg, yaw_deg, bearing_deg, depression_deg):
+    """The inverse: what to drive the joints to, to look that way."""
+    bearing = math.radians(bearing_deg)
+    depression = math.radians(depression_deg)
+    horizontal = math.cos(depression)
+    unit = (horizontal * math.cos(bearing), horizontal * math.sin(bearing),
+            math.sin(depression))
+    fwd, right, down = ned_to_body(roll_deg, pitch_deg, yaw_deg, unit)
+    return (math.degrees(math.atan2(right, fwd)),
+            math.degrees(math.asin(clamp(down, -1.0, 1.0))))
+
+
+def aim(pan_deg, tilt_deg, break_lock=True, remember=True):
+    """Point the gimbal. Any manual aim drops a target lock by default.
+
+    `remember` is what makes stabilisation work: an aim the OPERATOR
+    asked for is also stored as a direction in the world, so the holding
+    loop has something to hold. An aim that loop issues itself must not
+    overwrite it, or the gimbal would drift round with the aircraft one
+    small correction at a time.
+    """
     pan, tilt = clamp_angles(pan_deg, tilt_deg)
     state["pan_deg"], state["tilt_deg"] = round(pan, 2), round(tilt, 2)
     if break_lock and state["mode"] != "manual":
         state["mode"] = "manual"
         state["target"] = None
+    if remember:
+        aircraft = _aircraft()
+        if aircraft is not None:
+            bearing, depression = world_from_body(
+                aircraft["roll"], aircraft["pitch"], aircraft["yaw"], pan, tilt)
+            state["world_az_deg"] = round(bearing, 2)
+            state["world_el_deg"] = round(depression, 2)
     _publish(pan, tilt)
+    start_lock_loop()
     return state["pan_deg"], state["tilt_deg"]
 
 
@@ -477,10 +530,41 @@ def unlock():
     return "Target lock released."
 
 
-def _lock_step():
-    """One pass of the lock loop. Separated so a test can call it directly."""
-    if state["mode"] != "lock" or not state["target"]:
+def set_stabilise(on):
+    state["stabilise"] = bool(on)
+    if state["stabilise"]:
+        start_lock_loop()
+    return state["stabilise"]
+
+
+def _stabilise_step():
+    """Hold the remembered world direction while the aircraft manoeuvres.
+
+    Manual pointing only: in target lock the aim is worked out from the
+    ground point instead, which is a stronger form of the same thing.
+    """
+    if not state["stabilise"] or state["mode"] != "manual":
         return False
+    aircraft = _aircraft()
+    if aircraft is None:
+        return False
+    pan, tilt = body_from_world(aircraft["roll"], aircraft["pitch"],
+                                aircraft["yaw"], state["world_az_deg"],
+                                state["world_el_deg"])
+    wanted_pan, wanted_tilt = clamp_angles(pan, tilt)
+    # Held at the stop when the aircraft takes the line of sight outside
+    # the mount's travel, rather than wrapped round to the other side -
+    # which would swing the picture through 180 degrees and lose whatever
+    # the operator was watching.
+    aim(wanted_pan, wanted_tilt, break_lock=False, remember=False)
+    return True
+
+
+def _lock_step():
+    """One pass of the holding loop: target lock if there is one, and
+    otherwise stabilisation. Separated so a test can call it directly."""
+    if state["mode"] != "lock" or not state["target"]:
+        return _stabilise_step()
     aircraft = _aircraft()
     if aircraft is None:
         return False
@@ -544,7 +628,9 @@ def status():
         "tilt_down_deg": TILT_DOWN,
         "zoom_max": ZOOM_MAX,
         "problem": state["problem"],
-        "stabilised": False,
+        "stabilised": state["stabilise"],
+        "world_az_deg": state["world_az_deg"],
+        "world_el_deg": state["world_el_deg"],
     }
 
 

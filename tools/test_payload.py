@@ -116,6 +116,31 @@ check("and the tilt steepens on the way in",
       > gimbal.aim_at_target(flat["lat"] - 500.0 / gimbal.EARTH_M_PER_DEG, 6.5,
                              1200.0, 0, 0, 0, flat)[1])
 
+print("3b. stabilisation holds the line of sight while the aircraft rolls")
+# Aim 20 degrees right and 40 down with the aircraft level, then bank it
+# 30 degrees right. A stabilised mount must end up looking at the same
+# patch of ground, which means DIFFERENT joint angles.
+level = gimbal.world_from_body(0, 0, 0, 20.0, 40.0)
+banked_pan, banked_tilt = gimbal.body_from_world(30, 0, 0, level[0], level[1])
+check("the joints have to move to hold it (%.1f, %.1f -> %.1f, %.1f)"
+      % (20.0, 40.0, banked_pan, banked_tilt),
+      abs(banked_pan - 20.0) > 2.0 or abs(banked_tilt - 40.0) > 2.0)
+held = gimbal.world_from_body(30, 0, 0, banked_pan, banked_tilt)
+check("and the line of sight comes out where it started (%.2f, %.2f)"
+      % held, close(held[0], level[0], 1e-6) and close(held[1], level[1], 1e-6))
+# The unstabilised case, for contrast: same joints, different ground.
+drifted = gimbal.world_from_body(30, 0, 0, 20.0, 40.0)
+# Shortest way round, or a 27 degree swing reads as 332.
+moved = abs((drifted[0] - level[0] + 180.0) % 360.0 - 180.0)
+check("while leaving the joints alone moves it (%.1f deg of bearing)" % moved,
+      moved > 5.0)
+# And a full turn: the bearing held must not depend on the heading.
+for heading in (0, 90, 215, 330):
+    pan, tilt = gimbal.body_from_world(0, 0, heading, level[0], level[1])
+    back = gimbal.world_from_body(0, 0, heading, pan, tilt)
+    check("heading %d: still pointing at bearing %.0f" % (heading, level[0]),
+          close(back[0], level[0], 1e-6) and close(back[1], level[1], 1e-6))
+
 print("4. the mount's travel")
 pan, tilt = gimbal.clamp_angles(200.0, 120.0)
 check("pan folds into +-180 (%.1f)" % pan, close(pan, -160.0, 1e-9))
@@ -300,7 +325,8 @@ def browser_checks():
             "target": None, "range_m": None, "range_source": None,
             "range_age_s": None, "range_stale": False, "fov_deg": 60.0,
             "pan_limit_deg": 180.0, "tilt_up_deg": -30.0, "tilt_down_deg": 90.0,
-            "zoom_max": 12.0, "problem": None, "stabilised": False,
+            "zoom_max": 12.0, "problem": None, "stabilised": True,
+            "world_az_deg": 0.0, "world_el_deg": 30.0,
             "fps": 12.0, "view_mode": "normal", "camera_live": True,
             "recording": {"on": False, "frames": 0, "seconds": 0}}
 
@@ -335,6 +361,8 @@ def browser_checks():
                     fake["range_age_s"] = 0.2
                 elif what == "unlock":
                     fake["mode"] = "manual"
+                elif what == "stabilise":
+                    fake["stabilised"] = query.get("on", ["1"])[0] == "1"
                 elif what == "record":
                     fake["recording"] = {
                         "on": query.get("on", ["1"])[0] == "1",
@@ -422,6 +450,16 @@ def browser_checks():
                                    for a in asked))
         check("and the button says so",
               "REC" in page.inner_text("#pay-record"))
+
+        check("the strip says the picture is stabilised",
+              "on" in (page.get_attribute("#pay-stab", "class") or ""))
+        page.click("#pay-stab")
+        page.wait_for_timeout(300)
+        check("and stabilisation can be switched off",
+              fake["stabilised"] is False
+              and "on" not in (page.get_attribute("#pay-stab", "class") or ""))
+        page.click("#pay-stab")
+        page.wait_for_timeout(300)
 
         page.click('#paybar button[data-pay="lase"]')
         page.wait_for_timeout(300)

@@ -289,8 +289,44 @@ flight_recorder = flight_log.Recorder(
 flight_recorder.start()
 on_failure(flight_recorder.note_failure)
 
+
+def _set_starting_conditions():
+    """Put a little air in the world before anyone flies in it.
+
+    Every world ships with its wind at exactly zero, and an aircraft
+    hovering in mathematically still air sits as though nailed down. One
+    metre a second is barely perceptible and well inside anything the
+    airframe cares about, but it is not zero. See plugins/conditions.py
+    for the whole argument, and press Calm in Settings > Environment to
+    switch it off.
+
+    Deferred rather than done here: Gazebo takes fifteen to thirty
+    seconds to come up, and a wind command sent before it is listening
+    goes nowhere. Failing is not an error - it only means the simulator
+    is not running yet, which is the normal case when the station is
+    started first.
+    """
+    conditions = plugins_by_id.get("conditions")
+    if conditions is None:
+        return
+    module = conditions.get("_module")
+    if module is None:
+        return
+
+    def later():
+        time.sleep(25.0)
+        try:
+            module.apply_force(module.DEFAULT_FORCE, quiet=True)
+        except Exception:                                  # noqa: BLE001
+            pass
+
+    threading.Thread(target=later, daemon=True).start()
+
+
 plugins = load_plugins()
 plugins_by_id = {p["id"]: p for p in plugins}
+
+_set_starting_conditions()
 
 # Group plugins by category, in a sensible fixed order
 CATEGORY_ORDER = ["Flight Ops", "Flight Mode", "Function Test", "Failure Injection", "Simulation Control", "Camera", "Experimental - In Development"]
@@ -328,7 +364,8 @@ RIGHT_RAIL = [
 # settings window, one group per tab, so finding "wind" means opening
 # Environment rather than reading two columns of thirty buttons.
 SETTINGS_GROUPS = [
-    ("Environment", ["environment", "time_of_day", "weather", "wind_gust"]),
+    ("Environment", ["environment", "conditions", "time_of_day", "weather",
+                     "wind_gust"]),
     ("Aircraft", ["aircraft_lights", "start_video", "start_stabilizer"]),
     ("Session", ["new_session", "reset_scenario", "reset_spawn",
                  "external_view"]),
@@ -1880,6 +1917,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
             said = gimbal.unlock()
         elif what == "lase":
             said = gimbal.lase()
+        elif what == "stabilise":
+            gimbal.set_stabilise((query.get("on") or ["1"])[0]
+                                 in ("1", "true", "on"))
+            said = ("Stabilised - the station holds the line of sight while "
+                    "the aircraft moves." if gimbal.state["stabilise"]
+                    else "Stabilisation off - the picture will now roll with "
+                         "the aircraft, which is what the bare mount does.")
         elif what == "centre":
             gimbal.centre()
         elif what == "stow":
