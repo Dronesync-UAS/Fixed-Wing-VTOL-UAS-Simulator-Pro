@@ -139,6 +139,130 @@ check("one strobe above and one below (%s, %s)"
       % (by_name["strobe_top"][1][2], by_name["strobe_belly"][1][2]),
       by_name["strobe_top"][1][2] > 0 and by_name["strobe_belly"][1][2] < 0)
 
+print("4. the flash pattern")
+# What flashes and what does not is the part a student is marked on, and
+# it is timing code nobody can check by looking at it.
+import importlib                                                  # noqa: E402
+
+st.WORLD = "training_area_blackrock"
+spec = importlib.util.spec_from_file_location(
+    "aircraft_lights", os.path.join(REPO, "aircraft_lights.py"))
+al = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(al)
+
+# Record every switch instead of publishing it.
+log = []
+clock = {"t": 0.0}
+al.set_light = lambda name, on: log.append((round(clock["t"], 3), name, on)) or True
+al._sleep_until = lambda moment: clock.__setitem__("t", max(clock["t"], moment))
+import time as _time                                              # noqa: E402
+al.time = type("t", (), {"monotonic": lambda: clock["t"], "sleep": lambda *_: None})
+
+al._state["on"] = True
+al._state["armed"] = True
+
+
+def one_cycle():
+    log.clear()
+    start = clock["t"]
+    for name in al.NAVIGATION:
+        al.set_light(name, True)
+    for when, length in al.STROBE_FLASHES:
+        al._sleep_until(start + when)
+        for name in al.STROBES:
+            al.set_light(name, True)
+        al._sleep_until(start + when + length)
+        for name in al.STROBES:
+            al.set_light(name, False)
+    if al._state["armed"]:
+        al._sleep_until(start + al.BEACON_FLASH[0])
+        for name in al.BEACON:
+            al.set_light(name, True)
+        al._sleep_until(start + al.BEACON_FLASH[0] + al.BEACON_FLASH[1])
+        for name in al.BEACON:
+            al.set_light(name, False)
+    al._sleep_until(start + al.CYCLE_S)
+    return list(log)
+
+
+events = one_cycle()
+nav = [e for e in events if e[1] in al.NAVIGATION]
+check("the navigation lights are only ever switched ON (%s events)" % len(nav),
+      nav and all(e[2] for e in nav))
+check("every navigation light is lit", len({e[1] for e in nav}) == 3)
+
+strobe_on = [e[0] for e in events if e[1] == "strobe_top" and e[2]]
+check("the strobes DOUBLE-flash (%s flashes a second)" % len(strobe_on),
+      len(strobe_on) == 2)
+check("the two strobes fire together",
+      [e[0] for e in events if e[1] == "strobe_belly" and e[2]] == strobe_on)
+gap = strobe_on[1] - strobe_on[0]
+check("the two flashes are close together (%.0f ms apart)" % (gap * 1000),
+      0.05 < gap < 0.35)
+
+beacon_on = [e[0] for e in events if e[1] == "beacon_top" and e[2]]
+check("the beacon flashes once a cycle (%s)" % len(beacon_on), len(beacon_on) == 1)
+check("on its own rhythm, not with the strobes (%.2f vs %s)"
+      % (beacon_on[0], strobe_on), beacon_on[0] not in strobe_on)
+
+# Disarmed, the beacon is dark - that is what a beacon MEANS.
+al._state["armed"] = False
+events = one_cycle()
+check("and not at all while disarmed",
+      not [e for e in events if e[1] == "beacon_top" and e[2]])
+check("while the strobes carry on",
+      len([e for e in events if e[1] == "strobe_top" and e[2]]) == 2)
+
+check("switching off darkens every light",
+      (al.set_on(False) or True)
+      and {e[1] for e in log[-len(al.ALL):]} == set(al.ALL)
+      and not any(e[2] for e in log[-len(al.ALL):]))
+
+print("5. the aircraft's colours")
+# A fragment with the same shape as PX4's standard_vtol model: a blue
+# rotor, a blue elevon, and a grey fuselage that must be left alone.
+MODEL_SNIPPET = """\
+      <visual name='base_link_visual'>
+        <material>
+          <ambient>.175 .175 .175 1.0</ambient>
+          <diffuse>.175 .175 .175 1.0</diffuse>
+        </material>
+      </visual>
+      <visual name='rotor_0_visual'>
+        <material>
+          <ambient>0 0 1 1.0</ambient>
+          <diffuse>0 0 1 1.0</diffuse>
+        </material>
+      </visual>
+      <visual name='left_elevon_visual'>
+        <material>
+          <ambient>0 0 1 1.0</ambient>
+          <diffuse>0 0 1 1.0</diffuse>
+        </material>
+      </visual>
+"""
+
+spec = importlib.util.spec_from_file_location(
+    "aircraft_colours_apply",
+    os.path.join(REPO, "tools", "aircraft_colours_apply.py"))
+colours = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(colours)
+
+out, changed = colours.recolour(MODEL_SNIPPET.splitlines(keepends=True))
+joined = "".join(out)
+check("it changed something (%s lines)" % len(changed), len(changed) == 4)
+check("no blue left on the aircraft", "0 0 1 1.0" not in joined)
+check("the fuselage is left as it was", ".175 .175 .175 1.0" in joined)
+
+rotor = colours.COLOURS["rotor_0_visual"][0]
+elevon = colours.COLOURS["left_elevon_visual"][0]
+check("the propellers are near-black (%s)" % (rotor,), max(rotor) <= 0.08)
+check("but not pure black, which would go flat (%s)" % (rotor,), min(rotor) > 0)
+check("the elevons are DARKER than the 0.175 fuselage (%s)" % (elevon,),
+      max(elevon) < 0.175)
+check("and still lighter than the propellers (%s vs %s)" % (elevon, rotor),
+      max(elevon) > max(rotor))
+
 print()
 print("FAILED: %s" % fails if fails else "all checks passed")
 sys.exit(1 if fails else 0)

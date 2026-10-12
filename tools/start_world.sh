@@ -97,4 +97,16 @@ echo
 
 cd "$PX4_DIR"
 export PX4_GZ_MODEL_POSE="0,0,${SPAWN_Z},0,0,0"
+
+# Gazebo runs without its own window unless asked for. PX4's SITL makefile
+# reads HEADLESS and starts the server only; the camera sensors still
+# render, so the console's views are unaffected. UAS_SHOW_GAZEBO=1 brings
+# the window back when the world itself needs looking at.
+if [ "${UAS_SHOW_GAZEBO:-0}" != "1" ]; then
+  export HEADLESS=1
+  echo "Gazebo: hidden (UAS_SHOW_GAZEBO=1 to show its window)"
+else
+  echo "Gazebo: showing its own window"
+fi
+
 PX4_GZ_WORLD="$WORLD" make px4_sitl gz_standard_vtol

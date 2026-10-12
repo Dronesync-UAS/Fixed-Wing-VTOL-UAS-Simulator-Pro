@@ -27,12 +27,14 @@ from urllib.parse import urlparse, parse_qs
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from simulator_link import telemetry, connection_status, flight_path, home_latlon, link_health
+from simulator_link import (telemetry, connection_status, flight_path,
+                            home_latlon, link_health, on_armed_change)
 from plugin_loader import load_plugins
 import video_feed
 from video_feed import start_video_capture, mjpeg_generator, camera_fps, FEEDS
 import console_page
 import event_logger
+import aircraft_lights
 import flight_display
 import preflight
 import terrain_backdrop
@@ -110,7 +112,7 @@ def write_layout(data):
 # saved panel layout from the classic page is untouched and either page can
 # be used without destroying the other's arrangement.
 CONSOLE_DEFAULT = {"hero": "chase", "layout": "pilot", "tiles": {},
-                   "rails": {}, "shut": None}
+                   "rails": {}, "shut": None, "windows": {}}
 CONSOLE_HEROES = ("chase", "nose", "map")
 CONSOLE_LAYOUTS = ("pilot", "station")
 TILE_MIN_W, TILE_MAX_W = 150, 520
@@ -199,6 +201,21 @@ def write_console_layout(data):
                        "horizontal": bool(box.get("horizontal"))}
     clean["rails"] = rails
 
+    # Where each pop-up panel was last dragged to. Clamped like everything
+    # else here: a panel saved off-screen would open where it cannot be
+    # grabbed, and the only way back would be deleting the file by hand.
+    windows = {}
+    for name, at in (data.get("windows") or {}).items():
+        if not isinstance(at, dict) or not isinstance(name, str):
+            continue
+        try:
+            x, y = int(at["x"]), int(at["y"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        windows[name[:40]] = {"x": max(0, min(x, 6000)),
+                              "y": max(0, min(y, 4000))}
+    clean["windows"] = dict(list(windows.items())[:12])
+
     shut = data.get("shut")
     clean["shut"] = ([str(x)[:60] for x in shut if isinstance(x, str)][:40]
                      if isinstance(shut, list) else [])
@@ -249,6 +266,8 @@ LIMIT_WARN_FRACTION = 0.9
 _limit_state = {}
 _limit_lock = threading.Lock()
 _video_node = start_video_capture()  # starts listening for camera frames immediately
+on_armed_change(aircraft_lights.set_armed)
+
 plugins = load_plugins()
 plugins_by_id = {p["id"]: p for p in plugins}
 
@@ -293,8 +312,8 @@ RAIL_ORDER = {
                    "hold", "set_home"],
     "Flight Mode": ["hover_flight", "forward_flight", "loiter", "mode_position",
                     "mode_manual"],
-    "Failure Injection": ["gps_failure", "data_link_loss", "rc_signal_loss",
-                          "engine_failure", "motor_failure"],
+    "Failure Injection": ["cuas_encounter", "gps_failure", "data_link_loss",
+                          "rc_signal_loss", "engine_failure", "motor_failure"],
     # NEW SESSION first: it is the one an instructor reaches for between
     # students, and alphabetical order buried it under the environment
     # selector.
@@ -312,6 +331,7 @@ RAIL_ORDER = {
 # Failure" in a 200px panel wraps to three lines; "GPS" does not, and the
 # window's own title already says these are failures.
 WINDOW_LABELS = {
+    "cuas_encounter": "C-UAS encounter",
     "gps_failure": "GPS",
     "data_link_loss": "Data link (C2)",
     "rc_signal_loss": "RC signal",

@@ -327,6 +327,70 @@ if block:
     check("recent flying is kept at full resolution (gap %s)"
           % max(gaps), max(gaps) == 1)
 
+print("7. the counter-UAS encounter")
+# It drives the station's existing injections in an order. The things
+# worth proving: that it refuses on the ground, that each profile fires
+# the effects it claims, and - most of all - that clearing it puts every
+# link back, because an encounter nobody can end is not a training
+# exercise.
+fired = []
+
+
+class _Toggle:
+    def __init__(self, name):
+        self.name = name
+        self.state = {"active": False}
+
+    def press(self):
+        self.state["active"] = not self.state["active"]
+        fired.append((self.name, self.state["active"]))
+        return "toggled"
+
+
+toggles = {name: _Toggle(name) for name in
+           ("gps_failure", "data_link_loss", "rc_signal_loss")}
+plugin_loader.LOADED = [
+    {"id": name, "label": name, "handler": t.press, "_module": t}
+    for name, t in toggles.items()]
+
+cuas = load("cuas_encounter")
+cuas.wait_until = lambda *a, **k: True
+ran = []
+cuas.start_sequence = lambda name, steps: ran.extend(steps) or True
+cuas.sequence_running = lambda: False
+
+sl.telemetry.update({"armed": False})
+check("refused on the ground", "disarmed" in cuas.cuas_encounter("gnss"))
+sl.telemetry.update({"armed": True, "altitude_m": 60.0, "mode": "Hold / Loiter"})
+check("refused an encounter it does not have",
+      "not one of" in cuas.cuas_encounter("death ray"))
+
+for name, expect in (("gnss", {"gps_failure"}),
+                     ("c2", {"data_link_loss"}),
+                     ("layered", {"gps_failure", "data_link_loss"}),
+                     ("rf_denial", {"gps_failure", "data_link_loss",
+                                    "rc_signal_loss"})):
+    for t in toggles.values():
+        t.state["active"] = False
+    cuas.state["active"] = False
+    fired.clear(); ran.clear()
+    reply = cuas.cuas_encounter(name)
+    for step in ran:
+        step()
+    hit = {f[0] for f in fired if f[1]}
+    check("%s fires %s (%s)" % (name, sorted(expect), sorted(hit)), hit == expect)
+
+check("it says it models no equipment and emits nothing",
+      "emits nothing" in reply)
+
+# The one that matters: it must always be possible to end it.
+fired.clear()
+reply = cuas.cuas_encounter("rf_denial")
+check("pressing it again clears instead of stacking", "cleared" in reply)
+check("and every link is restored",
+      not any(t.state["active"] for t in toggles.values()))
+check("the encounter is recorded as ended", not cuas.state["active"])
+
 print()
 print("FAILED: %s" % fails if fails else "all checks passed")
 sys.exit(1 if fails else 0)

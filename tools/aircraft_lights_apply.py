@@ -18,6 +18,14 @@ Those are the lights by which another pilot reads which way an aircraft is
 pointing at night: red on your left and green on your right means it is
 coming towards you.
 
+WHICH ONES FLASH
+----------------
+The navigation lights are STEADY - that is what a position light is for,
+and flashing them would teach a student the wrong thing. The white
+strobes double-flash about once a second, and the red beacon flashes on
+its own slower rhythm while the aircraft is armed. aircraft_lights.py
+drives all of that.
+
 THE REQUEST ASKED FOR SOMETHING SLIGHTLY DIFFERENT - a white strobe on top
 (which is right), a green strobe on the belly, and "white and red on the
 wing tips". Green on the belly is not a light a real aircraft carries, and
@@ -72,6 +80,10 @@ LIGHTS = [
      "spine anti-collision - WHITE"),
     ("strobe_belly", (1.0, 1.0, 1.0), (0.0, 0.0, -0.14),
      "belly anti-collision - WHITE"),
+    # A real beacon is red and means the engines are running or about to
+    # be. Here it follows the armed state, which is the same statement.
+    ("beacon_top", (0.95, 0.08, 0.05), (0.12, 0.0, 0.24),
+     "beacon, flashes while armed - RED"),
 ]
 
 LIGHT_BLOCK = """\
@@ -181,9 +193,10 @@ Next:
 
 3. Switch them on with the console's "Aircraft lights" control.
 
-They are steady, not flashing: Gazebo has no flashing light, and making
-one flash would mean a process per light toggling it. They are also only
-visible against a dark scene.
+The strobes double-flash, the beacon flashes while armed, and the
+navigation lights stay steady - which is what a real aircraft does. They
+are only visible against a dark scene, so set the lighting to Night
+first.
 
 To take them off again:
      python3 tools/aircraft_lights_apply.py --revert""")

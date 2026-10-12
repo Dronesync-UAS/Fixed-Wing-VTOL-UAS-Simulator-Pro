@@ -184,10 +184,30 @@ def check_prerequisites(entry):
     return problems
 
 
+# Whether Gazebo shows its own window. PX4's SITL makefile reads HEADLESS
+# from the environment and starts `gz sim -s` - the SERVER only - when it
+# is 1. The physics still runs and the camera sensors still render, because
+# gz-sim's sensors system builds its own rendering scene in the server
+# process rather than borrowing the GUI's. So the console's nose and chase
+# feeds work exactly as before; what disappears is the Gazebo window.
+#
+# Why that is worth having: on a two-screen training setup the Gazebo
+# window is one more thing to find, move and accidentally close, and the
+# console already shows the aircraft from two angles. It also gives back
+# the GPU time the GUI was spending drawing a view nobody was watching.
+#
+# Set UAS_SHOW_GAZEBO=1 to get the window back - it is still the right
+# place to go when something looks wrong with the world itself.
+def gazebo_is_hidden():
+    return os.environ.get("UAS_SHOW_GAZEBO", "0") != "1"
+
+
 def start_simulator(entry):
     """Launch PX4 + Gazebo detached, with this world's own spawn height."""
     os.makedirs(LOG_DIR, exist_ok=True)
     env = dict(os.environ)
+    if gazebo_is_hidden():
+        env["HEADLESS"] = "1"
     # Each world's ground sits at a different height, so one spawn pose cannot
     # serve them: a sea-level spawn in Hoggar buries the aircraft, and
     # Hoggar's 605 m spawn over Black Rock drops it from 600 m.

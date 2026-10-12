@@ -46,6 +46,7 @@ sl.MAV_RESULT_NAMES = {0: "accepted"}
 sl.send_command_and_wait = lambda *a, **k: (0, "accepted")
 sl.status_log = []
 sl.home_amsl = lambda: 1200.0
+sl.on_armed_change = lambda cb: None
 sl.failure_injection_blocked = lambda: None
 sl.read_param = lambda *a, **k: 1.0
 sl.FAILURE_UNIT_SYSTEM_MOTOR = 101
@@ -66,6 +67,15 @@ sl.status_since = lambda *a, **k: []
 sl.wait_for_armed = lambda *a, **k: True
 sl.set_mode = lambda m, s=0, name=None: f"{name or 'mode'}: accepted by PX4."
 sys.modules["simulator_link"] = sl
+al = types.ModuleType("aircraft_lights")
+al.set_armed = lambda *a, **k: None
+al.set_on = lambda on: None
+al.status = lambda: {"on": False, "armed": False, "problem": None}
+al.NAVIGATION = ["nav_port", "nav_starboard", "nav_tail"]
+al.STROBES = ["strobe_top", "strobe_belly"]
+al.BEACON = ["beacon_top"]
+al.ALL = al.NAVIGATION + al.STROBES + al.BEACON
+sys.modules["aircraft_lights"] = al
 
 # --- stub event_logger so this check never writes to the real compliance CSV ---
 el = types.ModuleType("event_logger")

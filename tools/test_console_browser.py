@@ -54,6 +54,7 @@ for name in ("reset_flight_state", "log_instructor_action", "mark_failure_inject
     setattr(sl, name, lambda *a, **k: None)
 sl.status_log = []
 sl.home_amsl = lambda: 1200.0
+sl.on_armed_change = lambda cb: None
 sl.failure_injection_blocked = lambda: None
 sl.read_param = lambda *a, **k: 1.0
 sl.FAILURE_UNIT_SYSTEM_MOTOR = 101
@@ -82,6 +83,15 @@ sl.MAV_RESULT_NAMES = {0: "accepted"}
 sl.send_command_and_wait = lambda *a, **k: (0, "accepted")
 sl.set_mode = lambda m, s=0, name=None: "ok"
 sys.modules["simulator_link"] = sl
+al = types.ModuleType("aircraft_lights")
+al.set_armed = lambda *a, **k: None
+al.set_on = lambda on: None
+al.status = lambda: {"on": False, "armed": False, "problem": None}
+al.NAVIGATION = ["nav_port", "nav_starboard", "nav_tail"]
+al.STROBES = ["strobe_top", "strobe_belly"]
+al.BEACON = ["beacon_top"]
+al.ALL = al.NAVIGATION + al.STROBES + al.BEACON
+sys.modules["aircraft_lights"] = al
 
 el = types.ModuleType("event_logger")
 el.log_event = lambda *a, **k: None
@@ -436,6 +446,57 @@ def main():
         check("no button text overflows (%s px in a %s px rail)"
               % (widest, round(rail["width"])), widest <= rail["width"])
 
+        print("4e. no control sits on top of another")
+        # Reported as "some buttons overlap others". Found by measuring
+        # rather than by looking, because it only shows at some widths.
+        OVERLAP_PROBE = """() => {
+              const out = [];
+              for (const scope of ['#rail-left', '#rail-right', '#topbar']) {
+                const root = document.querySelector(scope);
+                if (!root) continue;
+                const items = [...root.querySelectorAll('button, label, input, select')]
+                  .filter(e => e.offsetParent !== null)
+                  .filter(e => !e.closest('label'))
+                  .map(e => ({ e, r: e.getBoundingClientRect() }))
+                  .filter(o => o.r.width > 2 && o.r.height > 2);
+                for (let i = 0; i < items.length; i++) {
+                  for (let j = i + 1; j < items.length; j++) {
+                    const a = items[i], b = items[j];
+                    if (a.e.contains(b.e) || b.e.contains(a.e)) continue;
+                    const dx = Math.min(a.r.right, b.r.right) - Math.max(a.r.left, b.r.left);
+                    const dy = Math.min(a.r.bottom, b.r.bottom) - Math.max(a.r.top, b.r.top);
+                    if (dx > 1 && dy > 1) {
+                      out.push(scope + ': ' +
+                        (a.e.id || a.e.innerText || a.e.type).trim().slice(0, 18) +
+                        ' / ' +
+                        (b.e.id || b.e.innerText || b.e.type).trim().slice(0, 18) +
+                        ' (' + Math.round(dx) + 'x' + Math.round(dy) + ')');
+                    }
+                  }
+                }
+              }
+              return out;
+            }"""
+        def measure_overlaps():
+            return page.evaluate(OVERLAP_PROBE)
+
+        # Both layouts, because Pilot's columns are narrower and that is
+        # where a label is most likely to be pushed onto its neighbour.
+        for layout in ("station", "pilot"):
+            page.click('#layouttabs button[data-layout="%s"]' % layout)
+            page.wait_for_timeout(450)
+            found = measure_overlaps()
+            check("%s: nothing overlaps (%s)" % (layout, found[:3] or "clear"),
+                  not found)
+        # And at a laptop width, where everything is tightest.
+        page.set_viewport_size({"width": 1280, "height": 800})
+        page.wait_for_timeout(500)
+        found = measure_overlaps()
+        check("1280 wide: nothing overlaps (%s)" % (found[:3] or "clear"),
+              not found)
+        page.set_viewport_size({"width": 1600, "height": 900})
+        page.wait_for_timeout(450)
+
         print("5. clicking a tile swaps it in")
         page.click("#tile-left .body")
         page.wait_for_timeout(300)
@@ -553,6 +614,34 @@ def main():
         check("clicking one runs that motor's test (%s)"
               % page.inner_text("#status")[:40],
               page.locator('#win-motors .airframe .rotor.lit').count() >= 1)
+        # Opened clear of everything an instructor reads, and draggable.
+        box = page.locator("#win-motors").bounding_box()
+        rail = page.locator("#rail-left").bounding_box()
+        tapes = page.evaluate("() => window.gcsTapes('#hero canvas.hud')")
+        check("it opens clear of the left-hand controls (%s vs %s)"
+              % (round(box["x"]), round(rail["x"] + rail["width"])),
+              box["x"] >= rail["x"] + rail["width"])
+        check("it is see-through, not a solid block (%s)"
+              % page.evaluate(
+                  "() => getComputedStyle(document.getElementById('win-motors'))"
+                  ".backgroundColor"),
+              "0.7" in page.evaluate(
+                  "() => getComputedStyle(document.getElementById('win-motors'))"
+                  ".backgroundColor")
+              or "0.78" in page.evaluate(
+                  "() => getComputedStyle(document.getElementById('win-motors'))"
+                  ".backgroundColor"))
+        head = page.locator("#win-motors .win-head").bounding_box()
+        page.mouse.move(head["x"] + 90, head["y"] + 12)
+        page.mouse.down()
+        page.mouse.move(head["x"] + 320, head["y"] + 190, steps=10)
+        page.mouse.up()
+        page.wait_for_timeout(400)
+        moved = page.locator("#win-motors").bounding_box()
+        check("and it can be dragged anywhere (%s -> %s)"
+              % (round(box["x"]), round(moved["x"])),
+              abs(moved["x"] - box["x"]) > 150)
+
         page.click("#win-motors .win-close")
         page.wait_for_timeout(300)
         check("the X closes it", page.locator("#win-motors.open").count() == 0)

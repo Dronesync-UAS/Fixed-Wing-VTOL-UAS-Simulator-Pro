@@ -321,7 +321,7 @@ TEMPLATE = """<!DOCTYPE html>
 
   /* ---------- pre-flight checklist ---------- */
   #preflight {
-    position: absolute; left: 50%; top: 60px; transform: translateX(-50%);
+    position: absolute; left: 50%; top: 60px;
     width: 470px; max-height: calc(100% - 190px); overflow: auto; z-index: 55;
     display: none; flex-direction: column; border-radius: 12px;
     background: rgba(12,16,22,0.97); border: 1px solid rgba(255,255,255,0.22);
@@ -396,24 +396,28 @@ TEMPLATE = """<!DOCTYPE html>
   /* A window, not another column entry: these are things an instructor
      stops to do - a ground check, or setting up a failure - rather than
      things reached for while watching a student fly. */
+  /* Semi-transparent, so the picture underneath is still readable - a
+     panel over a camera view should dim what is behind it, not delete it.
+     Backdrop blur keeps the text legible over a busy picture. */
   .window {
-    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
-    z-index: 58; display: none; flex-direction: column;
+    position: absolute; z-index: 58; display: none; flex-direction: column;
     max-width: 820px; max-height: calc(100% - 180px); overflow: auto;
-    border-radius: 12px; background: rgba(12,16,22,0.98);
-    border: 1px solid rgba(255,255,255,0.22);
-    box-shadow: 0 18px 54px rgba(0,0,0,0.8);
+    border-radius: 12px; background: rgba(12,16,22,0.78);
+    backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px);
+    border: 1px solid rgba(255,255,255,0.26);
+    box-shadow: 0 18px 54px rgba(0,0,0,0.7);
   }
   .window.open { display: flex; }
+  /* Dragged by its title bar, like every other panel on this console. */
+  .win-head { cursor: grab; }
+  .win-head:active { cursor: grabbing; }
+  .window.dragging { box-shadow: 0 22px 64px rgba(0,0,0,0.85); }
   /* Failure injection sits in the one part of the screen with nothing on
      it: inboard of the right-hand column, below the aircraft's state
      readouts in the gauge's top corner, above the corner view. Everything
      an instructor reads while a student flies - the tapes, the heading,
      the attitude indicator, the parameter band - stays uncovered. */
-  .window.topright {
-    left: auto; right: 158px; top: 178px; transform: none;
-    min-width: 0; width: 204px;
-  }
+  .window.topright { min-width: 0; width: 204px; }
   .window.topright .win-controls { min-width: 0; }
   .window.topright .win-controls button {
     min-height: 30px; padding: 5px 10px; font-size: 12px;
@@ -454,6 +458,9 @@ TEMPLATE = """<!DOCTYPE html>
   /* The window is sized by the aircraft, not the other way round: with
      the button list gone there is nothing else in it to fill the space. */
   #win-motors { width: 372px; }
+  #preflight { background: rgba(12,16,22,0.82); backdrop-filter: blur(7px);
+               -webkit-backdrop-filter: blur(7px); }
+  #preflight .pf-head { cursor: grab; }
   #win-motors .win-body { padding: 6px 10px 12px; }
   .airframe { width: 352px; height: 344px; flex: none; margin: 0 auto; }
   .airframe .body { fill: #39404d; }
@@ -707,7 +714,9 @@ SCRIPT = """
     // A side appears here only once it has been dragged off its edge; until
     // then the rail is docked and the layout switch owns its geometry.
     rails: SAVED.rails || {},
-    shut: SAVED.shut || []
+    shut: SAVED.shut || [],
+    // Where each pop-up panel was last dragged to.
+    windows: SAVED.windows || {}
   };
 
   var el = function (id) { return document.getElementById(id); };
@@ -1360,13 +1369,82 @@ SCRIPT = """
       w.classList.remove('open');
     });
   }
+  // Where a panel opens if it has not been dragged anywhere yet: the gap
+  // between the left-hand controls and the attitude display, which is the
+  // one part of the picture with nothing on it. The tapes, the heading,
+  // the message, the instrument and the corner views all stay uncovered.
+  function neutralSpot(win) {
+    var w = win.offsetWidth || 320, h = win.offsetHeight || 260;
+    var railRight = 10, band = BAND;
+    var left = el('rail-left');
+    if (left) { railRight = left.getBoundingClientRect().right; }
+    var x = railRight + 18;
+    var y = TOPBAR + 56;
+    // Never off the bottom, and never under the parameter band.
+    y = Math.min(y, window.innerHeight - band - h - 14);
+    x = Math.min(x, window.innerWidth - w - 14);
+    return { x: Math.max(8, x), y: Math.max(TOPBAR + 8, y) };
+  }
+
+  function placeWindow(win) {
+    var saved = state.windows[win.id];
+    var at = (saved && saved.x != null) ? saved : neutralSpot(win);
+    win.style.left = Math.round(at.x) + 'px';
+    win.style.top = Math.round(at.y) + 'px';
+    win.style.right = 'auto';
+    win.style.bottom = 'auto';
+    win.style.transform = 'none';
+  }
+
   function openWindow(id) {
     var win = el('win-' + id);
     if (!win) { return; }
     closeWindows();
     el('preflight').classList.remove('open');
     win.classList.add('open');
+    placeWindow(win);
   }
+
+  // Dragged by the title bar, and where it is dragged to is remembered.
+  function makeDraggable(win, handle) {
+    if (!win || !handle) { return; }
+    handle.addEventListener('mousedown', function (e) {
+      if (e.target.closest('button')) { return; }
+      e.preventDefault();
+      var box = win.getBoundingClientRect();
+      var grabX = e.clientX - box.left, grabY = e.clientY - box.top;
+      win.classList.add('dragging');
+      mask.style.display = 'block';
+      mask.style.cursor = 'grabbing';
+
+      function move(ev) {
+        var x = Math.max(4, Math.min(window.innerWidth - box.width - 4,
+                                     ev.clientX - grabX));
+        var y = Math.max(TOPBAR + 2,
+                         Math.min(window.innerHeight - 40, ev.clientY - grabY));
+        win.style.left = Math.round(x) + 'px';
+        win.style.top = Math.round(y) + 'px';
+        win.style.right = 'auto';
+        win.style.transform = 'none';
+      }
+      function drop() {
+        document.removeEventListener('mousemove', move);
+        document.removeEventListener('mouseup', drop);
+        win.classList.remove('dragging');
+        mask.style.display = 'none';
+        state.windows[win.id] = { x: parseFloat(win.style.left),
+                                  y: parseFloat(win.style.top) };
+        save();
+      }
+      document.addEventListener('mousemove', move);
+      document.addEventListener('mouseup', drop);
+    });
+  }
+
+  document.querySelectorAll('.window').forEach(function (win) {
+    makeDraggable(win, win.querySelector('.win-head'));
+  });
+  makeDraggable(el('preflight'), el('preflight').querySelector('.pf-head'));
   document.addEventListener('click', function (e) {
     var open = e.target.closest ? e.target.closest('[data-open-win]') : null;
     if (open) { openWindow(open.dataset.openWin); return; }
@@ -1428,7 +1506,9 @@ SCRIPT = """
   }
 
   el('pf-open').addEventListener('click', function () {
+    closeWindows();
     pf.classList.add('open');
+    placeWindow(pf);
     refreshPreflight();
   });
   el('pf-close').addEventListener('click', function () {

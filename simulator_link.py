@@ -175,6 +175,17 @@ _arm_blocker = {"text": None, "t": None}
 _STATUS_LOG_MAX = 60
 status_log = []
 
+# Set by the station at start-up to aircraft_lights.set_armed. Kept as a
+# hook rather than an import so this module stays free of the Gazebo
+# bindings - it has to run on machines where they are not installed.
+_beacon_follows_armed = None
+
+
+def on_armed_change(callback):
+    global _beacon_follows_armed
+    _beacon_follows_armed = callback
+
+
 # Link health, for the "how fresh is this data" readout (CAP722B 5.2(d)).
 # `last_msg_t` is a time.monotonic() stamp updated every time ANY MAVLink
 # message is processed; the instructor station turns it into an age.
@@ -676,6 +687,10 @@ def _read_one_message():
         t = msg.get_type()
         if t == "HEARTBEAT":
             telemetry["armed"] = bool(msg.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED)
+            # The aircraft's red beacon flashes while it is armed, the way
+            # a real one flashes while the engines are running.
+            if _beacon_follows_armed is not None:
+                _beacon_follows_armed(telemetry["armed"])
             _update_arm_readiness(msg.system_status)
             new_mode = _decode_mode(msg.custom_mode)
             _check_failure_response(new_mode)
