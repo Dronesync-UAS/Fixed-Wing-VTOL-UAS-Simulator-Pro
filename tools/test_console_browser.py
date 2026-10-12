@@ -646,6 +646,39 @@ def main():
               page.evaluate("""() => [...document.querySelectorAll('.railbody')]
                   .every(b => getComputedStyle(b).overflowY === 'hidden')"""))
 
+        print("7a2a. the gimbal camera and ALL its controls")
+        # Asked for three times: "I still dont see gimbals camera view
+        # window with all commands". The controls only exist while the
+        # payload view IS the main screen - .paybar is display:none
+        # unless it is a direct child of #hero - so this checks the one
+        # click that is supposed to produce them, and then that every
+        # named control is actually there and clickable.
+        page.click('#viewtabs button[data-view="payload"]')
+        page.wait_for_timeout(400)
+        check("clicking Payload puts the gimbal view on the main screen",
+              page.evaluate("""() => document.getElementById('view-payload')
+                  .parentElement.id === 'hero'"""))
+        check("and its control strip is visible",
+              page.evaluate("""() => getComputedStyle(
+                  document.getElementById('paybar')).display !== 'none'"""))
+        for control, what in (('[data-pay="zoomin"]', "zoom in"),
+                              ('[data-pay="zoomout"]', "zoom out"),
+                              ('[data-pay="lase"]', "the rangefinder"),
+                              ('[data-pay="track"]', "target tracking"),
+                              ('[data-pay="photo"]', "photo"),
+                              ('[data-pay="record"]', "record"),
+                              ('[data-pay="stab"]', "stabilisation"),
+                              ('[data-pay="centre"]', "centre"),
+                              ('[data-pay="stow"]', "stow"),
+                              ('#pay-view', "the day/IR/night selector")):
+            shown = page.evaluate(
+                """(sel) => { const e = document.querySelector('#paybar ' + sel)
+                     || document.querySelector(sel);
+                   if (!e) { return false; }
+                   const r = e.getBoundingClientRect();
+                   return r.width > 0 && r.height > 0; }""", control)
+            check("%s is there and on screen" % what, shown)
+
         print("7a2b. one view on the main screen, and nothing left behind")
         # THE BUG THIS EXISTS FOR. appendChild MOVES a view, and with
         # three views and three slots every view was re-parented on
