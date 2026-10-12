@@ -267,6 +267,245 @@ check("the command topic is the model-scoped cmd_pos one",
       sim_target.gimbal_joint_topic("gimbal_yaw_joint")
       == "/model/%s/joint/gimbal_yaw_joint/0/cmd_pos" % sim_target.MODEL)
 
+print("9. the payload screen, in a real browser")
+
+
+def browser_checks():
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        print("  SKIP  playwright is not installed")
+        return
+
+    import glob
+    import json
+    import socketserver
+    import threading
+    from urllib.parse import parse_qs, urlparse
+
+    import test_console_browser as console_test
+
+    chrome = None
+    for base in sorted(glob.glob("/opt/pw-browsers/chromium-*"), reverse=True):
+        candidate = os.path.join(base, "chrome-linux", "chrome")
+        if os.path.isfile(candidate):
+            chrome = candidate
+            break
+
+    asked = []
+    # A stand-in gimbal: it records what it was told and answers with a
+    # state that reflects it, so the screen can be checked end to end
+    # without Gazebo. The real arithmetic is already checked above.
+    fake = {"pan_deg": 0.0, "tilt_deg": 30.0, "zoom": 1.0, "mode": "manual",
+            "target": None, "range_m": None, "range_source": None,
+            "range_age_s": None, "range_stale": False, "fov_deg": 60.0,
+            "pan_limit_deg": 180.0, "tilt_up_deg": -30.0, "tilt_down_deg": 90.0,
+            "zoom_max": 12.0, "problem": None, "stabilised": False,
+            "fps": 12.0, "view_mode": "normal", "camera_live": True,
+            "recording": {"on": False, "frames": 0, "seconds": 0}}
+
+    class Recording(console_test.Stub):
+        def do_GET(self):
+            parsed = urlparse(self.path)
+            if parsed.path == "/chase_view":
+                query = parse_qs(parsed.query)
+                body = json.dumps({"az_deg": 0.0, "el_deg": 13.8,
+                                   "preset": query.get("preset", ["behind"])[0]
+                                   }).encode()
+                self.send_response(200)
+                self.send_header("Content-type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            if parsed.path.startswith("/payload_") and parsed.path != "/payload_feed":
+                asked.append(self.path)
+                query = parse_qs(parsed.query)
+                what = parsed.path[len("/payload_"):]
+                if what == "zoom":
+                    fake["zoom"] = round(
+                        fake["zoom"] * (1.25 ** float(query["steps"][0])), 2)
+                elif what == "aim":
+                    fake["pan_deg"] += float(query.get("dpan", [0])[0])
+                    fake["tilt_deg"] += float(query.get("dtilt", [0])[0])
+                elif what == "lock":
+                    fake["mode"] = "lock"
+                    fake["range_m"] = 412.0
+                    fake["range_source"] = "laser"
+                    fake["range_age_s"] = 0.2
+                elif what == "unlock":
+                    fake["mode"] = "manual"
+                elif what == "record":
+                    fake["recording"] = {
+                        "on": query.get("on", ["1"])[0] == "1",
+                        "frames": 3, "seconds": 2}
+                body = json.dumps(fake).encode()
+                self.send_response(200)
+                self.send_header("Content-type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            console_test.Stub.do_GET(self)
+
+    server = socketserver.TCPServer(("127.0.0.1", 0), Recording)
+    server.daemon_threads = True
+    port = server.server_address[1]
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+
+    with sync_playwright() as pw:
+        browser = (pw.chromium.launch(executable_path=chrome) if chrome
+                   else pw.chromium.launch())
+        page = browser.new_page(viewport={"width": 1600, "height": 900})
+        errors = []
+        page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto("http://127.0.0.1:%d/" % port)
+        page.wait_for_timeout(700)
+        check("the page runs without errors", not errors)
+        for line in errors[:4]:
+            print("        " + line)
+
+        page.click('#viewtabs button[data-view="payload"]')
+        page.wait_for_timeout(700)
+        check("the payload view becomes the main screen",
+              page.evaluate("() => document.getElementById('hero')"
+                            ".contains(document.getElementById('view-payload'))"))
+        check("its control strip is on screen",
+              page.locator("#paybar").is_visible())
+
+        # Drag across a quarter of the picture: the gimbal should be told
+        # to slew, and in the direction that makes the picture follow the
+        # hand rather than fight it.
+        box = page.locator("#view-payload").bounding_box()
+        page.mouse.move(box["x"] + box["width"] * 0.5, box["y"] + box["height"] * 0.4)
+        page.mouse.down()
+        page.mouse.move(box["x"] + box["width"] * 0.25,
+                        box["y"] + box["height"] * 0.4, steps=6)
+        page.mouse.up()
+        page.wait_for_timeout(400)
+        aims = [a for a in asked if a.startswith("/payload_aim")]
+        check("dragging slews the gimbal (%d commands)" % len(aims), aims)
+        check("dragging the picture left looks right",
+              fake["pan_deg"] > 1.0)
+
+        before = fake["zoom"]
+        page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+        page.mouse.wheel(0, -300)
+        page.wait_for_timeout(400)
+        check("the wheel zooms in (%s -> %s)" % (before, fake["zoom"]),
+              fake["zoom"] > before)
+        page.mouse.wheel(0, 600)
+        page.wait_for_timeout(400)
+        check("and back out again", fake["zoom"] < 1.6)
+
+        # Target selection is two steps on purpose: arm it, then click.
+        # A click that locked on by itself would fire every time an
+        # operator touched the picture.
+        page.click("#pay-track")
+        page.wait_for_timeout(200)
+        locks = [a for a in asked if a.startswith("/payload_lock")]
+        check("arming TRACK does not by itself lock on", not locks)
+        page.mouse.click(box["x"] + box["width"] * 0.6,
+                         box["y"] + box["height"] * 0.55)
+        page.wait_for_timeout(500)
+        locks = [a for a in asked if a.startswith("/payload_lock")]
+        check("then a click locks on (%s)" % (locks[:1] or "none"), locks)
+        check("and it sends where in the frame was clicked",
+              locks and "u=0.1" in locks[0] and "v=0.0" in locks[0])
+        check("the strip now offers UNLOCK",
+              page.inner_text("#pay-track").strip() == "UNLOCK")
+
+        page.click("#pay-record")
+        page.wait_for_timeout(400)
+        check("record starts", any(a.startswith("/payload_record?on=1")
+                                   for a in asked))
+        check("and the button says so",
+              "REC" in page.inner_text("#pay-record"))
+
+        page.click('#paybar button[data-pay="lase"]')
+        page.wait_for_timeout(300)
+        check("the rangefinder can be fired",
+              any(a.startswith("/payload_lase") for a in asked))
+        check("the readout shows pan, tilt and range (%s)"
+              % page.inner_text("#pay-read")[:60],
+              "PAN" in page.inner_text("#pay-read")
+              and "RNG" in page.inner_text("#pay-read"))
+
+        print("10. the rest of the reorganised console")
+        page.click('#viewtabs button[data-view="chase"]')
+        page.wait_for_timeout(400)
+        check("the chase view has its angle buttons",
+              page.locator("#chasebar button").count() >= 4)
+        page.click('#chasebar button[data-chase="starboard"]')
+        page.wait_for_timeout(400)
+        check("choosing one marks it",
+              "on" in (page.get_attribute('#chasebar button[data-chase="starboard"]',
+                                          "class") or ""))
+
+        page.evaluate("() => document.getElementById('settings-open').click()")
+        page.wait_for_timeout(300)
+        check("settings opens", page.locator("#win-settings").is_visible())
+        check("it has categories down the side",
+              page.locator("#set-tabs button").count() >= 5)
+        page.click('#set-tabs button[data-tab="environment"]')
+        page.wait_for_timeout(200)
+        check("choosing one shows that pane",
+              page.locator('.set-pane[data-pane="environment"]').is_visible())
+        check("and the environment controls are in it",
+              page.locator('.set-pane[data-pane="environment"] #btn-environment')
+              .count() == 1)
+        check("the display pane is hidden while it is",
+              not page.locator('.set-pane[data-pane="display"]').is_visible())
+
+        # The settings icon has to be the last thing on the bar.
+        right_edge = page.evaluate("""() => {
+            const b = document.getElementById('settings-open');
+            const bar = document.getElementById('topbar');
+            const r = b.getBoundingClientRect(), t = bar.getBoundingClientRect();
+            const others = [...bar.querySelectorAll('button, .item, .badge')]
+              .filter(e => e !== b)
+              .map(e => e.getBoundingClientRect().right);
+            return { gap: Math.round(t.right - r.right),
+                     last: r.right >= Math.max(...others) - 1 };
+        }""")
+        check("the menu icon is the last thing on the bar", right_edge["last"])
+        check("and sits against the right edge (%s px)" % right_edge["gap"],
+              right_edge["gap"] < 30)
+
+        page.evaluate("() => document.querySelector('[data-open-win=\"flightlog\"]').click()")
+        page.wait_for_timeout(600)
+        check("the flight log opens", page.locator("#win-flightlog").is_visible())
+        check("and says where the flights are written",
+              "track.csv" in page.inner_text("#fl-foot"))
+
+        print("11. nothing was lost in the reorganisation")
+        # The point of this section: the rails were emptied into the
+        # settings window, and a control that quietly stopped existing
+        # would look exactly like a control that moved.
+        import instructor_station as station
+        spare = station.unplaced_controls()
+        check("every control is placed somewhere (%s)" % (spare or "none"),
+              not spare)
+
+        def reachable(pid):
+            # Most controls are a button. The motor tests are the
+            # propellers on the aircraft diagram instead - clicking the
+            # motor you want to test was the instruction - so they are
+            # reachable through the diagram, not through a button.
+            return (page.locator("#btn-" + pid).count() >= 1
+                    or page.locator('[data-motor="%s"]' % pid).count() >= 1)
+
+        missing = [p["id"] for p in station.plugins if not reachable(p["id"])]
+        check("every control is reachable on the page (%s)"
+              % (missing or "all present"), not missing)
+
+        browser.close()
+    server.shutdown()
+
+
+browser_checks()
+
 print()
 if fails:
     print("%d check(s) failed:" % len(fails))

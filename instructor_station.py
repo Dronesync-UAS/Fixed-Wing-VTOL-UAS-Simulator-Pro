@@ -29,7 +29,8 @@ from urllib.parse import urlparse, parse_qs
 sys.path.insert(0, os.path.dirname(__file__))
 
 from simulator_link import (telemetry, connection_status, flight_path,
-                            home_latlon, link_health, on_armed_change)
+                            home_latlon, link_health, on_armed_change,
+                            on_failure)
 from plugin_loader import load_plugins
 import video_feed
 from video_feed import start_video_capture, mjpeg_generator, camera_fps, FEEDS
@@ -37,6 +38,7 @@ import console_page
 import event_logger
 import aircraft_lights
 import flight_display
+import flight_log
 import gimbal
 import motor_sound
 import payload_media
@@ -273,15 +275,67 @@ _limit_lock = threading.Lock()
 _video_node = start_video_capture()  # starts listening for camera frames immediately
 on_armed_change(aircraft_lights.set_armed)
 
+# Every flight goes in the record, from ARM to DISARM, without anyone
+# having to press anything. A log an instructor has to remember to start
+# is a log with holes in it. See flight_log.py for what is captured.
+flight_recorder = flight_log.Recorder(
+    telemetry,
+    limits_source=lambda: {k: LIMITS[k] for k in
+                           ("ceiling_m", "range_m", "groundspeed_ms")},
+    checklist_source=lambda: {"ready": preflight.state().get("ready"),
+                              "outstanding": preflight.state().get("outstanding")},
+    session_id=event_logger.SESSION_ID,
+    world_source=lambda: sim_target.WORLD)
+flight_recorder.start()
+on_failure(flight_recorder.note_failure)
+
 plugins = load_plugins()
 plugins_by_id = {p["id"]: p for p in plugins}
 
 # Group plugins by category, in a sensible fixed order
 CATEGORY_ORDER = ["Flight Ops", "Flight Mode", "Function Test", "Failure Injection", "Simulation Control", "Camera", "Experimental - In Development"]
 
-# The rebuilt console has two rails rather than a grid. The split is by who
-# the control is for: the left rail is what a pilot does, the right rail is
-# what only an instructor does to them.
+# The rebuilt console has two rails rather than a grid.
+#
+# REARRANGED 12 Oct 2026, on the instruction that the rails should hold
+# navigation and nothing else, and that what is left should read in the
+# order it is used. The old split was by audience - pilot on the left,
+# instructor on the right - and it put weather, lighting, world loading
+# and camera plumbing in a column the pilot's eye travels down while
+# flying. Those have moved into the settings window, which now has
+# categories (SETTINGS_GROUPS below).
+#
+# What is left is the sortie, in order. A student reading the left rail
+# from the top is reading the sequence of a flight: arm, take off, do
+# something, come back, land, disarm. The right rail is the things that
+# interrupt that sequence - changing mode, fixing the datum, stopping
+# time, and the one control that ends a flight badly.
+#
+# These are plugin IDs, not categories, because the order matters and the
+# categories do not carry one.
+LEFT_RAIL = [
+    ("Launch", ["arm", "takeoff"]),
+    ("In flight", ["climb_to", "hover_flight", "forward_flight", "loiter"]),
+    ("Recover", ["hold", "rtl", "land", "disarm"]),
+]
+RIGHT_RAIL = [
+    ("Flight mode", ["mode_position", "mode_manual"]),
+    ("Navigation setup", ["set_home", "freeze"]),
+    ("Emergency", ["flight_termination"]),
+]
+
+# Everything that is set up once and then left alone. Shown in the
+# settings window, one group per tab, so finding "wind" means opening
+# Environment rather than reading two columns of thirty buttons.
+SETTINGS_GROUPS = [
+    ("Environment", ["environment", "time_of_day", "weather", "wind_gust"]),
+    ("Aircraft", ["aircraft_lights", "start_video", "start_stabilizer"]),
+    ("Session", ["new_session", "reset_scenario", "reset_spawn",
+                 "external_view"]),
+]
+
+# Kept so the classic page at /classic, which is still served, goes on
+# working - it renders by category and knows nothing about the rails.
 LEFT_CATEGORIES = ["Flight Ops", "Flight Mode", "Emergency"]
 RIGHT_CATEGORIES = ["Simulation Control", "Camera",
                     "Experimental - In Development"]
@@ -567,43 +621,86 @@ def _render_inputs(p):
     return fields
 
 
-def render_rail(category_names):
-    """One rail of the rebuilt console: the plugins of these categories, in
-    order, under their headings.
+def _control_html(p, status):
+    """One plugin, as the button (and any input boxes) the console shows.
 
-    Toggle-style plugins carry a light (#dot-<id>) that the page updates from
-    /failure_status, because a failure left switched on with no visible
-    reminder is the fault that prompted the lights in the first place."""
+    Toggle-style plugins carry a light (#dot-<id>) that the page updates
+    from /failure_status, because a failure left switched on with no
+    visible reminder is the fault that prompted the lights in the first
+    place.
+    """
+    dot = ""
+    klass = p["style"]
+    if p["id"] in status:
+        dot = f'<span class="dot{" on" if status[p["id"]] else ""}" id="dot-{p["id"]}"></span>'
+        klass += " has-dot"
+        klass += " on" if status[p["id"]] else ""
+    if p["id"] == "arm":
+        klass += " arm"
+    elif p["id"] == "disarm":
+        klass += " disarm"
+    label = RAIL_LABELS.get(p["id"], p["label"])
+    button = (f'<button id="btn-{p["id"]}" class="{klass}" '
+              f'onclick="send(\'{p["id"]}\')">{dot}{label}</button>')
+    fields = _render_inputs(p)
+    return f'<div class="stack">{fields}{button}</div>' if fields else button
+
+
+def render_groups(groups, collapsible=True):
+    """A list of (heading, [plugin ids]) as console sections.
+
+    Driven by plugin ID rather than by category, because the order a
+    control appears in is now part of the teaching: the left rail reads
+    down the sortie in the order it is flown, and that order is not the
+    order the plugin files happen to load in. An id that does not exist is
+    skipped silently - a half-installed plugin should not leave a hole in
+    the rail with an error in it.
+    """
     status = failure_status()
+    by_id = {p["id"]: p for p in plugins}
     html = ""
-    for cat in category_names:
-        items = categories.get(cat, [])
+    for heading, ids in groups:
+        items = [by_id[i] for i in ids if i in by_id]
         if not items:
             continue
-        short = cat.replace(" - In Development", "")
-        danger = " danger" if cat in ("Failure Injection", "Emergency") else ""
-        section = _panel_id(cat)
-        html += (f'<div class="group" data-section="{section}">'
-                 f'<button class="head{danger}">{short}<span class="chev">&#9660;</span></button>'
-                 f'<div class="items">')
-        for p in _rail_sorted(cat, items):
-            dot = ""
-            klass = p["style"]
-            if p["id"] in status:
-                dot = f'<span class="dot{" on" if status[p["id"]] else ""}" id="dot-{p["id"]}"></span>'
-                klass += " has-dot"
-                klass += " on" if status[p["id"]] else ""
-            if p["id"] == "arm":
-                klass += " arm"
-            elif p["id"] == "disarm":
-                klass += " disarm"
-            label = RAIL_LABELS.get(p["id"], p["label"])
-            button = (f'<button id="btn-{p["id"]}" class="{klass}" '
-                      f'onclick="send(\'{p["id"]}\')">{dot}{label}</button>')
-            fields = _render_inputs(p)
-            html += f'<div class="stack">{fields}{button}</div>' if fields else button
+        danger = " danger" if heading.lower() in ("emergency",) else ""
+        section = _panel_id(heading)
+        if collapsible:
+            html += (f'<div class="group" data-section="{section}">'
+                     f'<button class="head{danger}">{heading}'
+                     f'<span class="chev">&#9660;</span></button>'
+                     f'<div class="items">')
+        else:
+            html += (f'<div class="group open" data-section="{section}">'
+                     f'<div class="sethead">{heading}</div><div class="items">')
+        for p in items:
+            html += _control_html(p, status)
         html += "</div></div>"
     return html
+
+
+def render_rail(side):
+    """One rail of the rebuilt console. See LEFT_RAIL / RIGHT_RAIL."""
+    return render_groups(LEFT_RAIL if side == "left" else RIGHT_RAIL)
+
+
+def unplaced_controls():
+    """Plugins that no rail, window or settings group claims.
+
+    A control that quietly vanishes when the layout is reshuffled is worse
+    than an ugly one, so anything not placed on purpose is swept into the
+    settings window's last group - and tools/test_console_browser.py
+    checks that every plugin is reachable from somewhere.
+    """
+    placed = set()
+    for groups in (LEFT_RAIL, RIGHT_RAIL):
+        for _, ids in groups:
+            placed.update(ids)
+    for _, ids in SETTINGS_GROUPS:
+        placed.update(ids)
+    for cat in WINDOW_CATEGORIES:
+        placed.update(p["id"] for p in categories.get(cat, []))
+    return [p["id"] for p in plugins if p["id"] not in placed]
 
 
 def _limits_script():
@@ -739,8 +836,17 @@ def render_console():
     arrangement. The classic page is still built by render_buttons below and
     served at /classic."""
     page = console_page.TEMPLATE
-    page = page.replace("__LEFT_RAIL__", render_rail(LEFT_CATEGORIES))
-    page = page.replace("__RIGHT_RAIL__", render_rail(RIGHT_CATEGORIES))
+    page = page.replace("__LEFT_RAIL__", render_rail("left"))
+    page = page.replace("__RIGHT_RAIL__", render_rail("right"))
+    for heading, _ in SETTINGS_GROUPS:
+        page = page.replace("__SETTINGS_%s__" % heading.upper(),
+                            render_groups([(heading, dict(SETTINGS_GROUPS)[heading])],
+                                          collapsible=False))
+    # Anything nobody placed, rather than anything disappearing.
+    spare = unplaced_controls()
+    page = page.replace("__SETTINGS_OTHER__",
+                        render_groups([("Not yet placed", spare)],
+                                      collapsible=False) if spare else "")
     page = page.replace("__WINDOWS__", render_windows())
     script = console_page.SCRIPT
     script = script.replace("__SAVED__", json.dumps(console_state_for_page()))
@@ -1946,6 +2052,27 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     self.wfile.write(chunk)
             except (BrokenPipeError, ConnectionResetError):
                 pass
+        elif self.path == "/flight_log":
+            self.send_response(200)
+            self.send_header("Content-type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "now": flight_recorder.status(),
+                "flights": flight_log.recent(),
+                "folder": flight_log.LOG_DIR,
+            }).encode("utf-8"))
+        elif self.path.startswith("/chase_view"):
+            query = parse_qs(urlparse(self.path).query)
+            preset = (query.get("preset") or ["behind"])[0]
+            answer = gimbal.chase_view(preset=preset)
+            if answer is None:
+                self._respond("Unknown chase view.", 404)
+                return
+            event_logger.log_event("chase_view", f"preset={preset}")
+            self.send_response(200)
+            self.send_header("Content-type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps(gimbal.chase_status()).encode("utf-8"))
         elif self.path.startswith("/payload_"):
             self._payload()
         elif self.path.startswith("/action/"):

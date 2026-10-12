@@ -546,3 +546,80 @@ def status():
         "problem": state["problem"],
         "stabilised": False,
     }
+
+
+# ---------------------------------------------------------------------
+# THE CHASE BOOM
+#
+# Not the payload, but the same mechanism: two joints on the aircraft
+# driven by position commands, so it lives here rather than in a second
+# file that would repeat the gz-transport plumbing. See
+# tools/chase_angles_apply.py for the geometry and for why azimuth +90 is
+# the view from the STARBOARD side.
+# ---------------------------------------------------------------------
+
+chase = {"az_deg": 0.0, "el_deg": 13.8, "preset": "behind"}
+
+# The angles each named view needs. Elevation is positive upwards: the
+# camera rises and tilts down to keep the aircraft in frame.
+#   behind    reproduces the old fixed chase camera (9 back, 2.2 up)
+#   port      off the left wing, looking right across the aircraft
+#   starboard off the right wing
+#   nose      ahead of the aircraft, looking back at it
+#   top       high above and behind, looking down - the circuit view
+CHASE_PRESETS = {
+    "behind": (0.0, 13.8),
+    "port": (-90.0, 13.8),
+    "starboard": (90.0, 13.8),
+    "nose": (180.0, 10.0),
+    "top": (0.0, 70.0),
+    "low": (0.0, -20.0),
+}
+
+_chase_node = None
+
+
+def _chase_publishers():
+    global _chase_node
+    with _lock:
+        if _chase_node is not None:
+            return _chase_node
+        try:
+            from gz.transport13 import Node
+            from gz.msgs10.double_pb2 import Double
+        except ImportError:
+            return None
+        node = Node()
+        pubs = {j: node.advertise(sim_target.chase_boom_topic(j), Double)
+                for j in sim_target.CHASE_BOOM_JOINTS}
+        _chase_node = {"node": node, "pubs": pubs, "Double": Double}
+        return _chase_node
+
+
+def chase_view(preset=None, az_deg=None, el_deg=None):
+    """Swing the chase boom. Named preset, or explicit angles."""
+    if preset is not None:
+        if preset not in CHASE_PRESETS:
+            return None
+        az_deg, el_deg = CHASE_PRESETS[preset]
+        chase["preset"] = preset
+    else:
+        chase["preset"] = "custom"
+    az = (float(az_deg) + 180.0) % 360.0 - 180.0
+    el = clamp(float(el_deg), -28.0, 83.0)      # the joint's own travel
+    chase["az_deg"], chase["el_deg"] = round(az, 1), round(el, 1)
+    node = _chase_publishers()
+    if node is None:
+        return chase
+    az_joint, el_joint = sim_target.CHASE_BOOM_JOINTS
+    message = node["Double"]()
+    message.data = math.radians(az)
+    node["pubs"][az_joint].publish(message)
+    message = node["Double"]()
+    message.data = math.radians(el)
+    node["pubs"][el_joint].publish(message)
+    return chase
+
+
+def chase_status():
+    return dict(chase, presets=list(CHASE_PRESETS))

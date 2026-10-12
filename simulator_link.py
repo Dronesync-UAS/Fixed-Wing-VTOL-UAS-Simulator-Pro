@@ -302,6 +302,17 @@ RESPONSE_TIMEOUT_S = 45
 _active_failures = {}  # component name -> {"start", "start_mode", "start_alt"}
 _failure_lock = threading.Lock()
 
+# Set by the station to flight_log's note_failure, so an injected failure
+# lands in the flight record as well as in the event log. A hook rather
+# than an import, for the same reason the armed-state one is: this module
+# is imported by the plugins and must not reach back up into the station.
+_failure_watchers = []
+
+
+def on_failure(callback):
+    _failure_watchers.append(callback)
+    return callback
+
 
 def mark_failure_injected(component, extra=""):
     """Call right after an instructor plugin injects a failure, so the
@@ -317,6 +328,13 @@ def mark_failure_injected(component, extra=""):
     if extra:
         details += f" {extra}"
     event_logger.log_event("failure_injected", details)
+    for watcher in _failure_watchers:
+        try:
+            watcher(component)
+        except Exception:                                  # noqa: BLE001
+            # A flight log that cannot record this must not stop the
+            # failure from being injected.
+            pass
 
 
 def mark_failure_cleared(component):

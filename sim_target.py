@@ -148,6 +148,14 @@ GIMBAL_PAN_LIMIT_DEG = 180.0
 GIMBAL_TILT_UP_DEG = -30.0      # above the horizon
 GIMBAL_TILT_DOWN_DEG = 90.0     # straight down
 
+# The chase camera's boom, added by tools/chase_angles_apply.py. The
+# camera MOVES onto chase_el_link when that tool is run, which changes the
+# topic it publishes on - so the station subscribes to the old base_link
+# topic and the new one at the same time and takes whichever is live. See
+# chase_camera_topics() below.
+CHASE_BOOM_LINKS = ("chase_az_link", "chase_el_link")
+CHASE_BOOM_JOINTS = ("chase_az_joint", "chase_el_joint")
+
 # The camera's widest field of view, in radians, as written into the model.
 # The station reads the real value out of Gazebo's camera_info when it can
 # and falls back to this.
@@ -197,3 +205,21 @@ def chase_camera_topic():
     the feed's watchdog treats the same as a camera that has not started yet.
     """
     return _image_topic(*CHASE_CAMERA)
+
+
+def chase_camera_topics():
+    """Both places the chase camera can be, as a list.
+
+    The camera starts on base_link and moves to the boom's elevation link
+    when tools/chase_angles_apply.py is run. Rather than make that tool
+    compulsory, or ask the station to work out which was done, the feed
+    subscribes to both: only one of them ever has a publisher, so only one
+    ever delivers a frame.
+    """
+    return [_image_topic(*CHASE_CAMERA),
+            _image_topic(CHASE_BOOM_LINKS[1], CHASE_CAMERA[1])]
+
+
+def chase_boom_topic(joint):
+    """Where the boom's position controller for this joint listens."""
+    return f"/model/{MODEL}/joint/{joint}/0/cmd_pos"

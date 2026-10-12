@@ -55,6 +55,7 @@ for name in ("reset_flight_state", "log_instructor_action", "mark_failure_inject
 sl.status_log = []
 sl.home_amsl = lambda: 1200.0
 sl.on_armed_change = lambda cb: None
+sl.on_failure = lambda cb: None
 sl.failure_injection_blocked = lambda: None
 sl.read_param = lambda *a, **k: 1.0
 sl.FAILURE_UNIT_SYSTEM_MOTOR = 101
@@ -96,6 +97,7 @@ sys.modules["aircraft_lights"] = al
 el = types.ModuleType("event_logger")
 el.log_event = lambda *a, **k: None
 el.read_events = lambda: []
+el.SESSION_ID = "TEST"
 sys.modules["event_logger"] = el
 
 vf = types.ModuleType("video_feed")
@@ -146,6 +148,18 @@ STUBS = {
     "/flight_path": {"home": sl.home_latlon,
                      "points": [[23.5, 6.5, 100.0], [23.5012, 6.5009, 120.0]]},
     "/terrain_info": {"available": False},
+    "/payload_status": {"pan_deg": 0.0, "tilt_deg": 30.0, "zoom": 1.0,
+                        "mode": "manual", "target": None, "range_m": None,
+                        "range_source": None, "range_age_s": None,
+                        "range_stale": False, "fov_deg": 60.2,
+                        "pan_limit_deg": 180.0, "tilt_up_deg": -30.0,
+                        "tilt_down_deg": 90.0, "zoom_max": 12.0,
+                        "problem": None, "stabilised": False, "fps": 0.0,
+                        "view_mode": "normal", "camera_live": False,
+                        "recording": {"on": False, "frames": 0, "seconds": 0}},
+    "/chase_view": {"az_deg": 0.0, "el_deg": 13.8, "preset": "behind"},
+    "/flight_log": {"now": {"recording": False, "last": None},
+                    "flights": [], "folder": "/tmp/flights"},
     "/connection_status": sl.connection_status,
 }
 
@@ -171,7 +185,8 @@ class Stub(http.server.BaseHTTPRequestHandler):
             body, ctype = json.dumps(preflight.complete()).encode(), "application/json"
         elif path in STUBS:
             body, ctype = json.dumps(STUBS[path]).encode(), "application/json"
-        elif path in ("/video_feed", "/chase_feed", "/terrain.png", "/favicon.ico"):
+        elif path in ("/video_feed", "/chase_feed", "/payload_feed",
+                      "/terrain.png", "/favicon.ico"):
             body, ctype = PNG, "image/png"
         else:
             self.send_response(404)
@@ -597,10 +612,11 @@ def main():
               % (round(wider["width"]), round(wider["height"]),
                  round(turned["width"]), round(turned["height"])),
               turned["width"] > turned["height"])
-        # GPS failure used to live in this rail; it is in a window now, so
-        # the check moved to a control that still belongs to the rail.
+        # GPS failure used to live in this rail, then New session did;
+        # both have moved (a window and the settings panel), so the check
+        # follows whatever the rail still holds - Set home here.
         check("its buttons still reachable",
-              page.locator("#rail-right #btn-new_session").count() == 1)
+              page.locator("#rail-right #btn-set_home").count() == 1)
 
         print("7c. the picture is not inset for a panel that left the edge")
         set_layout("station")

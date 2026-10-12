@@ -101,6 +101,20 @@ TEMPLATE = """<!DOCTYPE html>
   .icons { display: flex; align-items: center; gap: 16px; flex: none; }
   #topbar .tools { display: flex; align-items: center; gap: 8px; min-width: 0; }
   #topbar .topbtn, #topbar .topswitch { flex: none; }
+  /* A laptop at 1100 is the narrowest machine this is taught on, and the
+     bar grew a fourth view tab and a Log button on 12 Oct 2026. Rather
+     than drop a control, everything tightens below 1300: the padding and
+     the gaps go, and the Instructor badge - which says nothing that
+     changes - goes with them. Measured, not guessed: the browser check
+     fails the build if anything overlaps the aircraft's state at 1100. */
+  @media (max-width: 1300px) {
+    #topbar { gap: 9px; padding: 0 10px; }
+    #topbar .badge { display: none; }
+    #topbar .tools { gap: 8px !important; }
+    #topbar .topbtn { padding: 0 9px; }
+    #topbar .seg button { padding: 0 9px; }
+    #topbar .icons { gap: 10px; }
+  }
   .icons span.item { display: flex; align-items: center; gap: 7px; }
   /* The icons were drawn at whatever size their glyph happened to be, so a
      satellite dish and a battery sat at different weights beside the same
@@ -381,7 +395,110 @@ TEMPLATE = """<!DOCTYPE html>
   .topbtn.danger { background: rgba(123,26,45,0.95); color: #ffc3cd; }
   .topbtn.icon { padding: 0 9px; display: flex; align-items: center; }
   .topbtn.icon svg { width: 20px; height: 20px; display: block; }
-  #win-settings { width: 404px; }
+  /* ---------- the payload and chase control strips ---------- */
+  /* Across the bottom of the picture, which is where DJI puts a payload's
+     controls and therefore where a remote pilot's hand already goes. */
+  /* Only on the main screen. In a corner tile the strip is unreadable,
+     and - the reason this rule exists - it sat over the bottom of the
+     picture and swallowed clicks meant for the strip of whichever view
+     WAS the hero.
+
+     AT THE TOP, not the bottom, which is where the first draft put it.
+     The bottom of this screen is full: the attitude instrument is
+     centred on the band, and the two corner views sit either side of it.
+     A strip across the bottom therefore had to overlap one of the three,
+     and being underneath the corner view in the stacking order, it
+     swallowed its own clicks. The top of the picture is empty. */
+  .paybar { display: none; }
+  #hero > .view > .paybar {
+    position: absolute; left: 50%; transform: translateX(-50%); top: 12px;
+    z-index: 47; display: flex; align-items: center; gap: 8px;
+    padding: 7px 12px; border-radius: 10px;
+    background: rgba(12,16,22,0.78); backdrop-filter: blur(7px);
+    border: 1px solid rgba(255,255,255,0.1);
+    font-size: 12px; max-width: calc(100% - 40px); flex-wrap: wrap;
+    justify-content: center;
+  }
+  .paybar button {
+    height: 28px; padding: 0 11px; border: 0; border-radius: 7px; cursor: pointer;
+    background: rgba(255,255,255,0.1); color: #fff; font-weight: 600;
+    font-size: 12px;
+  }
+  .paybar button:hover { background: rgba(255,255,255,0.19); }
+  .paybar button.on { background: #b5730f; color: #1a1205; }
+  .paybar button.rec { background: #8c2230; color: #ffd8de; }
+  .paybar .payread {
+    font-family: 'IBM Plex Mono', monospace; color: var(--dim);
+    white-space: nowrap;
+  }
+  .paybar .paygroup { display: flex; align-items: center; gap: 6px; }
+  .paybar .paygroup b {
+    font-family: 'IBM Plex Mono', monospace; min-width: 44px; text-align: center;
+  }
+  .paybar .topsel { height: 28px; font-size: 12px; }
+  /* The chase strip is secondary to the payload one, so it is quieter -
+     and pushed left, clear of the heading tape the flight gauge draws
+     across the top middle of that view. */
+  #hero > .view > .chasebar {
+    left: 14px; transform: none; opacity: 0.92;
+  }
+  /* In Pilot layout the picture starts at the top of the window and the
+     bar floats over it, so a strip pinned to the top of the picture
+     would be underneath it. */
+  #hero.under-topbar > .view > .paybar { top: 64px; }
+  /* The gimbal picture takes the drag, so it must not try to be dragged
+     as an image by the browser. */
+  .pay-hud {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    pointer-events: none; z-index: 2;
+  }
+  #view-payload img { user-select: none; -webkit-user-drag: none; }
+  #view-payload.slewing { cursor: grabbing; }
+  #view-payload.picking { cursor: crosshair; }
+
+  /* ---------- settings ---------- */
+  #win-settings { width: 560px; }
+  .win-body.settings { flex-direction: row; gap: 0; align-items: stretch; padding: 0; }
+  .set-tabs {
+    display: flex; flex-direction: column; gap: 2px; padding: 10px 8px;
+    border-right: 1px solid rgba(255,255,255,0.1); flex: none; width: 146px;
+  }
+  .set-tabs button {
+    text-align: left; border: 0; border-radius: 7px; cursor: pointer;
+    background: transparent; color: var(--dim); padding: 8px 10px; font-size: 12px;
+  }
+  .set-tabs button:hover { background: rgba(255,255,255,0.07); color: #fff; }
+  .set-tabs button.on { background: rgba(255,255,255,0.13); color: #fff; font-weight: 600; }
+  .set-panes { flex: 1 1 auto; padding: 12px 14px; min-width: 0; max-height: 440px; overflow-y: auto; }
+  .set-pane { display: none; flex-direction: column; gap: 14px; }
+  .set-pane.on { display: flex; }
+  .set-pane .group { display: block; }
+  .set-pane .sethead {
+    font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--dim); margin-bottom: 8px;
+  }
+  .set-pane .items { display: flex; flex-direction: column; gap: 7px; }
+
+  /* ---------- the flight log ---------- */
+  #win-flightlog { width: 560px; }
+  .win-body.flightlog { flex-direction: column; gap: 10px; align-items: stretch; }
+  .fl-now {
+    padding: 9px 12px; border-radius: 8px; background: rgba(255,255,255,0.07);
+    font-size: 12px;
+  }
+  .fl-now.live { background: rgba(123,26,45,0.5); color: #ffd8de; }
+  .fl-list { max-height: 330px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+  .fl-row {
+    display: grid; grid-template-columns: 136px 1fr; gap: 10px;
+    padding: 8px 10px; border-radius: 8px; background: rgba(255,255,255,0.05);
+    font-size: 12px;
+  }
+  .fl-row .when { color: var(--dim); font-family: 'IBM Plex Mono', monospace; }
+  .fl-row .nums { display: flex; flex-wrap: wrap; gap: 10px; }
+  .fl-row .nums b { font-family: 'IBM Plex Mono', monospace; font-weight: 600; }
+  .fl-row.breach { background: rgba(123,26,45,0.4); }
+  .fl-foot { font-size: 11px; color: var(--dim); }
+
   .win-body.settings { flex-direction: column; gap: 14px; align-items: stretch; }
   .set-row { display: flex; align-items: center; gap: 12px; }
   .set-label { width: 112px; flex: none; color: var(--dim); font-size: 12px; }
@@ -536,19 +653,20 @@ TEMPLATE = """<!DOCTYPE html>
        controller puts the same things. The bar had grown until the camera
        view select was printing over the aircraft's own state. -->
   <div class="tools" style="flex: 1 1 auto; justify-content: center; gap: 14px">
+    <!-- Which picture is on the main screen. Kept first and kept visible
+         at all times: a remote pilot used to a DJI controller expects the
+         camera selector to be one tap away and never buried, and this is
+         the control that gets used most in a lesson. -->
     <div class="seg" id="viewtabs">
       <button data-view="chase">Chase</button>
       <button data-view="nose">Nose</button>
+      <button data-view="payload">Payload</button>
       <button data-view="map">Map</button>
     </div>
     <button class="topbtn" id="pf-open">Checklist</button>
     <button class="topbtn" data-open-win="motors">Motors</button>
     <button class="topbtn danger" data-open-win="failures">Failures</button>
-    <button class="topbtn icon" id="settings-open" title="Settings" aria-label="Settings">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" aria-hidden="true">
-        <path d="M4 7h16M4 12h16M4 17h16"></path>
-      </svg>
-    </button>
+    <button class="topbtn" data-open-win="flightlog">Log</button>
   </div>
   <div class="icons">
     <span class="item" id="t-armcheck-wrap" title="Whether PX4 will accept ARM or TAKEOFF right now">
@@ -580,6 +698,15 @@ TEMPLATE = """<!DOCTYPE html>
       </svg>
       <span class="mono num v" id="t-health">-</span>
     </span>
+    <!-- LAST on the bar, on the instruction of 12 Oct 2026. Settings on
+         the far right is where every tablet and every GCS puts it, and a
+         control nobody touches in flight should not sit between two that
+         are. -->
+    <button class="topbtn icon" id="settings-open" title="Settings" aria-label="Settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" aria-hidden="true">
+        <path d="M4 7h16M4 12h16M4 17h16"></path>
+      </svg>
+    </button>
   </div>
 </div>
 
@@ -595,11 +722,58 @@ TEMPLATE = """<!DOCTYPE html>
     <img src="/chase_feed" alt="Chase camera" onerror="this.style.display='none'">
     <canvas class="hud"></canvas>
     <div class="nosignal">No chase camera yet. Add it with tools/chase_camera_apply.py, then restart the simulator.</div>
+    <!-- Which way round the aircraft the external view looks from. These
+         only do anything once tools/chase_angles_apply.py has put the
+         camera on its boom; before that the view stays behind the
+         aircraft and the buttons report that nothing moved. -->
+    <div class="paybar chasebar" id="chasebar">
+      <span class="payread">External view</span>
+      <button data-chase="behind" class="on">Behind</button>
+      <button data-chase="port">Left</button>
+      <button data-chase="starboard">Right</button>
+      <button data-chase="nose">Front</button>
+      <button data-chase="top">Top</button>
+      <button data-chase="low">Low</button>
+    </div>
   </div>
   <div class="view" id="view-nose" data-name="Nose">
     <img src="/video_feed" alt="Nose camera" onerror="this.style.display='none'">
     <canvas id="hud" class="hud"></canvas>
     <div class="nosignal">No nose camera signal yet.</div>
+  </div>
+  <!-- The payload gimbal. Drag to slew, wheel to zoom, TRACK then click to
+       lock onto a point. The control strip sits across the bottom, which
+       is where DJI's payload controls live and therefore where a remote
+       pilot's hand already goes. -->
+  <div class="view" id="view-payload" data-name="Payload">
+    <img src="/payload_feed" alt="Payload camera" onerror="this.style.display='none'">
+    <!-- Deliberately NOT class="hud": the flight gauge draws into every
+         canvas.hud, and an artificial horizon over a sensor picture is
+         not what a payload operator is looking at. This one carries a
+         reticle and the pointing angles instead. -->
+    <canvas class="pay-hud" id="pay-hud"></canvas>
+    <div class="nosignal" id="pay-nosignal">No payload camera yet. Add the
+      gimbal with tools/gimbal_apply.py, then restart the simulator.</div>
+    <div class="paybar" id="paybar">
+      <span class="payread" id="pay-read">-</span>
+      <span class="paygroup">
+        <button data-pay="zoomout" title="Zoom out">&minus;</button>
+        <b id="pay-zoom">1.0x</b>
+        <button data-pay="zoomin" title="Zoom in">+</button>
+      </span>
+      <select id="pay-view" class="topsel" title="These are renderings of the colour camera, not a thermal sensor.">
+        <option value="normal">Day</option>
+        <option value="white_hot">IR white hot</option>
+        <option value="black_hot">IR black hot</option>
+        <option value="night_vision">Night vision</option>
+      </select>
+      <button data-pay="lase" title="Fire the rangefinder once">LRF</button>
+      <button data-pay="track" id="pay-track" title="Then click the target you want held">TRACK</button>
+      <button data-pay="photo" title="Save a photograph with its position">PHOTO</button>
+      <button data-pay="record" id="pay-record" title="Start or stop recording">REC</button>
+      <button data-pay="centre" title="Point it straight ahead">Centre</button>
+      <button data-pay="stow" title="Point it straight down">Stow</button>
+    </div>
   </div>
   <div class="view" id="view-map" data-name="Map">
     <canvas id="flightpath" class="fill"></canvas>
@@ -667,64 +841,105 @@ TEMPLATE = """<!DOCTYPE html>
      entries in a column. Rendered by the station from the same plugins. -->
 __WINDOWS__
 
-<!-- Settings: everything set once and left alone. -->
+<!-- SETTINGS. Rebuilt 12 Oct 2026 with categories down the side, because
+     it had become one column that everything new was appended to, and
+     "where is the wind control" was becoming a question. The tabs are
+     the answer to that question: a thing is in the tab it belongs to.
+
+     The three plugin groups are filled in by the station from
+     SETTINGS_GROUPS; the last placeholder in the Session tab catches any
+     control no group claims, so nothing can silently disappear when the
+     layout changes. -->
 <div class="window" id="win-settings">
   <div class="win-head"><b>Settings</b>
     <button class="win-close" data-win="settings" title="Close">&times;</button>
   </div>
   <div class="win-body settings">
-    <div class="set-row">
-      <span class="set-label">Layout</span>
-      <div class="seg" id="layouttabs" title="Pilot floats the controls over the picture; Station insets it so nothing covers it">
-        <button data-layout="pilot">Pilot</button>
-        <button data-layout="station">Station</button>
-      </div>
+    <div class="set-tabs" id="set-tabs">
+      <button data-tab="display" class="on">Display</button>
+      <button data-tab="sound">Warnings &amp; sound</button>
+      <button data-tab="environment">Environment</button>
+      <button data-tab="aircraft">Aircraft</button>
+      <button data-tab="session">Session</button>
     </div>
-    <div class="set-row">
-      <span class="set-label">Camera view</span>
-      <select id="viewmode" class="topsel" title="The infrared views are renderings of the colour camera, not a thermal sensor.">
-        <option value="normal">Daylight</option>
-        <option value="night_vision">Night vision</option>
-        <option value="white_hot">IR white hot</option>
-        <option value="black_hot">IR black hot</option>
-      </select>
-    </div>
-    <div class="set-row">
-      <span class="set-label">Flight display</span>
-      <label class="topswitch"><input type="checkbox" id="hud-on" checked> Gauge over the camera views</label>
-    </div>
-    <div class="set-row">
-      <span class="set-label">Warnings</span>
-      <div class="set-stack">
-        <label class="topswitch"><input type="checkbox" id="alarm-on" checked> Alarm tone</label>
-        <label class="topswitch"><input type="checkbox" id="voice-on"> Spoken callouts</label>
-      </div>
-    </div>
-    <div class="set-row">
-      <span class="set-label">Motor sound</span>
-      <div class="set-stack">
-        <div class="set-inline">
-          <label class="topswitch"><input type="checkbox" id="motor-sound-on" checked> On</label>
-          <input type="range" id="motor-volume" min="0" max="100" value="60"
-                 title="How loud the motors are">
+    <div class="set-panes">
+      <div class="set-pane on" data-pane="display">
+        <div class="set-row">
+          <span class="set-label">Layout</span>
+          <div class="seg" id="layouttabs" title="Pilot floats the controls over the picture; Station insets it so nothing covers it">
+            <button data-layout="pilot">Pilot</button>
+            <button data-layout="station">Station</button>
+          </div>
         </div>
-        <span class="set-hint">Synthesised, and driven by the throttle. A
-          browser stays silent until the page has been clicked.</span>
+        <div class="set-row">
+          <span class="set-label">Camera view</span>
+          <select id="viewmode" class="topsel" title="The infrared views are renderings of the colour camera, not a thermal sensor.">
+            <option value="normal">Daylight</option>
+            <option value="night_vision">Night vision</option>
+            <option value="white_hot">IR white hot</option>
+            <option value="black_hot">IR black hot</option>
+          </select>
+        </div>
+        <div class="set-row">
+          <span class="set-label">Flight display</span>
+          <label class="topswitch"><input type="checkbox" id="hud-on" checked> Gauge over the camera views</label>
+        </div>
+        <div class="set-row">
+          <span class="set-label">Panels</span>
+          <button class="topbtn" id="resettiles" title="Put every panel back to its default place and size">Reset every panel</button>
+        </div>
+      </div>
+
+      <div class="set-pane" data-pane="sound">
+        <div class="set-row">
+          <span class="set-label">Warnings</span>
+          <div class="set-stack">
+            <label class="topswitch"><input type="checkbox" id="alarm-on" checked> Alarm tone</label>
+            <label class="topswitch"><input type="checkbox" id="voice-on"> Spoken callouts</label>
+          </div>
+        </div>
+        <div class="set-row">
+          <span class="set-label">Motor sound</span>
+          <div class="set-stack">
+            <div class="set-inline">
+              <label class="topswitch"><input type="checkbox" id="motor-sound-on" checked> On</label>
+              <input type="range" id="motor-volume" min="0" max="100" value="60"
+                     title="How loud the motors are">
+            </div>
+            <span class="set-hint">Synthesised, and driven by the throttle. A
+              browser stays silent until the page has been clicked.</span>
+          </div>
+        </div>
+        <div class="set-row">
+          <span class="set-label">Lights</span>
+          <div class="set-stack">
+            <label class="topswitch"><input type="checkbox" id="lights-on"> Navigation lights</label>
+            <span class="set-hint">Red to port, green to starboard, white at the
+              tail, all steady. White strobes double-flash; the red beacon
+              flashes while armed.</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="set-pane" data-pane="environment">__SETTINGS_ENVIRONMENT__</div>
+      <div class="set-pane" data-pane="aircraft">__SETTINGS_AIRCRAFT__</div>
+      <div class="set-pane" data-pane="session">__SETTINGS_SESSION__
+        __SETTINGS_OTHER__
       </div>
     </div>
-    <div class="set-row">
-      <span class="set-label">Lights</span>
-      <div class="set-stack">
-        <label class="topswitch"><input type="checkbox" id="lights-on"> Navigation lights</label>
-        <span class="set-hint">Red to port, green to starboard, white at the
-          tail, all steady. White strobes double-flash; the red beacon
-          flashes while armed.</span>
-      </div>
-    </div>
-    <div class="set-row">
-      <span class="set-label">Panels</span>
-      <button class="topbtn" id="resettiles" title="Put every panel back to its default place and size">Reset every panel</button>
-    </div>
+  </div>
+</div>
+
+<!-- The flight record. Every flight is written whether or not anyone
+     opens this; this is just where it is read back. -->
+<div class="window" id="win-flightlog">
+  <div class="win-head"><b>Flight log</b>
+    <button class="win-close" data-win="flightlog" title="Close">&times;</button>
+  </div>
+  <div class="win-body flightlog">
+    <div id="fl-now" class="fl-now">No flight in progress.</div>
+    <div id="fl-list" class="fl-list"></div>
+    <div class="fl-foot" id="fl-foot"></div>
   </div>
 </div>
 
@@ -787,7 +1002,13 @@ SCRIPT = """
   var el = function (id) { return document.getElementById(id); };
   var hero = el('hero'), store = el('viewstore'), mask = el('dragmask');
   var tiles = { left: el('tile-left'), right: el('tile-right') };
-  var views = { chase: el('view-chase'), nose: el('view-nose'), map: el('view-map') };
+  var views = { chase: el('view-chase'), nose: el('view-nose'),
+                payload: el('view-payload'), map: el('view-map') };
+  // The order the corner tiles work through, so adding a fourth view did
+  // not mean adding a fourth corner. Whatever is not the hero and not in
+  // the other corner goes in the next free slot, and the view tabs reach
+  // all of them anyway.
+  var VIEW_ORDER = ['chase', 'nose', 'payload', 'map'];
 
   // ---------- messages ----------
   // The last reply from the station. An ordinary one fades after a few
@@ -855,6 +1076,9 @@ SCRIPT = """
       return (pilot || (f && f.w)) ? 0 : railW;
     }
     hero.style.top = (pilot ? 0 : TOPBAR) + 'px';
+    // In Pilot the picture runs up behind the floating top bar, so
+    // anything pinned to the top of the picture has to start below it.
+    hero.classList.toggle('under-topbar', pilot);
     hero.style.bottom = BAND + 'px';
     hero.style.left = inset('left') + 'px';
     hero.style.right = inset('right') + 'px';
@@ -933,9 +1157,19 @@ SCRIPT = """
   // currently the hero, so no view is ever unreachable.
   function applyHero() {
     var h = state.hero;
-    var leftName = (h === 'map') ? 'chase' : 'map';
-    var rightName = (h === 'nose') ? 'chase' : 'nose';
-    if (leftName === rightName) { rightName = (h === 'chase') ? 'nose' : 'chase'; }
+    // The two corners show the next two views after the hero, wrapping
+    // round. With four views one is always off-screen; the tabs reach it,
+    // and showing three pictures at once was already more than anyone
+    // watches. The payload view is skipped in the corners unless it is
+    // the hero - it is the one view that is useless at tile size, and a
+    // rendered camera nobody is looking at still costs frames.
+    var ring = VIEW_ORDER.filter(function (n) {
+      return n !== h && !(n === 'payload' && h !== 'payload');
+    });
+    var at = VIEW_ORDER.indexOf(h);
+    var rotated = ring.slice(at % ring.length).concat(ring.slice(0, at % ring.length));
+    var leftName = rotated[0], rightName = rotated[1] || rotated[0];
+    if (leftName === rightName) { rightName = ring[ring.length - 1]; }
 
     hero.appendChild(views[h]);
     tiles.left.querySelector('.body').appendChild(views[leftName]);
@@ -1425,6 +1659,287 @@ SCRIPT = """
       }).catch(function () { say('The station did not answer.', true); });
   });
 
+  // ---------- the payload gimbal ----------
+  // Three gestures, which are the three a payload operator already knows:
+  // drag to slew, wheel to zoom, and - after arming it with TRACK -
+  // click the thing you want held in frame. Nothing here guesses what
+  // the gimbal did: every control sends its command and redraws from the
+  // answer the station sends back, so the readout cannot drift away from
+  // where the gimbal actually is.
+  var pay = { status: null, picking: false, drag: null, wheelTimer: null,
+              wheelSteps: 0 };
+  var payView = el('view-payload');
+
+  function payDraw(d) {
+    if (!d) { return; }
+    pay.status = d;
+    el('pay-zoom').innerText = d.zoom.toFixed(1) + 'x';
+    var range = '-';
+    if (d.range_m != null) {
+      range = Math.round(d.range_m) + ' m';
+      // A rangefinder reading with no age on it is a trap: a stale number
+      // looks exactly like a live one.
+      if (d.range_source === 'computed') { range += ' (calc)'; }
+      else if (d.range_stale) { range += ' (' + d.range_age_s + 's old)'; }
+    }
+    el('pay-read').innerText =
+      'PAN ' + d.pan_deg.toFixed(0) + '\u00b0  TILT ' + d.tilt_deg.toFixed(0)
+      + '\u00b0  FOV ' + d.fov_deg.toFixed(0) + '\u00b0  RNG ' + range
+      + '  ' + (d.mode === 'lock' ? 'LOCK'
+                : (d.mode === 'acquiring' ? 'ACQUIRING' : 'MANUAL'));
+    var track = el('pay-track');
+    track.className = (d.mode === 'lock' || d.mode === 'acquiring' || pay.picking)
+      ? 'on' : '';
+    track.innerText = (d.mode === 'lock') ? 'UNLOCK' : 'TRACK';
+    var rec = el('pay-record');
+    rec.className = d.recording && d.recording.on ? 'rec' : '';
+    rec.innerText = (d.recording && d.recording.on)
+      ? 'REC ' + Math.round(d.recording.seconds) + 's' : 'REC';
+    el('pay-nosignal').style.display = d.camera_live ? 'none' : '';
+    if (d.said) { say(d.said); }
+  }
+
+  // The reticle. A payload picture with no marks on it gives an operator
+  // nothing to aim with and no sense of how wide the view is: the ticks
+  // are drawn at a tenth of the field of view, so counting them off is a
+  // rough measure of angle, which is how a real sensor operator judges
+  // how far to slew.
+  function payReticle() {
+    var cv = el('pay-hud');
+    if (!cv || !cv.parentElement || !cv.parentElement.offsetWidth) { return; }
+    var box = cv.getBoundingClientRect();
+    var dpr = window.devicePixelRatio || 1;
+    if (cv.width !== Math.round(box.width * dpr)) {
+      cv.width = Math.round(box.width * dpr);
+      cv.height = Math.round(box.height * dpr);
+    }
+    var g = cv.getContext('2d');
+    var w = box.width, h = box.height;
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, w, h);
+    var d = pay.status;
+    var cx = w / 2, cy = h / 2;
+    var locked = d && d.mode === 'lock';
+    g.strokeStyle = locked ? 'rgba(255,196,0,0.95)' : 'rgba(255,255,255,0.8)';
+    g.lineWidth = 1.4;
+    // A gap in the middle, so the reticle never hides the thing it is on.
+    g.beginPath();
+    g.moveTo(cx - 34, cy); g.lineTo(cx - 9, cy);
+    g.moveTo(cx + 9, cy); g.lineTo(cx + 34, cy);
+    g.moveTo(cx, cy - 34); g.lineTo(cx, cy - 9);
+    g.moveTo(cx, cy + 9); g.lineTo(cx, cy + 34);
+    g.stroke();
+    if (locked) {
+      g.strokeRect(cx - 26, cy - 26, 52, 52);
+    }
+    // Ticks every tenth of the frame along the middle lines.
+    g.strokeStyle = 'rgba(255,255,255,0.45)';
+    g.beginPath();
+    for (var i = -4; i <= 4; i++) {
+      if (!i) { continue; }
+      var x = cx + i * w / 10, y = cy + i * h / 10;
+      g.moveTo(x, cy - 5); g.lineTo(x, cy + 5);
+      g.moveTo(cx - 5, y); g.lineTo(cx + 5, y);
+    }
+    g.stroke();
+    if (!d) { return; }
+    g.font = '600 12px "IBM Plex Mono", monospace';
+    g.fillStyle = locked ? 'rgba(255,196,0,0.95)' : 'rgba(255,255,255,0.85)';
+    g.fillText((d.zoom).toFixed(1) + 'x  ' + d.fov_deg.toFixed(0)
+               + '\u00b0 FOV (digital zoom)', 14, h - 40);
+    g.fillStyle = 'rgba(255,255,255,0.7)';
+    g.fillText(locked ? 'TARGET LOCK' : 'UNSTABILISED - the mount is '
+               + 'bolted to the airframe', 14, h - 22);
+  }
+  setInterval(function () { if (state.hero === 'payload') { payReticle(); } }, 200);
+
+  function payCall(path) {
+    return fetch(path).then(function (r) { return r.json(); })
+      .then(payDraw).catch(function () { say('The station did not answer.', true); });
+  }
+
+  el('paybar').addEventListener('click', function (e) {
+    var b = e.target.closest ? e.target.closest('button') : null;
+    if (!b) { return; }
+    var what = b.dataset.pay;
+    if (what === 'zoomin') { payCall('/payload_zoom?steps=1'); }
+    else if (what === 'zoomout') { payCall('/payload_zoom?steps=-1'); }
+    else if (what === 'lase') { payCall('/payload_lase'); }
+    else if (what === 'photo') { payCall('/payload_photo'); }
+    else if (what === 'centre') { payCall('/payload_centre'); }
+    else if (what === 'stow') { payCall('/payload_stow'); }
+    else if (what === 'record') {
+      var on = pay.status && pay.status.recording && pay.status.recording.on;
+      payCall('/payload_record?on=' + (on ? '0' : '1'));
+    } else if (what === 'track') {
+      if (pay.status && pay.status.mode === 'lock') {
+        pay.picking = false;
+        payView.classList.remove('picking');
+        payCall('/payload_unlock');
+      } else {
+        pay.picking = !pay.picking;
+        payView.classList.toggle('picking', pay.picking);
+        say(pay.picking
+            ? 'Click the target you want the gimbal to hold.'
+            : 'Target selection cancelled.');
+        payDraw(pay.status);
+      }
+    }
+  });
+
+  el('pay-view').addEventListener('change', function () {
+    payCall('/payload_view?mode=' + el('pay-view').value);
+  });
+
+  // Drag to slew. The movement is converted through the field of view
+  // actually on screen, so a drag of half the frame moves the gimbal by
+  // half the frame whatever the zoom - which is what makes a zoomed-in
+  // view usable rather than unusably twitchy.
+  payView.addEventListener('mousedown', function (e) {
+    if (e.button !== 0 || e.target.closest('.paybar')) { return; }
+    e.preventDefault();
+    var box = payView.getBoundingClientRect();
+    pay.drag = { x: e.clientX, y: e.clientY, box: box, moved: 0 };
+    payView.classList.add('slewing');
+  });
+
+  window.addEventListener('mousemove', function (e) {
+    if (!pay.drag) { return; }
+    var dx = e.clientX - pay.drag.x, dy = e.clientY - pay.drag.y;
+    if (Math.abs(dx) < 2 && Math.abs(dy) < 2) { return; }
+    pay.drag.moved += Math.abs(dx) + Math.abs(dy);
+    pay.drag.x = e.clientX; pay.drag.y = e.clientY;
+    var fov = pay.status ? pay.status.fov_deg : 60;
+    var box = pay.drag.box;
+    // Dragging left moves the picture left, which means the camera has to
+    // look right - hence the sign.
+    var dpan = -(dx / Math.max(1, box.width)) * fov;
+    var dtilt = -(dy / Math.max(1, box.height)) * fov * (box.height / Math.max(1, box.width));
+    payCall('/payload_aim?dpan=' + dpan.toFixed(3) + '&dtilt=' + dtilt.toFixed(3));
+  });
+
+  window.addEventListener('mouseup', function (e) {
+    if (!pay.drag) { return; }
+    var moved = pay.drag.moved;
+    var box = pay.drag.box;
+    pay.drag = null;
+    payView.classList.remove('slewing');
+    // A click, not a drag, and target selection is armed: that is the
+    // point to hold. u and v are fractions of the frame from its centre.
+    if (moved < 6 && pay.picking) {
+      var u = (e.clientX - box.left) / Math.max(1, box.width) - 0.5;
+      var v = (e.clientY - box.top) / Math.max(1, box.height) - 0.5;
+      if (u > -0.5 && u < 0.5 && v > -0.5 && v < 0.5) {
+        pay.picking = false;
+        payView.classList.remove('picking');
+        payCall('/payload_lock?u=' + u.toFixed(4) + '&v=' + v.toFixed(4));
+      }
+    }
+  });
+
+  // The wheel fires far faster than the station needs to hear about it,
+  // so the notches are added up and sent as one step a frame.
+  payView.addEventListener('wheel', function (e) {
+    e.preventDefault();
+    pay.wheelSteps += (e.deltaY < 0) ? 1 : -1;
+    if (pay.wheelTimer) { return; }
+    pay.wheelTimer = setTimeout(function () {
+      var steps = pay.wheelSteps;
+      pay.wheelSteps = 0;
+      pay.wheelTimer = null;
+      payCall('/payload_zoom?steps=' + steps);
+    }, 70);
+  }, { passive: false });
+
+  function refreshPayload() {
+    // Only while the payload picture is actually on screen. Polling a
+    // panel nobody is looking at is how a console ends up slow.
+    if (state.hero !== 'payload') { return; }
+    fetch('/payload_status').then(function (r) { return r.json(); })
+      .then(payDraw).catch(function () {});
+  }
+  setInterval(refreshPayload, 500);
+
+  // ---------- which way the external view looks from ----------
+  el('chasebar').addEventListener('click', function (e) {
+    var b = e.target.closest ? e.target.closest('button') : null;
+    if (!b) { return; }
+    fetch('/chase_view?preset=' + b.dataset.chase)
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        el('chasebar').querySelectorAll('button').forEach(function (x) {
+          x.className = (x.dataset.chase === d.preset) ? 'on' : '';
+        });
+        say('External view: ' + b.innerText + '. This only moves once the '
+            + 'camera is on its boom - tools/chase_angles_apply.py.');
+      }).catch(function () { say('The station did not answer.', true); });
+  });
+
+  // ---------- settings, by category ----------
+  el('set-tabs').addEventListener('click', function (e) {
+    var b = e.target.closest ? e.target.closest('button') : null;
+    if (!b) { return; }
+    el('set-tabs').querySelectorAll('button').forEach(function (x) {
+      x.className = (x === b) ? 'on' : '';
+    });
+    document.querySelectorAll('.set-pane').forEach(function (pane) {
+      pane.classList.toggle('on', pane.dataset.pane === b.dataset.tab);
+    });
+  });
+
+  // ---------- the flight log ----------
+  function flightRow(f) {
+    var when = (f.started_utc || '').replace('T', ' ').replace('+00:00', 'Z');
+    var mins = Math.floor((f.duration_s || 0) / 60);
+    var secs = Math.round((f.duration_s || 0) % 60);
+    var nums = [
+      ['time', mins + 'm ' + secs + 's'],
+      ['airborne', Math.round(f.airborne_s || 0) + 's'],
+      ['max alt', Math.round(f.max_alt_agl_m || 0) + ' m'],
+      ['max range', Math.round(f.max_range_m || 0) + ' m'],
+      ['max gs', (f.max_groundspeed_ms || 0).toFixed(1) + ' m/s']
+    ];
+    if (f.landing_sink_ms != null) {
+      nums.push(['landing', f.landing_sink_ms.toFixed(1) + ' m/s down']);
+    }
+    if (f.battery_used_pct != null) {
+      nums.push(['battery', f.battery_used_pct + '%']);
+    }
+    return '<div class="fl-row"><span class="when">' + when + '</span>'
+      + '<span class="nums">'
+      + nums.map(function (n) { return n[0] + ' <b>' + n[1] + '</b>'; }).join('')
+      + '</span></div>';
+  }
+
+  function refreshFlightLog() {
+    if (!el('win-flightlog').classList.contains('open')) { return; }
+    fetch('/flight_log').then(function (r) { return r.json(); })
+      .then(function (d) {
+        var now = el('fl-now');
+        if (d.now && d.now.recording) {
+          now.className = 'fl-now live';
+          now.innerText = 'Recording: ' + Math.round(d.now.duration_s) + ' s, '
+            + Math.round(d.now.airborne_s) + ' s airborne, max '
+            + Math.round(d.now.max_alt_agl_m) + ' m, '
+            + Math.round(d.now.max_range_m) + ' m out'
+            + (Object.keys(d.now.limit_breaches || {}).length
+               ? '  -  OUTSIDE LIMITS: '
+                 + Object.keys(d.now.limit_breaches).join(', ') : '');
+        } else {
+          now.className = 'fl-now';
+          now.innerText = 'No flight in progress. A flight is recorded from '
+            + 'ARM to DISARM, automatically.';
+        }
+        el('fl-list').innerHTML = (d.flights || []).map(flightRow).join('')
+          || '<div class="fl-row"><span class="when">-</span>'
+             + '<span class="nums">No finished flights yet.</span></div>';
+        el('fl-foot').innerText = 'Written to ' + d.folder
+          + ' - one folder per flight, with track.csv and summary.json.';
+      }).catch(function () {});
+  }
+  setInterval(refreshFlightLog, 1000);
+  window.gcsRefreshFlightLog = refreshFlightLog;
+
   // ---------- the aircraft's lights ----------
   // The same plugin the rail button uses, but told which way to go rather
   // than asked to toggle - a checkbox that only ever says "flip it" ends
@@ -1490,6 +2005,11 @@ SCRIPT = """
     el('preflight').classList.remove('open');
     win.classList.add('open');
     placeWindow(win);
+    // Fill it now rather than at the next tick: a window that opens
+    // empty and populates a second later reads as broken.
+    if (id === 'flightlog' && window.gcsRefreshFlightLog) {
+      window.gcsRefreshFlightLog();
+    }
   }
 
   // Dragged by the title bar, and where it is dragged to is remembered.

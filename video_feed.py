@@ -244,17 +244,24 @@ class CameraFeed:
         dropped; its world is gone, so it delivers nothing.
         """
         topic = self._topic_source()
+        # A feed may have more than one place to look. The chase camera
+        # does: it sits on base_link until tools/chase_angles_apply.py
+        # moves it onto the boom, and a camera's topic has its link name
+        # in it. Subscribing to both costs nothing - only one of them ever
+        # has a publisher - and saves making that tool compulsory.
+        wanted = list(topic) if isinstance(topic, (list, tuple)) else [topic]
         node = Node()
-        node.subscribe(GzImage, topic, self._on_image)
-        if GzCameraInfo is not None:
-            # Best effort: an older gz-msgs without this type, or a camera
-            # that does not publish it, simply leaves the field of view
-            # unknown and the marker is not drawn.
-            try:
-                node.subscribe(GzCameraInfo, topic + "/camera_info",
-                               self._on_camera_info)
-            except Exception:                              # noqa: BLE001
-                pass
+        for one in wanted:
+            node.subscribe(GzImage, one, self._on_image)
+            if GzCameraInfo is not None:
+                # Best effort: an older gz-msgs without this type, or a
+                # camera that does not publish it, simply leaves the field
+                # of view unknown and the marker is not drawn.
+                try:
+                    node.subscribe(GzCameraInfo, one + "/camera_info",
+                                   self._on_camera_info)
+                except Exception:                          # noqa: BLE001
+                    pass
         self._node = node
         self._topic = topic
         with self._lock:
@@ -310,7 +317,7 @@ nose = CameraFeed("nose", sim_target.camera_topic, 1280, 960)
 # nose camera's 36.9 - the cheaper of the two cameras already running. If the
 # simulator slows, the <image> block in the aircraft model is where to turn
 # it back down.
-chase = CameraFeed("chase", sim_target.chase_camera_topic, 1600, 900,
+chase = CameraFeed("chase", sim_target.chase_camera_topics, 1600, 900,
                    frame_interval_s=1 / 15.0)
 
 # The payload gimbal's camera. Only publishes once tools/gimbal_apply.py

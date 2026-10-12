@@ -47,6 +47,7 @@ sl.send_command_and_wait = lambda *a, **k: (0, "accepted")
 sl.status_log = []
 sl.home_amsl = lambda: 1200.0
 sl.on_armed_change = lambda cb: None
+sl.on_failure = lambda cb: None
 sl.failure_injection_blocked = lambda: None
 sl.read_param = lambda *a, **k: 1.0
 sl.FAILURE_UNIT_SYSTEM_MOTOR = 101
@@ -81,6 +82,7 @@ sys.modules["aircraft_lights"] = al
 el = types.ModuleType("event_logger")
 el.log_event = lambda *a, **k: None
 el.read_events = lambda: []
+el.SESSION_ID = "TEST"
 sys.modules["event_logger"] = el
 
 # --- stub video_feed ---
