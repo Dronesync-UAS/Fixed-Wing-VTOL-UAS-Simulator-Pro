@@ -98,6 +98,13 @@ fetcher, run:
 python3 tools/test_terrain_fetch.py
 ```
 
+After changing the operating envelope (the CAA 500 m / 100 km choice),
+the world files' ground extent, or the satellite fetcher's extent, run:
+
+```
+python3 tools/test_range_profile.py
+```
+
 After changing ARM or NEW SESSION, run the recovery check - these two
 controls are the ones that bite hardest when they are wrong:
 

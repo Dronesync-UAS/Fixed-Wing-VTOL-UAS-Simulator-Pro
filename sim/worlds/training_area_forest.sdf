@@ -100,8 +100,12 @@
          falling. Follow the
          working reference rather than the tidier-looking geometry.
 
-         The visual stays a plane: 8 km square, large enough that the horizon
-         is never a visible boundary at training altitudes. -->
+         The visual stays a plane - widened from 8 km to 220 km square
+         on 12 Oct 2026 by tools/far_ground_apply.py, so the 100 km
+         instructor envelope is not flown over a void. A plane carries
+         flat colour rather than a tiled texture, so the width costs
+         nothing to render. The collision box was widened to match:
+         it used to stop 50 km from home, half the envelope. -->
     <model name="ground_plane">
       <static>true</static>
       <link name="ground_link">
@@ -109,7 +113,7 @@
           <pose>0 0 -5 0 0 0</pose>
           <geometry>
             <box>
-              <size>100000 100000 10</size>
+              <size>220000 220000 10</size>
             </box>
           </geometry>
           <surface>
@@ -124,7 +128,7 @@
           <geometry>
             <plane>
               <normal>0 0 1</normal>
-              <size>8000 8000</size>
+              <size>220000 220000</size>
             </plane>
           </geometry>
           <material>

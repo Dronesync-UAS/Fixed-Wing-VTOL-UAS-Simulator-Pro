@@ -43,6 +43,7 @@ import gimbal
 import motor_sound
 import payload_media
 import preflight
+import range_profile
 import sim_target
 import terrain_backdrop
 
@@ -272,6 +273,12 @@ def clear_layout():
 # Edit these per training area / airframe - or later, drive them from the
 # environment_selector once that's wired in.
 # ---------------------------------------------------------------------------
+# 12 Oct 2026: the height, range and speed figures moved into
+# range_profile.py so an instructor can switch between the CAA envelope a
+# student flies inside and a 100 km one for cross-country work, with the
+# switch in the event log. LIMITS is still the dict everything reads; it
+# is updated in place so the dozen readers below never learn that a
+# profile exists.
 LIMITS = {
     "ceiling_m": 120.0,          # height above the home/launch point
     "range_m": 500.0,            # lateral distance from home
@@ -283,6 +290,8 @@ LIMITS = {
     "battery_warn_pct": 20,      # amber below this
     "battery_critical_pct": 10,  # red below this
 }
+LIMITS.update(range_profile.restore_limits())
+
 # "Approaching" a max-type limit = within this fraction of it.
 LIMIT_WARN_FRACTION = 0.9
 
@@ -298,8 +307,16 @@ on_armed_change(aircraft_lights.set_armed)
 # is a log with holes in it. See flight_log.py for what is captured.
 flight_recorder = flight_log.Recorder(
     telemetry,
-    limits_source=lambda: {k: LIMITS[k] for k in
-                           ("ceiling_m", "range_m", "groundspeed_ms")},
+    # The envelope's NAME goes in the record as well as its numbers:
+    # "500" in a log six months old does not say whether the lesson was
+    # flown to the CAA limit on purpose or to a figure somebody typed.
+    # flight_log reads these three keys by name, so the extra ones ride
+    # along harmlessly.
+    limits_source=lambda: dict(
+        {k: LIMITS[k] for k in ("ceiling_m", "range_m", "groundspeed_ms")},
+        **{"profile": range_profile.active_key(),
+           "profile_label": range_profile.active()["label"],
+           "student_safe": range_profile.active()["student_safe"]}),
     checklist_source=lambda: {"ready": preflight.state().get("ready"),
                               "outstanding": preflight.state().get("outstanding")},
     session_id=event_logger.SESSION_ID,
@@ -435,8 +452,8 @@ SETTINGS_GROUPS = [
                      "wind_gust"]),
     ("Aircraft", ["aircraft_lights", "idle_spin", "start_video",
                   "start_stabilizer"]),
-    ("Session", ["new_session", "reset_scenario", "reset_spawn",
-                 "set_home", "freeze", "external_view"]),
+    ("Session", ["operating_envelope", "new_session", "reset_scenario",
+                 "reset_spawn", "set_home", "freeze", "external_view"]),
 ]
 
 # Kept so the classic page at /classic, which is still served, goes on
@@ -481,8 +498,8 @@ RAIL_ORDER = {
     # NEW SESSION first: it is the one an instructor reaches for between
     # students, and alphabetical order buried it under the environment
     # selector.
-    "Simulation Control": ["new_session", "environment", "time_of_day",
-                           "aircraft_lights", "freeze_resume",
+    "Simulation Control": ["new_session", "operating_envelope", "environment",
+                           "time_of_day", "aircraft_lights", "freeze_resume",
                            "reset_scenario", "reset_spawn", "set_home"],
 }
 
@@ -533,6 +550,7 @@ RAIL_LABELS = {
     "motor_test_4": "Motor 4",
     "weather": "Set weather",
     "wind_gust": "Wind on / off",
+    "operating_envelope": "Operating envelope",
 }
 
 # Sections that start collapsed on a console that has never been arranged:
@@ -1392,7 +1410,12 @@ EXTRA_SCRIPT = """
   var telem = {};
   function poll() {
     fetch('/telemetry').then(function (r) { return r.json(); })
-      .then(function (d) { telem = d; window.gcsTelemetry = d; })
+      .then(function (d) {
+        telem = d; window.gcsTelemetry = d;
+        // The envelope can be switched while the station runs, and the
+        // altitude tape reads its ceiling from here.
+        if (d.limits) { window.GCS_LIMITS = d.limits; }
+      })
       .catch(function () {});
   }
   setInterval(poll, 200); poll();
@@ -2127,6 +2150,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
             safe["home_lon"] = home_latlon.get("lon")
             safe["camera_fov"] = {name: feed.fov_rad()
                                   for name, feed in video_feed.FEEDS.items()}
+            # The operating envelope can be switched mid-session, and the
+            # page was rendered with whichever one was active then.
+            # Sending it every poll is cheaper than making the instructor
+            # reload the console to make the warnings mean the right thing.
+            safe["limits"] = {k: LIMITS[k] for k in
+                              ("range_m", "ceiling_m", "groundspeed_ms")}
+            safe["range_profile"] = range_profile.describe()
             self.wfile.write(json.dumps(safe).encode("utf-8"))
         elif self.path == "/failure_status":
             self.send_response(200)

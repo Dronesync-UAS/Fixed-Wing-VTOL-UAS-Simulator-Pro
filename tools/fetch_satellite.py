@@ -93,9 +93,20 @@ TOKEN_FILE = os.path.expanduser("~/.mapbox_token")
 # leaves it out; asking for it by name still fetches it.
 SKIP_IN_ALL = {"flat_test"}
 
-HALF_EXTENT_M = 2000.0     # a 4 km square centred on home
+DEFAULT_EXTENT_KM = 4.0    # a 4 km square centred on home
 ZOOM = 16                  # about 1.8 m per pixel at 40 degrees latitude
 TIMEOUT = 30
+
+# 12 Oct 2026, for the 100 km instructor envelope in range_profile.py.
+# A wider square at the same zoom is not an option: area goes up as the
+# square of the distance, so 100 km at zoom 16 is about twenty-two
+# thousand tiles and a picture nothing can open. The zoom therefore falls
+# as the extent grows, until the download fits inside MAX_TILES - which
+# is a deliberate trade of detail for reach, and the script prints the
+# resolution it settled on so nobody has to guess.
+MAX_TILES = 144            # 12x12; about two minutes on a normal line
+ZOOM_FLOOR = 6             # below this a tile is continents, not terrain
+MAX_IMAGE_PX = 4096        # the plan view is a few hundred pixels wide
 
 PROVIDERS = {
     "usgs": {
@@ -222,6 +233,13 @@ def main():
     parser.add_argument("--all", action="store_true",
                         help="every environment that has coordinates, one "
                              "after another - about 36 tiles each")
+    parser.add_argument("--extent-km", type=float,
+                        default=DEFAULT_EXTENT_KM,
+                        help="width of the square to fetch, in kilometres "
+                             "(default %g). Use 100 to cover the extended "
+                             % DEFAULT_EXTENT_KM +
+                             "instructor envelope; the zoom drops to suit, "
+                             "so the picture gets wider and coarser.")
     parser.add_argument("--list", action="store_true", help="list the environments")
     args = parser.parse_args()
 
@@ -302,26 +320,46 @@ def fetch_one(args):
     # provider serving them goes in a zoom level lower for the same
     # detail - and a quarter of the downloads.
     tile_px = provider.get("tile_px", 256)
-    zoom = ZOOM + provider.get("zoom_offset", 0)
+    base_zoom = ZOOM + provider.get("zoom_offset", 0)
+
+    half = max(100.0, getattr(args, "extent_km", DEFAULT_EXTENT_KM) * 1000.0 / 2.0)
 
     # Bounding box in degrees, from the same flat-earth conversion the plan
     # view uses, so the image lines up with the track.
-    d_lat = HALF_EXTENT_M / 110540.0
-    d_lon = HALF_EXTENT_M / (111320.0 * math.cos(math.radians(lat)))
+    d_lat = half / 110540.0
+    d_lon = half / (111320.0 * math.cos(math.radians(lat)))
     west, east = lon - d_lon, lon + d_lon
     south, north = lat - d_lat, lat + d_lat
 
-    x0, y0 = lonlat_to_tile(west, north, zoom)     # top-left
-    x1, y1 = lonlat_to_tile(east, south, zoom)     # bottom-right
-    tx0, ty0, tx1, ty1 = (math.floor(x0), math.floor(y0),
-                          math.floor(x1), math.floor(y1))
-    columns, rows = tx1 - tx0 + 1, ty1 - ty0 + 1
+    # Drop a zoom level at a time until the download is a sane size. One
+    # level down is a quarter of the tiles and twice the metres per
+    # pixel, so this converges in a handful of steps.
+    zoom = base_zoom
+    while True:
+        x0, y0 = lonlat_to_tile(west, north, zoom)     # top-left
+        x1, y1 = lonlat_to_tile(east, south, zoom)     # bottom-right
+        tx0, ty0, tx1, ty1 = (math.floor(x0), math.floor(y0),
+                              math.floor(x1), math.floor(y1))
+        columns, rows = tx1 - tx0 + 1, ty1 - ty0 + 1
+        if columns * rows <= MAX_TILES or zoom <= ZOOM_FLOOR:
+            break
+        zoom -= 1
+
+    # Metres per pixel at this latitude: the honest answer to "how much
+    # detail did I actually get", which matters once the zoom is chosen
+    # for us rather than fixed.
+    metres_per_px = (156543.03392 * math.cos(math.radians(lat))
+                     / (2.0 ** zoom) * (256.0 / tile_px))
 
     print(f"{env['label']}")
-    print(f"  centre {lat:.5f}, {lon:.5f}   {HALF_EXTENT_M * 2:.0f} m square")
+    print(f"  centre {lat:.5f}, {lon:.5f}   {half * 2 / 1000:.1f} km square")
     print(f"  source {provider['credit']}")
+    if zoom != base_zoom:
+        print(f"  zoom dropped {base_zoom} -> {zoom} to keep the download "
+              f"under {MAX_TILES} tiles")
     print(f"  {columns}x{rows} tiles at zoom {zoom}, {tile_px} px each "
-          f"({columns * rows} downloads)\n")
+          f"({columns * rows} downloads, about {metres_per_px:.1f} m per "
+          f"pixel)\n")
 
     stitched = Image.new("RGB", (columns * tile_px, rows * tile_px))
     for row in range(rows):
@@ -352,6 +390,19 @@ def fetch_one(args):
     bottom = int(round((y1 - ty0) * tile_px))
     cropped = stitched.crop((left, top, right, bottom))
 
+    # A 100 km fetch stitches to several thousand pixels a side. The plan
+    # view draws it into a panel a few hundred pixels wide, so anything
+    # past MAX_IMAGE_PX is disk space and load time for detail that is
+    # never on screen.
+    if max(cropped.size) > MAX_IMAGE_PX:
+        shrink = MAX_IMAGE_PX / float(max(cropped.size))
+        was = cropped.size
+        cropped = cropped.resize(
+            (max(1, int(round(was[0] * shrink))),
+             max(1, int(round(was[1] * shrink)))), Image.LANCZOS)
+        print(f"  scaled {was[0]}x{was[1]} down to {cropped.size[0]}x"
+              f"{cropped.size[1]} - the plan view cannot show more")
+
     os.makedirs(CACHE_DIR, exist_ok=True)
     image_path = os.path.join(CACHE_DIR, env["world"] + ".png")
     cropped.save(image_path)
@@ -363,8 +414,10 @@ def fetch_one(args):
             "zoom": zoom,
             "centre_lat": lat,
             "centre_lon": lon,
-            "east_min": -HALF_EXTENT_M, "east_max": HALF_EXTENT_M,
-            "north_min": -HALF_EXTENT_M, "north_max": HALF_EXTENT_M,
+            "extent_km": round(half * 2 / 1000.0, 3),
+            "metres_per_pixel": round(metres_per_px, 2),
+            "east_min": -half, "east_max": half,
+            "north_min": -half, "north_max": half,
         }, handle, indent=2)
 
     size_kb = os.path.getsize(image_path) / 1024

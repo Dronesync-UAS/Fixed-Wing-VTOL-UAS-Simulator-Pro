@@ -1669,13 +1669,23 @@ SCRIPT = """
         level === 'breach' ? 'rgba(120,26,26,0.95)' : (level === 'warn' ? 'rgba(90,70,12,0.95)' : 'rgba(22,40,30,0.95)');
     }).catch(function () {});
 
-    var lim = __LIMITS__;
+    // __LIMITS__ is whatever envelope the page was rendered with. The
+    // instructor can switch envelope mid-session, so the live figure in
+    // telemetry wins when it is there.
+    var lim = (telem && telem.limits) ? telem.limits : __LIMITS__;
+    // 100000 m in a bar label is unreadable, and the extended envelope
+    // is exactly that. Anything a kilometre or more reads in km.
+    function fmtLim(v, unit) {
+      if (unit === 'm' && v >= 1000) { return (v / 1000) + ' km'; }
+      return v + ' ' + unit;
+    }
     function bar(barId, valId, value, max, unit) {
       var pct = Math.max(0, Math.min(100, (value / max) * 100));
       var b = el(barId);
       b.style.width = pct + '%';
       b.style.background = pct >= 100 ? '#e03b3b' : (pct >= 90 ? '#ffc94d' : '#57cc7f');
-      el(valId).innerText = value.toFixed(value < 10 ? 1 : 0) + '/' + max + ' ' + unit;
+      el(valId).innerText = value.toFixed(value < 10 ? 1 : 0) + '/'
+        + fmtLim(max, unit);
     }
     if (telem.range_from_home_m !== undefined) {
       bar('bar-range', 'val-range', telem.range_from_home_m, lim.range_m, 'm');
