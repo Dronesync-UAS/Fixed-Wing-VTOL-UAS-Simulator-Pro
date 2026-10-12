@@ -667,12 +667,19 @@ chase = {"az_deg": 0.0, "el_deg": 7.0, "preset": "behind"}
 # against, which is what an external view is for. The aircraft stays in
 # the middle whatever the elevation, because the boom tilts the camera
 # by the same angle it raises it.
-# 12 Oct 2026: "The external behind view must change a little as it was
-# before but less than before." The behind view went 13.8 -> 7.0 earlier
-# today, which was too far: 10.5 is half way back, so roughly half the
-# frame is sky and the aircraft sits a little above centre.
+# THE BEHIND VIEW has been moved three times on 12 Oct 2026, so the
+# history is worth having: 13.8 (too much ground), 7.0 (too flat, the
+# aircraft was a silhouette against the horizon), 10.5, and now 17.0 -
+# "where i can see better the top side, not much but a better view".
+#
+# WHAT THE NUMBER MEANS. It is the boom's elevation in degrees: how far
+# the camera is lifted above the aircraft, looking down at it. At 17
+# degrees on a 9 m boom the camera sits about 2.6 m above the aircraft
+# and the wing is seen from above at a shallow angle - enough to read
+# the planform and the bank, which is what a chase view is for, without
+# turning into a top-down.
 CHASE_PRESETS = {
-    "behind": (0.0, 10.5),
+    "behind": (0.0, 17.0),
     "port": (-90.0, 7.0),
     "starboard": (90.0, 7.0),
     "nose": (180.0, 6.0),
