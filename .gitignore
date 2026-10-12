@@ -1,3 +1,10 @@
 __pycache__/
 *.pyc
 satellite/
+
+# World-file backups made by the tools under tools/. The world files
+# themselves are tracked, so git history is the real backup; these exist
+# only so --revert works on a machine mid-session.
+*.sdf.prescenery
+*.sdf.premag
+*.sdf.prespawn

@@ -72,6 +72,25 @@ switches, or the landing gear and gimbal, run:
 python3 tools/test_sound_and_gear.py
 ```
 
+After changing the payload gimbal, the chase angles or the console
+layout, run:
+
+```
+python3 tools/test_payload.py
+```
+
+After changing the flight log, run:
+
+```
+python3 tools/test_flight_log.py
+```
+
+After changing what is in the training areas, run:
+
+```
+python3 tools/test_scenery.py
+```
+
 After changing ARM or NEW SESSION, run the recovery check - these two
 controls are the ones that bite hardest when they are wrong:
 
