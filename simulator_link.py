@@ -186,6 +186,29 @@ link_health = {"last_msg_t": None}
 # grow this without bound.
 flight_path = []
 _MAX_PATH_POINTS = 4000
+
+
+def _trim_flight_path():
+    """Keep the whole flight, at coarser spacing, rather than the last
+    4000 points of it.
+
+    FIXED 12 Oct 2026: this used to `del flight_path[0]` once the cap was
+    reached, so on a long lesson the start of the track quietly ate itself
+    while the end kept drawing - the instructor watched the beginning of
+    the flight disappear. A track that loses its own beginning is no use as
+    a record of where the aircraft went.
+
+    Instead, when the buffer fills, every second point of the OLDER HALF is
+    dropped. The oldest part of the flight ends up at half, then a quarter,
+    of the resolution of the newest - which is the right trade, because
+    recent flying is what an instructor is watching - but the first point
+    of the flight is still the first point of the flight, and the shape of
+    the whole track survives.
+    """
+    if len(flight_path) <= _MAX_PATH_POINTS:
+        return
+    half = len(flight_path) // 2
+    flight_path[:half] = flight_path[0:half:2]
 home_latlon = {"lat": None, "lon": None}
 
 # Last COMMAND_ACK seen for each command id, so a plugin can send a
@@ -673,8 +696,7 @@ def _read_one_message():
                 telemetry["range_from_home_m"] = _range_from_home(lat, lon)
                 if not flight_path or abs(flight_path[-1][0] - lat) + abs(flight_path[-1][1] - lon) > 1e-6:
                     flight_path.append((lat, lon, telemetry["altitude_m"], time.monotonic()))
-                    if len(flight_path) > _MAX_PATH_POINTS:
-                        del flight_path[0]
+                    _trim_flight_path()
         elif t == "HOME_POSITION":
             home_latlon["lat"] = msg.latitude / 1e7
             home_latlon["lon"] = msg.longitude / 1e7

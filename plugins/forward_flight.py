@@ -35,8 +35,11 @@ Steps 2 to 5 run on a background thread, because a button handler has to
 answer at once; where the sequence has got to shows on the console.
 
 THE RUN LENGTH is kept inside the station's 500 m range limit, so a
-departure cannot breach CAP722B 5.3(c) on its own. Fixed wing will carry
-on past the last waypoint, so the instructor still has to fly it.
+departure cannot breach the station's range envelope on its own. Once the
+aircraft is close to that limit, or has reached cruise height, the leg
+stops being extended and PX4 settles into its own fixed-wing loiter -
+which is what a fixed wing does when it runs out of waypoints, and is the
+point at which the instructor takes over.
 
 NOT YET FLOWN. Every step is read off the PX4 source; none of it has been
 watched in Gazebo.
@@ -45,6 +48,7 @@ from simulator_link import (home_amsl, log_instructor_action, offset_latlon,
                             send_command_and_wait, say_step, sequence_running,
                             set_mode, start_sequence, telemetry, wait_until)
 from pymavlink import mavutil
+import time
 
 PX4_MAIN_MODE_AUTO = 4
 PX4_SUB_MODE_AUTO_LOITER = 3
@@ -65,6 +69,9 @@ MAX_CRUISE_M = 120.0           # the station's ceiling, CAP722B 5.3(c)
 # How far ahead each leg is aimed. Both inside the 500 m range limit.
 CLIMB_RUN_M = 200.0
 CRUISE_RUN_M = 420.0
+# Stop extending the climb-out leg once the aircraft is this far from
+# home, so a departure cannot walk itself through the 500 m range limit.
+MAX_RUN_RANGE_M = 380.0
 
 REPOSITION_CHANGE_MODE = 1     # param2 bit 0: "change mode to guided"
 
@@ -155,11 +162,45 @@ def forward_flight(transition_m=DEFAULT_TRANSITION_M, cruise_m=DEFAULT_CRUISE_M)
         return None
 
     def step_climb_to_cruise():
+        # FIXED 12 Oct 2026: this sent ONE waypoint and waited. A fixed
+        # wing cannot stop, so on reaching it PX4 did the only thing it
+        # can - loitered there, in a circle of NAV_LOITER_RAD (80 m by
+        # default, which is the "less than 100 m" circle that was seen) -
+        # and the climb to cruise height happened going round and round
+        # instead of in the straight line that was asked for.
+        #
+        # The leg is now re-aimed ahead of the aircraft every few seconds
+        # while it climbs, so the waypoint stays in front of it and the
+        # climb stays straight. It stops extending before the station's
+        # range limit, and only then lets PX4 settle into its loiter.
         say_step(f"Forward flight: climbing away to {cruise_alt:g} m")
-        problem = _reposition(CRUISE_RUN_M, cruise_alt, ground)
-        if problem:
-            return problem
-        wait_until(lambda: (telemetry.get("altitude_m") or 0) >= cruise_alt - 5, 120)
+        deadline = time.monotonic() + 180
+        while time.monotonic() < deadline:
+            alt = telemetry.get("altitude_m") or 0
+            if alt >= cruise_alt - 3:
+                break
+            range_m = telemetry.get("range_from_home_m") or 0
+            if range_m > MAX_RUN_RANGE_M:
+                say_step(f"Forward flight: holding {int(alt)} m - "
+                         f"{int(range_m)} m from home, near the range limit")
+                return None
+            problem = _reposition(CRUISE_RUN_M, cruise_alt, ground)
+            if problem:
+                return problem
+            # Re-aimed before it can arrive: the run is 420 m and a VTOL
+            # cruises at about 16 m/s, so eight seconds never reaches it.
+            # The height is re-checked at the top of the loop either way;
+            # branching on this return value turned the loop into a busy
+            # one the moment the wait came back early.
+            started_leg = time.monotonic()
+            wait_until(
+                lambda: (telemetry.get("altitude_m") or 0) >= cruise_alt - 3, 8)
+            # A floor under each pass, so that however the wait behaves
+            # this cannot become a loop re-commanding PX4 thousands of
+            # times a second.
+            slept = time.monotonic() - started_leg
+            if slept < 1.0:
+                time.sleep(1.0 - slept)
         say_step(None)
         return None
 

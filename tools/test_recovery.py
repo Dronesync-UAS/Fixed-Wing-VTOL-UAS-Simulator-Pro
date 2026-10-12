@@ -238,17 +238,50 @@ check("accepted from 20 m instead of refusing (%s...)" % reply[:38],
       "climbing straight ahead" in reply)
 check("queued the five steps (%s)" % len(steps_held), len(steps_held) == 5)
 
-# Run them by hand, with the aircraft reported as already high enough so
-# the waits fall straight through.
-sl.telemetry.update({"altitude_m": 45.0, "vtol_state": "Fixed wing"})
+# Run the steps by hand, with the aircraft reported as climbing: high
+# enough to transition at once, then arriving at cruise height after a few
+# climb-out legs, so the loop that keeps the climb straight is exercised
+# rather than skipped.
+sl.telemetry.update({"altitude_m": 45.0, "vtol_state": "Fixed wing",
+                     "range_from_home_m": 100.0})
+climbing = {"n": 0}
+
+
+def _climb(predicate, timeout, poll=0.25):
+    climbing["n"] += 1
+    if climbing["n"] >= 3:
+        sl.telemetry["altitude_m"] = 100.0
+    return predicate()
+
+
+# Patched on the PLUGIN, not on the stub module. forward_flight.py does
+# `from simulator_link import wait_until`, which binds the function at
+# import time, so replacing simulator_link's attribute afterwards changes
+# nothing the plugin can see - that mistake left this test spinning.
+fwd.wait_until = _climb
+fwd.time = type("t", (), {"monotonic": __import__("time").monotonic,
+                          "sleep": lambda *_: None})
 for step in steps_held:
     step()
 reposition = [p for c, p in sent if c == mavutil.mavlink.MAV_CMD_DO_REPOSITION]
 transition = [p for c, p in sent if c == mavutil.mavlink.MAV_CMD_DO_VTOL_TRANSITION]
 check("asked for a transition to fixed wing (%s)" % (transition,),
       len(transition) == 1 and transition[0][0] == 4)
-check("flew a climbing run, not a climb on the spot (%s)" % len(reposition),
-      len(reposition) == 1)
+check("flew a climbing run, not a climb on the spot (%s legs)" % len(reposition),
+      len(reposition) >= 1)
+# One waypoint and a wait is what made the aircraft loiter at it instead
+# of climbing straight, so the leg has to be re-aimed while it climbs.
+check("kept re-aiming the leg so the climb stays straight (%s legs)"
+      % len(reposition), len(reposition) >= 2)
+# Far from home the leg must stop being extended, rather than walking the
+# aircraft out through the station's range limit.
+climbing["n"] = 0
+sl.telemetry.update({"altitude_m": 45.0, "range_from_home_m": 460.0})
+sent.clear()
+steps_held[-1]()
+check("stopped extending near the range limit",
+      not any(c == mavutil.mavlink.MAV_CMD_DO_REPOSITION for c, _ in sent))
+
 if reposition:
     p = reposition[0]
     # Commander answers UNSUPPORTED unless bit 0 of param2 is set.
@@ -263,6 +296,36 @@ if reposition:
     ahead_n = (p[4] - 40.8750) * 110540.0
     check("aimed ahead on the current heading (%s m north)" % round(ahead_n),
           ahead_n > 100)
+
+print("6. the flight track keeps its own beginning")
+# A lesson longer than the buffer used to eat the start of its own track:
+# `del flight_path[0]` on every point past the cap. The instructor watched
+# the first half of the flight vanish while the second half kept drawing.
+import re
+source = open(os.path.join(REPO, "simulator_link.py"), encoding="utf-8").read()
+block = re.search(
+    r"(_MAX_PATH_POINTS = \d+\n\n\ndef _trim_flight_path\(\):.*?"
+    r"flight_path\[:half\] = flight_path\[0:half:2\])", source, re.S)
+check("the trimming code is where this test thinks it is", block is not None)
+if block:
+    ns = {"flight_path": []}
+    exec(block.group(1), ns)
+    path, trim = ns["flight_path"], ns["_trim_flight_path"]
+    for i in range(40000):
+        path.append((i, i, i, i))
+        trim()
+    check("stays bounded over a very long flight (%s points)" % len(path),
+          len(path) <= ns["_MAX_PATH_POINTS"])
+    check("the first point of the flight is still the first point (%s)"
+          % path[0][0], path[0][0] == 0)
+    check("and the latest point is the latest (%s)" % path[-1][0],
+          path[-1][0] == 39999)
+    # The newest flying is what an instructor is watching, so it must not
+    # be the part that gets thinned.
+    recent = path[-100:]
+    gaps = [recent[i + 1][0] - recent[i][0] for i in range(len(recent) - 1)]
+    check("recent flying is kept at full resolution (gap %s)"
+          % max(gaps), max(gaps) == 1)
 
 print()
 print("FAILED: %s" % fails if fails else "all checks passed")

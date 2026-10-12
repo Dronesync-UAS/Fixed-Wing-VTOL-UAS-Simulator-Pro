@@ -54,13 +54,20 @@ NAN = float("nan")
 # command by number regardless.
 MAV_CMD_DO_ORBIT = 34
 
-# ORBIT_YAW_BEHAVIOUR_HOLD_FRONT_TO_CIRCLE_CENTER - the nose points at the
-# centre, which is what makes a camera on the aircraft useful during an
-# orbit and what a student expects to see.
-YAW_FACE_CENTRE = 0
+# MAVLink's ORBIT_YAW_BEHAVIOUR, checked against common.xml:
+#   0 HOLD_FRONT_TO_CIRCLE_CENTER   nose at the centre (MAVLink's default)
+#   3 HOLD_FRONT_TANGENT_TO_CIRCLE  nose along the flight path
+# Both are offered, because they are two different exercises. Pointing at
+# the centre is what you want when the camera is the point - the aircraft
+# circles a thing and keeps looking at it. Pointing along the track is what
+# a fixed wing does naturally and what a student flying a circuit expects.
+YAW_BEHAVIOURS = {"centre": 0, "track": 3}
 
 
-def loiter(radius_m=DEFAULT_RADIUS_M, speed_ms=DEFAULT_SPEED_MS):
+def loiter(radius_m=DEFAULT_RADIUS_M, speed_ms=DEFAULT_SPEED_MS, nose="centre"):
+    yaw_behaviour = YAW_BEHAVIOURS.get(str(nose).lower())
+    if yaw_behaviour is None:
+        return f"Loiter not sent - '{nose}' is not a nose direction."
     try:
         radius = float(radius_m)
         speed = float(speed_ms)
@@ -89,7 +96,7 @@ def loiter(radius_m=DEFAULT_RADIUS_M, speed_ms=DEFAULT_SPEED_MS):
         MAV_CMD_DO_ORBIT,
         radius,            # param1: radius (m); positive = clockwise
         speed,             # param2: tangential speed (m/s)
-        YAW_FACE_CENTRE,   # param3: yaw behaviour
+        yaw_behaviour,     # param3: yaw behaviour - see the note above
         NAN,               # param4: number of orbits (NaN = unlimited)
         centre_lat,        # param5: centre latitude
         centre_lon,        # param6: centre longitude
@@ -97,11 +104,14 @@ def loiter(radius_m=DEFAULT_RADIUS_M, speed_ms=DEFAULT_SPEED_MS):
 
     log_instructor_action(
         "loiter",
-        f"radius_m={radius:g} speed_ms={speed:g} "
+        f"radius_m={radius:g} speed_ms={speed:g} nose={nose} "
         f"centre={centre_lat:.6f},{centre_lon:.6f} result={text}")
     if result == 0:  # MAV_RESULT_ACCEPTED
+        facing = ("nose pointing at the centre" if nose == "centre"
+                  else "nose along the track")
         return (f"Loitering clockwise in a {radius:g} m circle at {speed:g} m/s, "
-                "around a centre one radius off the right wing.")
+                f"{facing}. The centre is one radius off the right wing of "
+                "where the aircraft was - not the home point.")
     if result is None:
         return "Loiter not confirmed - PX4 did not acknowledge."
     return (f"PX4 refused the loiter ({text}). It refuses an orbit while the "
@@ -118,6 +128,9 @@ PLUGIN = {
          "max": 450, "step": 10},
         {"name": "speed_ms", "label": "Speed (m/s)", "default": 8, "min": 1,
          "max": 25, "step": 1},
+        {"name": "nose", "label": "Nose", "type": "select", "default": "centre",
+         "options": [{"value": "centre", "label": "At the centre"},
+                     {"value": "track", "label": "Along the track"}]},
     ],
     "handler": loiter,
 }

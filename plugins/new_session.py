@@ -53,6 +53,7 @@ reply says so.
 NOT YET RUN AGAINST GAZEBO.
 """
 import subprocess
+import time
 
 import plugin_loader
 import sim_target
@@ -161,6 +162,12 @@ def new_session(reset="hard"):
                          "its own window if it still refuses to arm"
                          % (reboot_text or "no answer"))
 
+    # Cleared LAST, and after a pause. FIXED 12 Oct 2026: the track was
+    # being cleared before the aircraft had finished moving, so PX4 kept
+    # streaming positions along the way and the old session's last few
+    # seconds - the veer sideways as the reset took hold - were drawn
+    # straight back onto a map that was supposed to be empty.
+    time.sleep(2.5)
     reset_flight_state()
     steps.append("track and home point cleared")
     try:
