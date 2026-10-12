@@ -559,6 +559,52 @@ TEMPLATE = """<!DOCTYPE html>
      run, so its "no signal" message is a short set of instructions
      rather than a sentence - the instructor should not have to come
      back and ask what to type. */
+  /* Digital zoom on the camera views, added 12 Oct 2026: "make all view
+     screen with a zoom in and out where by placing the mouse icon
+     hovering on the screen the mouse wheel can be used to zoom in and
+     out". The nose and chase cameras have no real zoom - these are fixed
+     sensors on the airframe - so this scales the picture and crops it,
+     the same digital zoom the payload view already labels as such. */
+  #view-chase img, #view-nose img {
+    transform-origin: center center;
+    transition: transform 0.12s linear;
+  }
+  .view .zoomtag {
+    position: absolute; left: 10px; bottom: 10px; z-index: 36;
+    padding: 2px 8px; border-radius: 4px;
+    font: 600 11px/1.4 ui-monospace, monospace; letter-spacing: 0.04em;
+    color: #cfe0f5; background: rgba(10,16,24,0.78);
+    border: 1px solid rgba(120,160,200,0.3);
+    pointer-events: none; opacity: 0; transition: opacity 0.3s;
+  }
+  .view .zoomtag.on { opacity: 1; }
+  #msg-float {
+    position: absolute; left: 50%; transform: translateX(-50%);
+    bottom: 212px;            /* clear of the gyro, which owns the bottom centre */
+    max-width: 52%; z-index: 40;
+    padding: 9px 16px; border-radius: 7px;
+    font: 600 15px/1.35 system-ui, sans-serif; text-align: center;
+    color: #eaf3ff; background: rgba(14,22,32,0.92);
+    border: 1px solid rgba(120,160,200,0.45);
+    box-shadow: 0 4px 18px rgba(0,0,0,0.5);
+    cursor: pointer; pointer-events: auto;
+    transition: opacity 0.25s;
+  }
+  #msg-float.empty { display: none; }
+  #msg-float.alert {
+    color: #ffe2e2; background: rgba(104,20,20,0.95);
+    border-color: rgba(255,120,120,0.7);
+    cursor: default;          /* a warning is not dismissed by a stray click */
+  }
+  #msg-float.fresh { animation: msgpulse 1.1s ease-out 2; }
+  @keyframes msgpulse {
+    0% { box-shadow: 0 0 0 0 rgba(255,190,80,0.55); }
+    100% { box-shadow: 0 0 0 16px rgba(255,190,80,0); }
+  }
+  #msg-float .hint {
+    display: block; margin-top: 3px; font-weight: 400; font-size: 11px;
+    color: rgba(190,210,235,0.6);
+  }
   #view-payload .nosignal {
     max-width: 440px; display: flex; flex-direction: column; gap: 7px;
     text-align: left; line-height: 1.4; padding: 14px 16px;
@@ -829,6 +875,17 @@ TEMPLATE = """<!DOCTYPE html>
 <div id="limit-banner" class="limit-banner"></div>
 
 <div id="hero"></div>
+
+<!-- MESSAGES IN THE PICTURE, added 12 Oct 2026 on request: "place
+     messages in the main screen away from the gyroscope grid". The rail
+     panel is still there and still the record; this is the copy the
+     instructor actually sees, because the eye is on the picture, not on
+     the column. Sat above the gyro rather than beside it - the gyro owns
+     the bottom centre, and anything over it hides the attitude at the
+     moment attitude matters. Clicking it dismisses it, UNLESS it is a
+     warning: a warning that can be waved away with a stray click is not
+     a warning. -->
+<div id="msg-float" class="empty"><span id="msg-float-text"></span></div>
 
 <!-- the three views, created once and moved between the hero and the tiles -->
 <div id="viewstore" style="display: none">
@@ -1167,22 +1224,111 @@ SCRIPT = """
     ALERT_CLEAR_S = alert;
   };
 
+  // Clearing both copies is one job, so it is one function - the rail
+  // panel and the floating one going out of step was the first thing
+  // that went wrong when the float was added.
+  function clearSaid() {
+    el('status-text').innerText = 'Nothing to report.';
+    el('status-age').innerText = '';
+    el('status').className = 'empty';
+    el('msg-float').className = 'empty';
+    saidAt = null;
+  }
+
   function say(text, alert) {
     var s = el('status');
     el('status-text').innerText = text;
     s.className = alert ? 'alert fresh' : 'ok';
+
+    // The same words in the picture, which is where the eye is.
+    var f = el('msg-float');
+    el('msg-float-text').innerHTML = '';
+    el('msg-float-text').appendChild(document.createTextNode(text));
+    if (!alert) {
+      var hint = document.createElement('span');
+      hint.className = 'hint';
+      hint.appendChild(document.createTextNode('click to dismiss'));
+      el('msg-float-text').appendChild(hint);
+    }
+    f.className = alert ? 'alert fresh' : 'fresh';
+
     saidAt = Date.now();
     if (sayTimer) { clearTimeout(sayTimer); }
-    sayTimer = setTimeout(function () {
-      el('status-text').innerText = 'Nothing to report.';
-      el('status-age').innerText = '';
-      s.className = 'empty';
-      saidAt = null;
-    }, (alert ? ALERT_CLEAR_S : SAY_CLEAR_S) * 1000);
+    sayTimer = setTimeout(clearSaid,
+                          (alert ? ALERT_CLEAR_S : SAY_CLEAR_S) * 1000);
     // The pulse is a one-off; take the class off so a later alert can
     // restart it rather than finding it already applied.
-    setTimeout(function () { s.classList.remove('fresh'); }, 4000);
+    setTimeout(function () {
+      s.classList.remove('fresh');
+      f.classList.remove('fresh');
+    }, 4000);
   }
+
+  // ---------- digital zoom on the camera views ----------
+  // Asked for 12 Oct 2026: hover any view, roll the wheel, it zooms. The
+  // payload view already had its own wheel handler driving the REAL
+  // gimbal zoom, so it is deliberately left alone here - two handlers on
+  // one element would fight. The map has its own too, below.
+  //
+  // DIGITAL, and the tag says so. The nose and chase cameras are fixed
+  // sensors; there is nothing to zoom optically, so this scales the
+  // picture and the window crops it. Past about 3x it looks like what it
+  // is.
+  var VIEW_ZOOM_MIN = 1.0, VIEW_ZOOM_MAX = 6.0, VIEW_ZOOM_STEP = 1.2;
+  var viewZoom = {};
+
+  function applyViewZoom(name) {
+    var view = el('view-' + name);
+    if (!view) { return; }
+    var img = view.querySelector('img');
+    var z = viewZoom[name] || 1;
+    if (img) { img.style.transform = 'scale(' + z.toFixed(3) + ')'; }
+    var tag = view.querySelector('.zoomtag');
+    if (!tag) {
+      tag = document.createElement('div');
+      tag.className = 'zoomtag';
+      view.appendChild(tag);
+    }
+    tag.innerText = z > 1.001 ? ('DIGITAL ZOOM ' + z.toFixed(1) + 'x')
+                              : 'ZOOM 1.0x';
+    tag.className = 'zoomtag' + (z > 1.001 ? ' on' : '');
+    if (z <= 1.001) {
+      // Show 1.0x briefly on the way back down, then let it fade, so
+      // the instructor can see they are back to the full picture.
+      tag.classList.add('on');
+      setTimeout(function () {
+        if ((viewZoom[name] || 1) <= 1.001) { tag.classList.remove('on'); }
+      }, 1200);
+    }
+  }
+
+  window.gcsViewZoom = function (name) { return viewZoom[name] || 1; };
+
+  ['chase', 'nose'].forEach(function (name) {
+    var view = el('view-' + name);
+    if (!view) { return; }
+    viewZoom[name] = 1;
+    // Built now rather than on the first zoom: a tag that does not
+    // exist until something happens cannot be checked, and the check is
+    // the only thing standing between "digital zoom" and an instructor
+    // believing the aircraft carries a zoom lens.
+    applyViewZoom(name);
+    view.addEventListener('wheel', function (e) {
+      e.preventDefault();
+      var z = viewZoom[name] || 1;
+      z = (e.deltaY < 0) ? z * VIEW_ZOOM_STEP : z / VIEW_ZOOM_STEP;
+      viewZoom[name] = Math.max(VIEW_ZOOM_MIN, Math.min(VIEW_ZOOM_MAX, z));
+      applyViewZoom(name);
+    }, { passive: false });
+  });
+
+  // Click to dismiss - but never a warning. A warning waved away by a
+  // stray click while reaching for a control is a warning nobody read.
+  el('msg-float').addEventListener('click', function () {
+    if (el('msg-float').classList.contains('alert')) { return; }
+    if (sayTimer) { clearTimeout(sayTimer); }
+    clearSaid();
+  });
 
   // How long ago it was said. An instructor who looks away and back
   // needs to know whether the panel is reporting now or a minute ago.

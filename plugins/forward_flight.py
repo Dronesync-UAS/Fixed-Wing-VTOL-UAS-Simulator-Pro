@@ -86,6 +86,18 @@ REPOSITION_CHANGE_MODE = 1     # param2 bit 0: "change mode to guided"
 # re-tasks the navigator for nothing.
 EXTEND_WITHIN_M = 150.0
 
+# After the transition, before any turn. PX4 declares a front transition
+# complete at VT_ARSP_TRANS - 10 m/s by default, from
+# vtol_att_control_params.c in v1.15.4 - which is only just wing-borne.
+# A real crew accelerates straight before turning, so the station waits
+# for a margin over that figure.
+SETTLE_AIRSPEED_MS = 16.0
+SETTLE_TIMEOUT_S = 20.0
+# If there is no airspeed reading at all, this much straight flight
+# instead. Short, but better than turning the instant PX4 says "fixed
+# wing".
+SETTLE_MIN_S = 6.0
+
 # Where the current leg was aimed, so the loop can tell how much of it is
 # left without re-deriving it from a heading that has since changed.
 _leg_target = {"lat": None, "lon": None}
@@ -185,6 +197,23 @@ def forward_flight(transition_m=DEFAULT_TRANSITION_M, cruise_m=DEFAULT_CRUISE_M)
                     "after 90 seconds. Check the aircraft is climbing.")
         return None
 
+    def step_wings_level():
+        """A real VTOL transitions straight and level. Turning through
+        it is how you lose one: the wing is only part-loaded, the lift
+        motors are unloading, and a bank in that window is a bank with
+        very little to hold it up. PX4 will not refuse it, so the
+        station waits instead.
+
+        30 degrees of roll is the gate, and three seconds of patience -
+        a VTOL rolls level in about one."""
+        rolled = wait_until(
+            lambda: abs(telemetry.get("roll_deg") or 0) < 30.0, 3)
+        if not rolled:
+            say_step("Forward flight: waiting for wings level before "
+                     "transitioning")
+            wait_until(lambda: abs(telemetry.get("roll_deg") or 0) < 30.0, 8)
+        return None
+
     def step_transition():
         say_step("Forward flight: transitioning to fixed wing")
         result, text = send_command_and_wait(
@@ -195,6 +224,27 @@ def forward_flight(transition_m=DEFAULT_TRANSITION_M, cruise_m=DEFAULT_CRUISE_M)
             return (f"Forward flight stopped - PX4 refused the transition "
                     f"({text}) in {telemetry.get('mode')} mode.")
         wait_until(lambda: telemetry.get("vtol_state") == "Fixed wing", 60)
+        return None
+
+    def step_settle():
+        """Wing-borne is not the same as flying. PX4 declares the
+        transition over at VT_ARSP_TRANS, 10 m/s by default
+        (vtol_att_control_params.c), which for this airframe is barely
+        above the speed the wing needs. Turning there is what a real
+        crew would never do: accelerate first, on the wing, straight.
+
+        Real practice is to be wings-level and accelerating before any
+        turn, so this waits for airspeed to build past the transition
+        figure with a margin, or for a short fixed pause if the airspeed
+        reading is not available."""
+        say_step("Forward flight: accelerating on the wing before turning")
+        settled = wait_until(
+            lambda: (telemetry.get("airspeed_ms") or 0) >= SETTLE_AIRSPEED_MS,
+            SETTLE_TIMEOUT_S)
+        if not settled:
+            # No airspeed, or it never got there. Give it the fixed
+            # pause anyway rather than commanding a turn immediately.
+            wait_until(lambda: False, SETTLE_MIN_S)
         return None
 
     def step_climb_to_cruise():
@@ -281,7 +331,7 @@ def forward_flight(transition_m=DEFAULT_TRANSITION_M, cruise_m=DEFAULT_CRUISE_M)
 
     started = start_sequence("forward_flight", [
         step_clear_mode, step_climb_to_transition, step_wait_for_height,
-        step_transition, step_climb_to_cruise])
+        step_wings_level, step_transition, step_settle, step_climb_to_cruise])
     if not started:
         return "Not sent - a manoeuvre is already running."
 

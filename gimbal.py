@@ -667,8 +667,12 @@ chase = {"az_deg": 0.0, "el_deg": 7.0, "preset": "behind"}
 # against, which is what an external view is for. The aircraft stays in
 # the middle whatever the elevation, because the boom tilts the camera
 # by the same angle it raises it.
+# 12 Oct 2026: "The external behind view must change a little as it was
+# before but less than before." The behind view went 13.8 -> 7.0 earlier
+# today, which was too far: 10.5 is half way back, so roughly half the
+# frame is sky and the aircraft sits a little above centre.
 CHASE_PRESETS = {
-    "behind": (0.0, 7.0),
+    "behind": (0.0, 10.5),
     "port": (-90.0, 7.0),
     "starboard": (90.0, 7.0),
     "nose": (180.0, 6.0),

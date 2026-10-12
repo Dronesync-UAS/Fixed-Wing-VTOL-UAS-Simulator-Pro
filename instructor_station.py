@@ -1451,7 +1451,14 @@ EXTRA_SCRIPT = """
   // Smallest the plan view ever shows, in metres across. The station's range
   // limit is 500 m, so 300 m keeps the whole working area in sight from the
   // moment the aircraft is on the pad.
-  var MAP_MIN_SPAN_M = 300;
+  // 12 Oct 2026: "map view screen is too far. make it closer and
+  // adaptable to show a suitable close up." 300 m was the floor, but the
+  // view also auto-fitted the WHOLE track - so ten minutes into a
+  // sortie it was showing a two-kilometre square with the aircraft as a
+  // speck. 120 m is the new floor, and followAircraft below is what
+  // makes it adaptable: the view centres on the aircraft at a span the
+  // wheel sets, rather than trying to hold every place it has been.
+  var MAP_MIN_SPAN_M = 120;
   var mapZoom = 1;
   function setMapZoom(z) {
     mapZoom = Math.max(0.25, Math.min(16, z));
@@ -1459,12 +1466,37 @@ EXTRA_SCRIPT = """
     if (out) { out.innerText = (mapZoom < 1 ? mapZoom.toFixed(2) : mapZoom.toFixed(1)) + 'x'; }
     drawPath();
   }
+  // Follow the aircraft rather than fit the whole track. A ground
+  // station centres on where the aircraft IS; fitting every point it has
+  // visited is a debrief view, not a flying one. The zoom reset button
+  // switches back to fit-all, which is what it is for.
+  var followAircraft = true;
+
   document.addEventListener('click', function (e) {
     var b = e.target.closest ? e.target.closest('[data-mapzoom]') : null;
     if (!b) { return; }
     var how = b.dataset.mapzoom;
-    setMapZoom(how === 'in' ? mapZoom * 1.5 : how === 'out' ? mapZoom / 1.5 : 1);
+    if (how === 'in' || how === 'out') {
+      followAircraft = true;
+      setMapZoom(how === 'in' ? mapZoom * 1.5 : mapZoom / 1.5);
+    } else {
+      // Reset means "show me the whole flight".
+      followAircraft = false;
+      setMapZoom(1);
+    }
   });
+
+  // Wheel zoom, the same gesture as the camera views.
+  var mapView = document.getElementById('view-map');
+  if (mapView) {
+    mapView.addEventListener('wheel', function (e) {
+      e.preventDefault();
+      followAircraft = true;
+      setMapZoom(e.deltaY < 0 ? mapZoom * 1.25 : mapZoom / 1.25);
+    }, { passive: false });
+  }
+  window.gcsMapFollowing = function () { return followAircraft; };
+  window.gcsMapZoom = function () { return mapZoom; };
 
   // Shaded relief of the world's own terrain, under the track. Loaded once;
   // a world with no heightmap (flat_test) reports available:false and the
@@ -1522,10 +1554,26 @@ EXTRA_SCRIPT = """
       // zoomed to a 50 m square of blank ground with the aircraft and home on
       // top of each other and nothing around them to read. Never show less
       // than MAP_MIN_SPAN_M across, and let the instructor zoom from there.
-      maxAbs = Math.max(maxAbs, MAP_MIN_SPAN_M / 2);
-      maxAbs /= mapZoom;
+      if (followAircraft) {
+        // Following: the span is whatever the wheel says, and the whole
+        // track is deliberately NOT fitted - that is what made the view
+        // retreat further and further as the sortie went on.
+        maxAbs = (MAP_MIN_SPAN_M / 2) / mapZoom;
+      } else {
+        // Fit everything flown, with the same floor as before so a
+        // parked aircraft does not zoom to a blank 50 m square.
+        maxAbs = Math.max(maxAbs, MAP_MIN_SPAN_M / 2) / mapZoom;
+      }
       var scale = Math.min(W, H) / (2 * maxAbs);
+      // ox/oy is where HOME lands on the canvas. Metres east are +x and
+      // metres north are -y, which is what the backdrop below assumes
+      // too - so following the aircraft means sliding home off-centre by
+      // exactly the aircraft's own offset.
       var ox = W / 2, oy = H / 2;
+      if (followAircraft && mx.length) {
+        ox = W / 2 - mx[mx.length - 1] * scale;
+        oy = H / 2 + my[my.length - 1] * scale;
+      }
 
       if (terrainImg && terrainInfo && terrainInfo.available) {
         // The backdrop is positioned in the same metres-from-home axes the

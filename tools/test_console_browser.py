@@ -368,22 +368,63 @@ def main():
         check("and as wide (%s vs %s)" % (round(box["width"]), round(hero["width"])),
               box["width"] > hero["width"] - 8)
 
+        print("4b0. the camera views zoom on the wheel")
+        # Asked for 12 Oct 2026: hover a view, roll the wheel. The nose
+        # and chase cameras are fixed sensors, so this is digital - and
+        # the tag on the picture has to say so, or an instructor will
+        # believe the aircraft has a zoom lens it does not have.
+        page.locator("#view-chase").hover()
+        page.mouse.wheel(0, -240)
+        page.wait_for_timeout(200)
+        zoomed = page.evaluate("() => window.gcsViewZoom && window.gcsViewZoom('chase')")
+        check("the wheel zooms the chase view (%s)" % zoomed,
+              zoomed is not None and zoomed > 1.01)
+        check("and the picture says it is DIGITAL",
+              "DIGITAL" in (page.inner_text("#view-chase .zoomtag") or ""))
+        page.mouse.wheel(0, 600)
+        page.wait_for_timeout(200)
+        check("winding the wheel back returns the whole picture (%s)"
+              % page.evaluate("() => window.gcsViewZoom('chase')"),
+              page.evaluate("() => window.gcsViewZoom('chase')") <= 1.01)
+
         print("4b1. the map zooms, and never shows a bare patch of ground")
         # A parked aircraft has a two-metre track. Fitting to that gave a 50m
         # square of empty playa with home and the aircraft on top of each
         # other - "aircraft icon and home point too far", as it was reported.
+        # 12 Oct 2026: the map used to FIT THE WHOLE TRACK, so ten
+        # minutes into a sortie it showed a two-kilometre square with the
+        # aircraft as a speck - "map view screen is too far". It now
+        # follows the aircraft at a span the wheel sets, and Fit is what
+        # shows the whole flight. The floor is 120 m rather than 300.
         span = page.inner_text("#fp-range")
-        check("fitted view is at least 300 m across (%s)" % span,
-              ("m" in span and float(span.split()[0]) >= 300) or "km" in span)
+        check("the view follows the aircraft, close in (%s)" % span,
+              "m" in span and 60 <= float(span.split()[0]) <= 400)
+        check("and says it is following",
+              page.evaluate("() => window.gcsMapFollowing && "
+                            "window.gcsMapFollowing() === true"))
         page.click('#hero [data-mapzoom="in"]')
         page.wait_for_timeout(300)
         closer = page.inner_text("#fp-range")
         check("zoom in shows less ground (%s -> %s)" % (span, closer),
               float(closer.split()[0]) < float(span.split()[0]))
+
+        # The wheel is the gesture that was asked for; the buttons stay
+        # for anyone who prefers them.
+        page.locator("#view-map").hover()
+        page.mouse.wheel(0, -240)
+        page.wait_for_timeout(300)
+        wheeled = page.inner_text("#fp-range")
+        check("the wheel zooms the map too (%s -> %s)" % (closer, wheeled),
+              float(wheeled.split()[0]) < float(closer.split()[0]))
+
         page.click('#hero [data-mapzoom="fit"]')
         page.wait_for_timeout(300)
-        check("Fit goes back (%s)" % page.inner_text("#fp-range"),
-              page.inner_text("#fp-range") == span)
+        check("Fit stops following and shows the whole flight",
+              page.evaluate("() => window.gcsMapFollowing() === false"))
+        fitted = page.inner_text("#fp-range")
+        check("which is at least as much ground as following (%s vs %s)"
+              % (fitted, wheeled),
+              float(fitted.split()[0]) >= float(wheeled.split()[0]))
         check("the map drew home and the aircraft",
               page.evaluate(
                   "() => { const c = document.getElementById('flightpath');"
@@ -736,6 +777,39 @@ def main():
         # Put the real timers back: later sections read this panel, and
         # with a third of a second on the clock they would all find it
         # empty.
+        page.evaluate("() => window.gcsSayClearSeconds(30, 120)")
+
+        # The same words in the picture, where the eye is - added
+        # 12 Oct 2026 on request. The rail panel is still the record;
+        # this is the copy that gets read.
+        page.evaluate("() => window.gcsSay('In the picture', false)")
+        check("an ordinary reply also shows in the picture (%s)"
+              % page.inner_text("#msg-float")[:30],
+              "In the picture" in page.inner_text("#msg-float"))
+        box = page.locator("#msg-float").bounding_box()
+        gyro = page.locator("#gyro").bounding_box()
+        if box and gyro:
+            # Clear of the gyro: anything over it hides the attitude at
+            # the moment attitude matters.
+            clear = (box["y"] + box["height"]) <= gyro["y"] + 2
+            check("and sits clear of the gyro (message bottom %d, gyro top %d)"
+                  % (box["y"] + box["height"], gyro["y"]), clear)
+
+        page.locator("#msg-float").click()
+        check("clicking an ordinary message dismisses it",
+              "empty" in (page.get_attribute("#msg-float", "class") or ""))
+        check("and clears the rail panel with it",
+              "empty" in (page.get_attribute("#status", "class") or ""))
+
+        # A warning that a stray click can wave away is not a warning.
+        page.evaluate("() => window.gcsSay('Serious warning', true)")
+        page.locator("#msg-float").click()
+        check("clicking a WARNING does not dismiss it",
+              "Serious warning" in page.inner_text("#msg-float")
+              and "empty" not in (page.get_attribute("#msg-float", "class") or ""))
+        page.evaluate("""() => { window.gcsSayClearSeconds(0.3, 0.3);
+                                 window.gcsSay('x', true); }""")
+        page.wait_for_timeout(900)
         page.evaluate("() => window.gcsSayClearSeconds(30, 120)")
 
         print("7b. a rail undocks, moves, resizes and turns on its side")

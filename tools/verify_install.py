@@ -273,6 +273,15 @@ MODEL_PARTS = [
      "python3 tools/aircraft_legs_apply.py"),
     ("chase_az_link", "the chase boom, which gives the four chase angles",
      "python3 tools/chase_angles_apply.py"),
+    # Added 12 Oct 2026: the lights were reported not working, and this
+    # script had no check for them - the same blind spot that hid the
+    # missing gimbal and chase boom.
+    ("nav_port", "the navigation lights",
+     "python3 tools/aircraft_lights_apply.py"),
+    ("strobe_top", "the anti-collision strobes",
+     "python3 tools/aircraft_lights_apply.py"),
+    ("beacon_top", "the armed beacon",
+     "python3 tools/aircraft_lights_apply.py"),
 ]
 if model_text:
     for marker, what, fix in MODEL_PARTS:

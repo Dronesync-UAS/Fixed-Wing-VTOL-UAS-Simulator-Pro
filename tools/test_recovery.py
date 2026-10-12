@@ -236,14 +236,63 @@ steps_held.clear(); sent.clear(); modes.clear()
 reply = fwd.forward_flight(transition_m=40, cruise_m=100)
 check("accepted from 20 m instead of refusing (%s...)" % reply[:38],
       "climbing straight ahead" in reply)
-check("queued the five steps (%s)" % len(steps_held), len(steps_held) == 5)
+# Seven since 12 Oct 2026: wings-level before the transition, and
+# accelerate straight after it. A real VTOL transitions wings-level and
+# does not turn until it is flying on the wing - see step_wings_level
+# and step_settle for the PX4 figures behind that.
+check("queued the seven steps (%s)" % len(steps_held), len(steps_held) == 7)
+
+# The two that keep a transition safe, checked for what they actually
+# wait on rather than only counted.
+fwd_waits = {"rolls": 0}
+sl.telemetry["roll_deg"] = 55.0          # hard over, mid-turn
+
+
+def _level_out(predicate, timeout, poll=0.25):
+    fwd_waits["rolls"] += 1
+    if fwd_waits["rolls"] >= 2:
+        sl.telemetry["roll_deg"] = 3.0
+    return predicate()
+
+
+_saved_wait = fwd.wait_until
+fwd.wait_until = _level_out
+sent.clear()
+steps_held[3]()                           # step_wings_level
+check("waits for wings level before transitioning, and does not "
+      "command anything while it waits",
+      fwd_waits["rolls"] >= 1 and not sent)
+
+# And after the transition: accelerate straight before any turn.
+fwd_waits["accel"] = 0
+sl.telemetry["airspeed_ms"] = 9.0         # only just wing-borne
+
+
+def _accelerate(predicate, timeout, poll=0.25):
+    fwd_waits["accel"] += 1
+    if fwd_waits["accel"] >= 2:
+        sl.telemetry["airspeed_ms"] = 20.0
+    return predicate()
+
+
+fwd.wait_until = _accelerate
+sent.clear()
+steps_held[5]()                           # step_settle
+check("waits to accelerate on the wing before turning (%d waits)"
+      % fwd_waits["accel"], fwd_waits["accel"] >= 1)
+check("and commands nothing while it does", not sent)
+fwd.wait_until = _saved_wait
+sl.telemetry.update({"roll_deg": 0.0, "airspeed_ms": 22.0})
 
 # Run the steps by hand, with the aircraft reported as climbing: high
 # enough to transition at once, then arriving at cruise height after a few
 # climb-out legs, so the loop that keeps the climb straight is exercised
 # rather than skipped.
 sl.telemetry.update({"altitude_m": 45.0, "vtol_state": "Fixed wing",
-                     "range_from_home_m": 100.0})
+                     "range_from_home_m": 100.0,
+                     # Wings level and flying on the wing, so the two
+                     # new steps pass straight through.
+                     "roll_deg": 0.0, "airspeed_ms": 22.0})
 climbing = {"n": 0}
 
 
