@@ -88,9 +88,13 @@ for t in targets:
 # And that each one is actually placed in every world.
 for world in scenery.WORLD_THEMES:
     placed = scenery.layout(world)
+    # The panel is 0.3 m thick, 6 m wide, 3.2 m tall and white. The
+    # thickness matters: without it a 7x6x3.2 m outbuilding on the
+    # coast counted as a fourth target.
     panels = [p for p in placed
-              if any(k == "box" and abs(a["sy"] - 6.0) < 0.01 and
-                     abs(a["sz"] - 3.2) < 0.01 for k, a in p[3])]
+              if any(k == "box" and abs(a["sx"] - 0.3) < 0.01
+                     and abs(a["sy"] - 6.0) < 0.01
+                     and abs(a["sz"] - 3.2) < 0.01 for k, a in p[3])]
     check("%s carries all three target panels (%d)" % (world, len(panels)),
           len(panels) == 3)
 

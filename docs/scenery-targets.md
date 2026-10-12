@@ -55,9 +55,45 @@ Hoggar: rock, sand, a track and a small compound.
 
 ### Cambridgeshire fens, England - flat, farmed, hedged
 
-`training_area_lowlands`, theme `lowland`: 123 features built from 332 shapes.
+`training_area_lowlands`, theme `lowland`: 81 features built from 332 shapes.
 
 Northern Europe: hedged fields, woods, a farm, a church, a turbine.
+
+### North Norfolk coast - shoreline, harbour, pine belt
+
+`training_area_coast`, theme `coastal`: 60 features built from 283 shapes.
+
+North Norfolk: a shoreline, a harbour arm, a pine belt.
+
+### Licensed airfield - runway, markings, circuits
+
+`training_area_airfield`, theme `airfield`: 45 features built from 214 shapes.
+
+A licensed airfield: runway, taxiway, apron, hangars, a tower.
+
+### Industrial estate, Thames estuary - obstacles and clutter
+
+`training_area_estate`, theme `estate`: 125 features built from 291 shapes.
+
+Thames estuary: warehousing, a container yard, tanks, a crane.
+
+### Thetford Forest - plantation blocks and firebreaks
+
+`training_area_forest`, theme `forest`: 101 features built from 1344 shapes.
+
+Breckland: conifer blocks, firebreaks, a ride and a clearing.
+
+### Valley, north Wales - flat floor, 200 m ridges either side
+
+`training_area_valley`, theme `valley`: 122 features built from 173 shapes.
+
+North Wales: a flat floor between two ridges, walled and grazed.
+
+### Flooded farmland, Somerset Levels - flood response
+
+`training_area_flood`, theme `flood`: 60 features built from 183 shapes.
+
+Somerset Levels under water: the UAS job that actually pays.
 
 ### Plain flat ground, no scenery - for isolating faults
 

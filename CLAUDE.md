@@ -91,6 +91,12 @@ After changing what is in the training areas, run:
 python3 tools/test_scenery.py
 ```
 
+After changing the real-terrain fetcher, run:
+
+```
+python3 tools/test_terrain_fetch.py
+```
+
 After changing ARM or NEW SESSION, run the recovery check - these two
 controls are the ones that bite hardest when they are wrong:
 
