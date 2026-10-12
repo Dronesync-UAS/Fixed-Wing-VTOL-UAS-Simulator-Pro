@@ -86,7 +86,11 @@ kinds = [k for k, _, _, _ in made]
 names = [n for _, n, _, _ in made]
 check("two mounting rails", kinds.count("box") == 2)
 check("four leg tubes", len([n for n in names if n.endswith("_tube")]) == 4)
-check("a gimbal ball", "gimbal_ball" in names)
+# The gimbal moved out of this tool on 12 Oct 2026 and into
+# tools/gimbal_apply.py, which builds it as a real two-axis mount.
+# tools/test_payload.py checks it. What matters here is that this tool
+# leaves the space under the belly clear for it.
+check("no gimbal here any more", not [n for n in names if "gimbal" in n])
 
 
 def ends(fields):
@@ -115,11 +119,6 @@ for name, fields in legs:
                        else (bottom[0] < top[0] - 0.01))
     check("%s leans away from the middle" % name, leans_right_way)
 
-ball = [f for _, n, f, _ in made if n == "gimbal_ball"][0]
-check("the gimbal clears the ground",
-      ball["z"] - ball["radius"] > gear.FOOT_Z + 0.05)
-check("the gimbal sits between the legs, not out on the nose",
-      abs(ball["x"]) < gear.LEG_X)
 
 
 print("4. the edit it makes to the aircraft model")
@@ -167,7 +166,6 @@ except ET.ParseError:
     parsed = False
 check("the result is valid XML", parsed)
 check("the legs are in the model", "leg_front_left_tube" in written)
-check("the gimbal is in the model", "gimbal_ball" in written)
 check("the stance was lowered to the feet",
       "<pose>0 0 -0.295 0 0 0</pose>" in written)
 check("the backup was kept", os.path.exists(path + gear.SUFFIX))

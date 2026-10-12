@@ -1,4 +1,4 @@
-"""Adds four landing legs and a belly gimbal camera to the aircraft:
+"""Adds four landing legs and their mounting rails to the aircraft:
 
     python3 tools/aircraft_legs_apply.py            # add them
     python3 tools/aircraft_legs_apply.py --dry-run  # show the change
@@ -24,9 +24,13 @@ a three-quarter view of the real airframe - rather than invented:
   * FOUR TUBULAR LEGS, one at each end of each rail, SPLAYED - outboard
     going down, and the front pair leaning forward while the rear pair
     lean aft. Plain open tubes, with no feet on them, which is what the
-    photographs show;
-  * A BALL GIMBAL amidships, hanging between the four legs - again not at
-    the nose, which is where the words would have put it.
+    photographs show.
+
+The ball gimbal that hangs between the legs is NOT added here. It used to
+be, as three static shapes; it is now a real two-axis mount with its own
+camera and laser rangefinder, built by tools/gimbal_apply.py. Run that
+tool as well. This one will not add a second one, and gimbal_apply.py
+removes the old static shapes if it finds them.
 
 Everything is carbon black, as in the photographs, against the fuselage
 grey that tools/aircraft_colours_apply.py already sets.
@@ -44,14 +48,15 @@ The airframe figures are read out of the aircraft's own model
     it is 0.05 thick.
 
 So the rails sit at y = +-0.16, just outboard of the fuselage and well
-inboard of the rotors, the legs stand at x = +-0.24 on those rails, and
-the gimbal hangs at x = 0.06 between them. The splay angles and the
+inboard of the rotors, and the legs stand at x = +-0.24 on those rails.
+(tools/gimbal_apply.py hangs the gimbal at x = 0.06 between them, which
+is why nothing else is put there.) The splay angles and the
 0.32 m stance height are proportions off the photographs; everything else
 is arithmetic from the figures above.
 
 VISUAL ONLY - AND WHAT THAT MEANS FOR THE STANCE
 ------------------------------------------------
-The legs and the gimbal are <visual> elements with NO <collision>. Four
+The legs and the rails are <visual> elements with NO <collision>. Four
 thin cylinders touching the ground is exactly the contact case ODE is
 worst at, and a landing gear that makes the aircraft jitter or tip on the
 runway would be a worse lesson than no landing gear at all.
@@ -69,12 +74,6 @@ drop it about 0.22 m further before it settles. That is a small drop on
 the ground before arming, and it has NOT been watched happen - see below.
 Pass --no-stance to leave the collision box alone; the legs then clip
 through the ground, which looks wrong but changes no physics at all.
-
-THE GIMBAL IS A BODY, NOT A MOUNT. It does not move, and the nose camera
-feed does NOT come from it - that still comes from the camera the console
-has always used (tools/chase_camera_apply.py and the nose camera in the
-world). Pointing the camera out of the gimbal ball would mean re-aiming a
-view that works, and nothing in the request asked for the view to change.
 
 NOT YET SEEN. Nobody has watched this in Gazebo. The geometry is arithmetic
 off the model's own numbers and the file is parsed as XML before it is
@@ -116,17 +115,8 @@ LEG_RADIUS = 0.014
 SPLAY_OUT_DEG = 12.0
 SPLAY_FORE_DEG = 10.0
 
-# The gimbal: amidships, between the four legs, clear of the ground.
-GIMBAL_X = 0.06
-GIMBAL_BALL_Z = -0.18
-GIMBAL_BALL_R = 0.055
-GIMBAL_YOKE_LEN = 0.055
-
-# Carbon tube black, with the gimbal a shade lighter so the ball does not
-# disappear into the legs behind it.
+# Carbon tube black, as in the photographs.
 TUBE = (0.06, 0.06, 0.065)
-GIMBAL_BODY = (0.10, 0.10, 0.11)
-LENS = (0.02, 0.02, 0.03)
 
 # Where the belly collision box ends up, so the aircraft stands on the
 # height the legs imply. 0.05 is the box's own thickness.
@@ -230,29 +220,11 @@ def parts():
                          r=TUBE[0], g=TUBE[1], b=TUBE[2]),
                     "leg tube, %s" % tag.replace("_", " ")))
 
-    yoke_z = round(GIMBAL_BALL_Z + GIMBAL_BALL_R / 2 + GIMBAL_YOKE_LEN / 2, 4)
-    out.append(("cyl", "gimbal_yoke",
-                dict(x=GIMBAL_X, y=0, z=yoke_z, roll=0, pitch=0,
-                     radius=0.018, length=GIMBAL_YOKE_LEN,
-                     r=GIMBAL_BODY[0], g=GIMBAL_BODY[1], b=GIMBAL_BODY[2]),
-                "gimbal mount, amidships"))
-    out.append(("sphere", "gimbal_ball",
-                dict(x=GIMBAL_X, y=0, z=GIMBAL_BALL_Z, radius=GIMBAL_BALL_R,
-                     r=GIMBAL_BODY[0], g=GIMBAL_BODY[1], b=GIMBAL_BODY[2]),
-                "gimbal ball"))
-    # The lens faces forward: a cylinder's axis is Z, so a pitch of
-    # 1.5707963 lays it along X, which is the direction of flight.
-    out.append(("cyl", "gimbal_lens",
-                dict(x=round(GIMBAL_X + GIMBAL_BALL_R - 0.004, 4), y=0,
-                     z=GIMBAL_BALL_Z, roll=0, pitch=1.5707963,
-                     radius=0.022, length=0.020,
-                     r=LENS[0], g=LENS[1], b=LENS[2]),
-                "gimbal lens, facing forward"))
     return out
 
 
 def block(indent):
-    text = (indent + "<!-- Landing legs and the belly gimbal, added by\n"
+    text = (indent + "<!-- Landing legs and their rails, added by\n"
             + indent + "     tools/aircraft_legs_apply.py. Visual only: four thin\n"
             + indent + "     cylinders on the ground is the contact case ODE handles\n"
             + indent + "     worst, so the aircraft still stands on its one belly box,\n"
@@ -333,7 +305,7 @@ def apply(dry_run, stance):
         lines = handle.read().splitlines(keepends=True)
 
     if MARKER in "".join(lines):
-        print("SKIP  the aircraft already has its legs and gimbal.")
+        print("SKIP  the aircraft already has its legs.")
         return 0
 
     close, problem = find_link_end(lines)
@@ -378,7 +350,7 @@ def apply(dry_run, stance):
               % exc, file=sys.stderr)
         return 1
 
-    print("OK    four legs and a belly gimbal added to %s" % MODEL)
+    print("OK    four legs and their rails added to %s" % MODEL)
     print("      stance: %s" % stance_note)
     print("      backup at %s" % os.path.basename(backup))
     print("""
@@ -389,9 +361,8 @@ Next:
 2. Look at the aircraft on the ground in the chase view. The legs should
    be standing on it, not sunk into it.
 
-The legs and the gimbal are decoration: they have no collision, the gimbal
-does not move, and the nose camera picture still comes from the camera it
-always came from.
+The legs are decoration: they have no collision. The gimbal is added
+separately, by tools/gimbal_apply.py.
 
 To take them off again:
      python3 tools/aircraft_legs_apply.py --revert""")

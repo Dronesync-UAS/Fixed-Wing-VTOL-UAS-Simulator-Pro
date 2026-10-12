@@ -5,9 +5,11 @@ video player needed, unlike the QGroundControl bridge.
 
 Two feeds:
 
-  nose   the forward (FPV) view, with the attitude overlay drawn on top
-  chase  behind and above the aircraft, looking forward - the view that used
-         to mean switching to the Gazebo window to see the aircraft at all
+  nose     the forward (FPV) view, with the attitude overlay drawn on top
+  chase    behind and above the aircraft, looking forward - the view that used
+           to mean switching to the Gazebo window to see the aircraft at all
+  payload  the gimbal ball under the belly: steerable, zoomable, and the one
+           the sensor operator works from. Added 12 Oct 2026 with gimbal.py.
 
 REVISED 11 Oct 2026. This was a single camera's worth of module-level state:
 one topic, one latest frame, one watchdog. Adding a second camera by copying
@@ -94,6 +96,22 @@ def _night_vision(image):
     return ImageOps.colorize(grey, black=(2, 14, 4), white=(176, 255, 176)).convert("RGB")
 
 
+def _crop_zoom(image, zoom):
+    """Digital zoom: take the middle 1/zoom and scale it back to full size.
+
+    BICUBIC rather than NEAREST because a payload picture at 8x should
+    look soft, which is honest, rather than blocky, which looks like a
+    fault in the simulator.
+    """
+    width, height = image.size
+    keep_w = max(16, int(width / zoom))
+    keep_h = max(16, int(height / zoom))
+    left = (width - keep_w) // 2
+    top = (height - keep_h) // 2
+    return image.crop((left, top, left + keep_w, top + keep_h)).resize(
+        (width, height), Image.BICUBIC)
+
+
 VIEW_MODES = {
     "normal": None,
     "white_hot": _white_hot,
@@ -106,7 +124,7 @@ class CameraFeed:
     """One Gazebo camera, re-encoded as MJPEG for the browser."""
 
     def __init__(self, name, topic_source, width, height, quality=88,
-                 frame_interval_s=1 / 25.0):
+                 frame_interval_s=1 / 25.0, zoomable=False):
         self.name = name
         self._topic_source = topic_source
         self.width = width
@@ -128,6 +146,18 @@ class CameraFeed:
         self._fov_rad = None
         # How the picture is rendered: see VIEW_MODES above.
         self.view_mode = "normal"
+        # DIGITAL zoom, for the payload camera. gz-sim 8 has no documented
+        # way to change a camera's field of view while it is running, so
+        # zooming is done by cropping the middle of the frame and scaling
+        # it back up - which is exactly what the digital zoom on a real
+        # payload does, and is labelled as digital on screen. The frame is
+        # scaled back to its original size on purpose: an MJPEG stream
+        # whose frames change size makes the browser re-layout the picture
+        # on every zoom step.
+        self.zoomable = zoomable
+        self.zoom = 1.0
+        # Set to a payload_media.Recording while the record button is on.
+        self.recorder = None
 
 
     # -- incoming frames ------------------------------------------------
@@ -143,6 +173,8 @@ class CameraFeed:
             # Wrong-sized buffer: drop the frame rather than take down the
             # subscriber thread for every later frame too.
             return
+        if self.zoomable and self.zoom > 1.0:
+            image = _crop_zoom(image, self.zoom)
         render = VIEW_MODES.get(self.view_mode)
         if render is not None:
             try:
@@ -153,9 +185,19 @@ class CameraFeed:
                 pass
         buffer = io.BytesIO()
         image.save(buffer, format="JPEG", quality=self.quality)
+        frame = buffer.getvalue()
         with self._lock:
-            self._latest = buffer.getvalue()
+            self._latest = frame
             self._frame_times.append(time.monotonic())
+        # Outside the lock: writing a file must not hold up the next frame.
+        recorder = self.recorder
+        if recorder is not None and recorder.running():
+            recorder.add_frame(frame)
+
+    def snapshot(self):
+        """The most recent frame as JPEG bytes, or None."""
+        with self._lock:
+            return self._latest
 
     def _on_camera_info(self, msg):
         """Work the horizontal field of view out of the camera intrinsics.
@@ -271,7 +313,16 @@ nose = CameraFeed("nose", sim_target.camera_topic, 1280, 960)
 chase = CameraFeed("chase", sim_target.chase_camera_topic, 1600, 900,
                    frame_interval_s=1 / 15.0)
 
-FEEDS = {"nose": nose, "chase": chase}
+# The payload gimbal's camera. Only publishes once tools/gimbal_apply.py
+# has added the gimbal, so before that it costs nothing and the panel shows
+# its "no signal" message. 1024x576 at 15 Hz is 8.8 megapixels a second -
+# the smallest of the three, deliberately, because it is the third camera
+# this machine has been asked to render and the payload view is mostly
+# watched zoomed in, where frame rate matters more than pixel count.
+payload = CameraFeed("payload", sim_target.gimbal_camera_topic, 1024, 576,
+                     frame_interval_s=1 / 15.0, zoomable=True)
+
+FEEDS = {"nose": nose, "chase": chase, "payload": payload}
 
 
 # --- module-level API, unchanged for existing callers -------------------
@@ -292,14 +343,18 @@ def mjpeg_generator():
 def start_video_capture():
     """Start every feed. Returns the nose camera's node, as before."""
     node = nose.start()
-    chase.start()
+    for feed in FEEDS.values():
+        if feed is not nose:
+            feed.start()
     return node
 
 
 def resubscribe():
     """Re-point every feed at the current world. Called on a world switch."""
     node = nose.resubscribe()
-    chase.resubscribe()
+    for feed in FEEDS.values():
+        if feed is not nose:
+            feed.resubscribe()
     return node
 
 

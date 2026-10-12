@@ -127,6 +127,32 @@ def environment():
 NOSE_CAMERA = ("camera_pitch_link", "fpv_camera")
 CHASE_CAMERA = ("base_link", "chase_camera")
 
+# The payload gimbal, added by tools/gimbal_apply.py. Same contract as the
+# cameras above: these names appear in the model file the tool writes, in
+# the topics the station subscribes and publishes to, and nowhere else.
+# Change one without the other and the payload view goes quiet with no
+# error anywhere.
+GIMBAL_LINKS = ("gimbal_yaw_link", "gimbal_pitch_link")
+GIMBAL_JOINTS = ("gimbal_yaw_joint", "gimbal_pitch_joint")
+GIMBAL_CAMERA = (GIMBAL_LINKS[1], "payload_camera")
+
+# The rangefinder is given an explicit topic in the model rather than
+# letting Gazebo derive one. The derived name for a lidar is not the same
+# shape as the one for a camera, and guessing it wrong is a silent
+# failure; an explicit topic is one fewer thing to be wrong about.
+LRF_TOPIC = "/uas/payload/lrf"
+
+# How far the gimbal can look. Written here because the station clamps to
+# these and the model file is generated from them.
+GIMBAL_PAN_LIMIT_DEG = 180.0
+GIMBAL_TILT_UP_DEG = -30.0      # above the horizon
+GIMBAL_TILT_DOWN_DEG = 90.0     # straight down
+
+# The camera's widest field of view, in radians, as written into the model.
+# The station reads the real value out of Gazebo's camera_info when it can
+# and falls back to this.
+GIMBAL_FOV_RAD = 1.05
+
 
 def service(name):
     """Full path of one of Gazebo's own world services, e.g. "control"."""
@@ -140,6 +166,27 @@ def _image_topic(link, sensor):
 def camera_topic():
     """The nose (FPV) camera."""
     return _image_topic(*NOSE_CAMERA)
+
+
+def gimbal_camera_topic():
+    """The payload gimbal's camera.
+
+    Only publishes once tools/gimbal_apply.py has added the gimbal to the
+    aircraft model; until then the topic has no publisher, which the feed's
+    watchdog treats exactly like a camera that has not started yet.
+    """
+    return _image_topic(*GIMBAL_CAMERA)
+
+
+def gimbal_joint_topic(joint):
+    """Where a gz-sim JointPositionController listens for this joint.
+
+    /model/<model>/joint/<joint>/<axis>/cmd_pos, taking a gz.msgs.Double -
+    the documented default for that system in gz-sim 8 (Harmonic). Note it
+    is scoped to the MODEL, not the world, so it does not change when the
+    environment does.
+    """
+    return f"/model/{MODEL}/joint/{joint}/0/cmd_pos"
 
 
 def chase_camera_topic():

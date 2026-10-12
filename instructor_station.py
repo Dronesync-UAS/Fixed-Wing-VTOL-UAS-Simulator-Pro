@@ -23,6 +23,7 @@ import sys
 import errno
 import os
 import re
+from datetime import datetime
 from urllib.parse import urlparse, parse_qs
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -36,8 +37,11 @@ import console_page
 import event_logger
 import aircraft_lights
 import flight_display
+import gimbal
 import motor_sound
+import payload_media
 import preflight
+import sim_target
 import terrain_backdrop
 
 PORT = 8080
@@ -464,6 +468,66 @@ def health_status():
     last = link_health.get("last_msg_t")
     age = round(time.monotonic() - last, 1) if last is not None else None
     return {"telemetry_age_s": age, "camera_fps": camera_fps()}
+
+
+def _payload_meta():
+    """Where the aircraft and the gimbal were, for a photo or a recording.
+
+    This is the difference between a picture and evidence, so it is
+    written with every one of them rather than offered as an option.
+    """
+    return {
+        "time": datetime.now().isoformat(timespec="seconds"),
+        "world": sim_target.WORLD,
+        "aircraft": {
+            "lat": telemetry.get("latitude"),
+            "lon": telemetry.get("longitude"),
+            "alt_agl_m": telemetry.get("altitude_m"),
+            "alt_amsl_m": telemetry.get("altitude_amsl_m"),
+            "heading_deg": telemetry.get("heading_deg"),
+            "roll_deg": telemetry.get("roll_deg"),
+            "pitch_deg": telemetry.get("pitch_deg"),
+            "groundspeed_ms": telemetry.get("groundspeed_ms"),
+            "mode": telemetry.get("mode"),
+        },
+        "gimbal": gimbal.status(),
+        "camera_view": FEEDS["payload"].view_mode,
+    }
+
+
+def _payload_status():
+    """The payload screen's whole world in one answer."""
+    feed = FEEDS["payload"]
+    answer = gimbal.status()
+    answer["fps"] = feed.fps()
+    answer["view_mode"] = feed.view_mode
+    # No frames and no publisher means the gimbal is not in the model yet.
+    # Saying that is far more use than an empty black rectangle.
+    answer["camera_live"] = feed.fps() > 0
+    answer["recording"] = {
+        "on": payload_media.recording.running(),
+        "frames": payload_media.recording.frames,
+        "seconds": (round(time.time() - payload_media.recording.started_at, 1)
+                    if payload_media.recording.started_at
+                    and payload_media.recording.running() else 0),
+    }
+    target = answer.get("target")
+    if target and telemetry.get("latitude") is not None:
+        # How far the target is from HOME, which is the number that decides
+        # whether looking at it is inside the operating limits.
+        answer["target_from_home_m"] = _range_between(
+            home_latlon.get("lat"), home_latlon.get("lon"),
+            target["lat"], target["lon"])
+    return answer
+
+
+def _range_between(lat1, lon1, lat2, lon2):
+    """Flat-earth distance in metres, or None if either point is unknown."""
+    if None in (lat1, lon1, lat2, lon2):
+        return None
+    north = (lat2 - lat1) * 111320.0
+    east = (lon2 - lon1) * 111320.0 * math.cos(math.radians(lat1))
+    return round(math.sqrt(north * north + east * east), 1)
 
 
 def _panel_id(category):
@@ -1666,6 +1730,85 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(text.encode())
 
+    def _payload(self):
+        """Everything the payload screen asks for.
+
+        One handler rather than ten branches in do_GET, because they all
+        answer the same way: do the thing, then return the gimbal's whole
+        state so the screen never has to guess what happened. A control
+        that returns only "ok" leaves the screen showing a zoom or a lock
+        it did not actually get.
+        """
+        parsed = urlparse(self.path)
+        what = parsed.path[len("/payload_"):]
+        query = parse_qs(parsed.query)
+
+        def number(key, default=0.0):
+            try:
+                return float((query.get(key) or [default])[0])
+            except (TypeError, ValueError):
+                return default
+
+        said = None
+        if what == "status":
+            pass
+        elif what == "aim":
+            if "pan" in query or "tilt" in query:
+                gimbal.aim(number("pan", gimbal.state["pan_deg"]),
+                           number("tilt", gimbal.state["tilt_deg"]))
+            else:
+                gimbal.nudge(number("dpan"), number("dtilt"))
+        elif what == "zoom":
+            if "zoom" in query:
+                gimbal.set_zoom(number("zoom", 1.0))
+            else:
+                # The wheel sends steps, not an absolute. Multiplying rather
+                # than adding keeps each notch the same perceived amount at
+                # every zoom level, which is how a real zoom rocker feels.
+                gimbal.set_zoom(gimbal.state["zoom"]
+                                * (1.25 ** number("steps", 0.0)))
+            FEEDS["payload"].zoom = gimbal.state["zoom"]
+        elif what == "lock":
+            said = gimbal.lock_on(number("u"), number("v"))
+        elif what == "unlock":
+            said = gimbal.unlock()
+        elif what == "lase":
+            said = gimbal.lase()
+        elif what == "centre":
+            gimbal.centre()
+        elif what == "stow":
+            gimbal.stow()
+        elif what == "view":
+            mode = (query.get("mode") or ["normal"])[0]
+            if mode in video_feed.VIEW_MODES:
+                FEEDS["payload"].view_mode = mode
+                event_logger.log_event("payload_view_mode", f"mode={mode}")
+            else:
+                said = "Unknown camera mode."
+        elif what == "photo":
+            said = payload_media.save_photo(FEEDS["payload"].snapshot(),
+                                            _payload_meta())
+            event_logger.log_event("payload_photo", said)
+        elif what == "record":
+            wanted = (query.get("on") or ["1"])[0] in ("1", "true", "on")
+            if wanted:
+                said = payload_media.recording.start(_payload_meta())
+                FEEDS["payload"].recorder = payload_media.recording
+            else:
+                said = payload_media.recording.stop(_payload_meta())
+            event_logger.log_event("payload_record", said)
+        else:
+            self._respond("Unknown payload control.", 404)
+            return
+
+        answer = _payload_status()
+        if said:
+            answer["said"] = said
+        self.send_response(200)
+        self.send_header("Content-type", "application/json; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(json.dumps(answer).encode("utf-8"))
+
     def do_GET(self):
         if self.path in ("/", "/classic"):
             self.send_response(200)
@@ -1790,8 +1933,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 "points": [[round(p[0], 7), round(p[1], 7), p[2]] for p in flight_path],
             }
             self.wfile.write(json.dumps(payload).encode("utf-8"))
-        elif self.path in ("/video_feed", "/chase_feed"):
-            feed = FEEDS["nose" if self.path == "/video_feed" else "chase"]
+        elif self.path in ("/video_feed", "/chase_feed", "/payload_feed"):
+            # Checked before the /payload prefix below, because this one is
+            # a video stream and the rest are JSON.
+            feed = FEEDS[{"/video_feed": "nose", "/chase_feed": "chase",
+                          "/payload_feed": "payload"}[self.path]]
             self.send_response(200)
             self.send_header("Content-type", "multipart/x-mixed-replace; boundary=frame")
             self.end_headers()
@@ -1800,6 +1946,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     self.wfile.write(chunk)
             except (BrokenPipeError, ConnectionResetError):
                 pass
+        elif self.path.startswith("/payload_"):
+            self._payload()
         elif self.path.startswith("/action/"):
             parsed = urlparse(self.path)
             action_id = parsed.path.split("/action/")[1]
