@@ -132,12 +132,24 @@ TEMPLATE = """<!DOCTYPE html>
     gap: 6px; font-size: 11px; color: #ffffff; background: rgba(0,0,0,0.55);
     padding: 4px 8px; border-radius: 6px; z-index: 3;
   }
+  /* Top left, not bottom left: the bottom corners of the main screen are
+     where the two small views sit, and the legend was printing underneath
+     the chase tile. 52px clears the top bar, which the main screen runs
+     behind rather than below. */
   .fp-legend {
-    position: absolute; left: 10px; bottom: 8px; display: flex; gap: 14px; flex-wrap: wrap;
+    position: absolute; left: 10px; top: 52px; display: flex; gap: 14px; flex-wrap: wrap;
     font-size: 11px; color: #d6e0ea; background: rgba(0,0,0,0.55);
     padding: 4px 9px; border-radius: 6px; z-index: 3;
   }
   .fp-legend b { color: #fff; font-weight: 600; }
+  .fp-legend .mapzoom { display: flex; align-items: center; gap: 6px; }
+  .fp-legend .mapzoom button {
+    min-height: 0; padding: 1px 7px; border: 1px solid rgba(255,255,255,0.3);
+    border-radius: 5px; background: rgba(255,255,255,0.14); color: #fff;
+    font-size: 12px; line-height: 16px; cursor: pointer;
+  }
+  .fp-legend .mapzoom button:hover { background: rgba(255,255,255,0.28); }
+  .fp-legend #fp-zoom { min-width: 30px; text-align: center; }
   /* The classic page's stylesheet is still loaded for its canvas code, and
      it pins #flightpath to a fixed 420px height. An id selector beats a
      class one, so the map drew 420px tall inside a 900px hero and the rest
@@ -151,6 +163,14 @@ TEMPLATE = """<!DOCTYPE html>
      attitude overlay is drawn for a full-size view - at tile size its pitch
      ladder and readout boxes are unreadable and spill over the picture. */
   .tile .hud-toggle, .tile .fp-legend, .tile canvas.hud { display: none; }
+  /* The gauge and alarm switches live in the top bar. They govern every
+     view, so they cannot belong to one of them, and anywhere over the
+     picture puts them under a corner tile where they cannot be clicked. */
+  .topswitch {
+    display: inline-flex; align-items: center; gap: 5px; height: 26px;
+    padding: 0 10px; border-radius: 6px; background: rgba(0,0,0,0.5);
+    font-size: 12px; color: var(--ink); cursor: pointer;
+  }
 
   /* ---------- rails ---------- */
   /* A rail is a panel, not furniture: it can be dragged off its edge,
@@ -326,6 +346,8 @@ TEMPLATE = """<!DOCTYPE html>
       </div>
     </div>
     <button id="resettiles" style="height: 26px; padding: 0 12px; border: 0; border-radius: 6px; cursor: pointer; font-size: 12px; background: rgba(0,0,0,0.5); color: #fff">Reset panels</button>
+    <label class="topswitch" title="The flight display drawn over the camera views"><input type="checkbox" id="hud-on" checked> Gauge</label>
+    <label class="topswitch" title="The low-altitude warning tone"><input type="checkbox" id="alarm-on" checked> Alarm</label>
   </div>
   <div class="icons">
     <span class="item" id="t-armcheck-wrap" title="Whether PX4 will accept ARM or TAKEOFF right now">
@@ -369,13 +391,13 @@ TEMPLATE = """<!DOCTYPE html>
 <div id="viewstore" style="display: none">
   <div class="view" id="view-chase" data-name="Chase">
     <img src="/chase_feed" alt="Chase camera" onerror="this.style.display='none'">
+    <canvas class="hud"></canvas>
     <div class="nosignal">No chase camera yet. Add it with tools/chase_camera_apply.py, then restart the simulator.</div>
   </div>
   <div class="view" id="view-nose" data-name="Nose">
     <img src="/video_feed" alt="Nose camera" onerror="this.style.display='none'">
     <canvas id="hud" class="hud"></canvas>
     <div class="nosignal">No nose camera signal yet.</div>
-    <label class="hud-toggle"><input type="checkbox" id="hud-on" checked> Attitude overlay</label>
   </div>
   <div class="view" id="view-map" data-name="Map">
     <canvas id="flightpath" class="fill"></canvas>
@@ -384,6 +406,12 @@ TEMPLATE = """<!DOCTYPE html>
       <span><b id="fp-dist">-</b> from home</span>
       <span><b id="fp-alt">-</b> altitude</span>
       <span><b id="fp-points">0</b> points</span>
+      <span class="mapzoom">
+        <button data-mapzoom="out" title="Zoom out">&minus;</button>
+        <b id="fp-zoom">1x</b>
+        <button data-mapzoom="in" title="Zoom in">+</button>
+        <button data-mapzoom="fit" title="Back to the fitted view">Fit</button>
+      </span>
     </div>
   </div>
 </div>
@@ -806,6 +834,7 @@ SCRIPT = """
   function refreshTelemetry() {
     fetch('/telemetry').then(function (r) { return r.json(); }).then(function (d) {
       telem = d;
+      window.gcsTelemetry = d;
       el('t-mode').innerText = d.mode;
       var armed = el('t-armed');
       armed.innerText = d.armed ? 'ARMED' : 'Disarmed';
@@ -935,7 +964,7 @@ SCRIPT = """
     sky.addColorStop(0, '#17436f'); sky.addColorStop(1, '#5ba6dc');
     gctx.fillStyle = sky; gctx.fillRect(-S, -S * 2, S * 2, S * 2);
     var gnd = gctx.createLinearGradient(0, 0, 0, S);
-    gnd.addColorStop(0, '#946533'); gnd.addColorStop(1, '#3f2a14');
+    gnd.addColorStop(0, '#5f9e28'); gnd.addColorStop(1, '#2f5513');
     gctx.fillStyle = gnd; gctx.fillRect(-S, 0, S * 2, S * 2);
 
     gctx.strokeStyle = '#ffffff'; gctx.lineWidth = 2.5;

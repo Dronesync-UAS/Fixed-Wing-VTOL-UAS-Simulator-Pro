@@ -253,6 +253,29 @@ def main():
         check("and as wide (%s vs %s)" % (round(box["width"]), round(hero["width"])),
               box["width"] > hero["width"] - 8)
 
+        print("4b1. the map zooms, and never shows a bare patch of ground")
+        # A parked aircraft has a two-metre track. Fitting to that gave a 50m
+        # square of empty playa with home and the aircraft on top of each
+        # other - "aircraft icon and home point too far", as it was reported.
+        span = page.inner_text("#fp-range")
+        check("fitted view is at least 300 m across (%s)" % span,
+              ("m" in span and float(span.split()[0]) >= 300) or "km" in span)
+        page.click('#hero [data-mapzoom="in"]')
+        page.wait_for_timeout(300)
+        closer = page.inner_text("#fp-range")
+        check("zoom in shows less ground (%s -> %s)" % (span, closer),
+              float(closer.split()[0]) < float(span.split()[0]))
+        page.click('#hero [data-mapzoom="fit"]')
+        page.wait_for_timeout(300)
+        check("Fit goes back (%s)" % page.inner_text("#fp-range"),
+              page.inner_text("#fp-range") == span)
+        check("the map drew home and the aircraft",
+              page.evaluate(
+                  "() => { const c = document.getElementById('flightpath');"
+                  " const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;"
+                  " let n = 0; for (let i = 3; i < d.length; i += 4) { if (d[i] > 40) n++; }"
+                  " return n > 500; }"))
+
         print("4b2. the canvases are sized for the display, not just CSS")
         # Guards the soft map and overlay: a canvas sized in CSS pixels is
         # drawn one device pixel per CSS pixel and scaled up by the screen.
@@ -403,6 +426,10 @@ def main():
             out = sys.argv[sys.argv.index("--shot") + 1]
             # --nose puts the attitude overlay on screen over a stand-in for
             # bright desert, which is the only way to judge whether it reads.
+            if "--view" in sys.argv:
+                page.click('#viewtabs button[data-view="%s"]'
+                           % sys.argv[sys.argv.index("--view") + 1])
+                page.wait_for_timeout(1400)
             if "--nose" in sys.argv:
                 page.click('#viewtabs button[data-view="nose"]')
                 page.evaluate(

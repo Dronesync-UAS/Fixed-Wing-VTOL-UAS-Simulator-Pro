@@ -50,6 +50,14 @@ a black screen that the offline check cannot see:
 python3 tools/test_console_browser.py
 ```
 
+After changing the flight display (`flight_display.py`), run its own check
+too - it covers which message is shown in which colour, and exactly when
+the low-altitude warning sounds:
+
+```
+python3 tools/test_flight_display.py
+```
+
 Other tools under `tools/` are self-describing; `--dry-run` and `--revert`
 exist on anything that edits world files, and world edits are always backed
 up and auto-restored if the result does not parse.

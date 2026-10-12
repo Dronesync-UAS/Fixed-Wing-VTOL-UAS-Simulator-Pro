@@ -32,6 +32,7 @@ from plugin_loader import load_plugins
 from video_feed import start_video_capture, mjpeg_generator, camera_fps, FEEDS
 import console_page
 import event_logger
+import flight_display
 import terrain_backdrop
 
 PORT = 8080
@@ -470,6 +471,15 @@ def render_rail(category_names):
     return html
 
 
+def _limits_script():
+    """The operational limits, handed to the page so the flight display can
+    mark the ceiling on its altitude tape instead of carrying its own copy."""
+    return ("<script>window.GCS_LIMITS = %s;</script>"
+            % json.dumps({"range_m": LIMITS["range_m"],
+                          "ceiling_m": LIMITS["ceiling_m"],
+                          "groundspeed_ms": LIMITS["groundspeed_ms"]}))
+
+
 def render_console():
     """The rebuilt console page, assembled from the plugins and the saved
     arrangement. The classic page is still built by render_buttons below and
@@ -486,7 +496,9 @@ def render_console():
     }))
     page = page.replace("__CONSOLE_SCRIPT__", script)
     page = page.replace("__EXTRA_STYLE__", EXTRA_STYLE)
-    page = page.replace("__EXTRA_SCRIPT__", EXTRA_SCRIPT)
+    page = page.replace("__EXTRA_SCRIPT__", EXTRA_SCRIPT
+                        + _limits_script()
+                        + flight_display.STYLE + flight_display.script())
     return page
 
 
@@ -887,7 +899,8 @@ EXTRA_SCRIPT = """
   var telem = {};
   function poll() {
     fetch('/telemetry').then(function (r) { return r.json(); })
-      .then(function (d) { telem = d; }).catch(function () {});
+      .then(function (d) { telem = d; window.gcsTelemetry = d; })
+      .catch(function () {});
   }
   setInterval(poll, 200); poll();
 
@@ -909,138 +922,33 @@ EXTRA_SCRIPT = """
     ctx.setTransform(cv.width / w, 0, 0, cv.height / h, 0, 0);
   }
 
-  // ---------- FPV artificial-horizon / attitude overlay ----------
-  var hud = document.getElementById('hud');
-  var hctx = hud.getContext('2d');
-  function drawHud() {
-    var w = hud.cssW || hud.width, h = hud.cssH || hud.height, cx = w / 2, cy = h / 2;
-    hctx.clearRect(0, 0, w, h);
-    if (!w || !h || !document.getElementById('hud-on').checked) return;
-
-    // Every line goes down twice: a wide near-black casing first, then the
-    // bright line on top of it. Thin cyan hairlines on their own vanished
-    // against bright desert and sky - the casing is what makes the overlay
-    // readable over any picture, the same trick the map's track uses.
-    function cased(draw, colour, width) {
-      hctx.lineCap = 'round'; hctx.lineJoin = 'round';
-      hctx.strokeStyle = 'rgba(0,0,0,0.78)'; hctx.lineWidth = width + 3.5;
-      draw();
-      hctx.strokeStyle = colour; hctx.lineWidth = width;
-      draw();
-    }
-    function casedText(txt, x, y, font, colour) {
-      hctx.font = font;
-      hctx.lineJoin = 'round';
-      hctx.strokeStyle = 'rgba(0,0,0,0.85)'; hctx.lineWidth = 3.5;
-      hctx.strokeText(txt, x, y);
-      hctx.fillStyle = colour;
-      hctx.fillText(txt, x, y);
-    }
-
-    var rollDeg = telem.roll_deg || 0;
-    var pitchDeg = telem.pitch_deg || 0;
-    var pxPerDeg = h / 50;
-    var LINE = '#ffffff';
-
-    hctx.save();
-    hctx.translate(cx, cy);
-    hctx.rotate(-rollDeg * Math.PI / 180);
-    hctx.translate(0, pitchDeg * pxPerDeg);
-    hctx.textAlign = 'left';
-    hctx.textBaseline = 'middle';
-
-    cased(function () {
-      hctx.beginPath(); hctx.moveTo(-w, 0); hctx.lineTo(w, 0); hctx.stroke();
-    }, LINE, 3.5);
-
-    for (var d = -40; d <= 40; d += 10) {
-      if (d === 0) continue;
-      var y = -d * pxPerDeg;
-      var half = (d % 20 === 0) ? 80 : 46;
-      var tick = (d < 0) ? -9 : 9;
-      cased(function () {
-        hctx.beginPath();
-        hctx.moveTo(-half, y + tick); hctx.lineTo(-half, y);
-        hctx.lineTo(half, y); hctx.lineTo(half, y + tick);
-        hctx.stroke();
-      }, LINE, 2.5);
-      var lab = String(Math.abs(d));
-      hctx.textAlign = 'left';
-      casedText(lab, half + 8, y, '700 15px -apple-system, sans-serif', LINE);
-      hctx.textAlign = 'right';
-      casedText(lab, -half - 8, y, '700 15px -apple-system, sans-serif', LINE);
-    }
-    hctx.restore();
-
-    // fixed aircraft reference
-    cased(function () {
-      hctx.beginPath();
-      hctx.moveTo(cx - 78, cy); hctx.lineTo(cx - 26, cy); hctx.lineTo(cx - 13, cy + 14);
-      hctx.moveTo(cx + 78, cy); hctx.lineTo(cx + 26, cy); hctx.lineTo(cx + 13, cy + 14);
-      hctx.stroke();
-    }, '#ffc94d', 4.5);
-    hctx.fillStyle = 'rgba(0,0,0,0.8)';
-    hctx.beginPath(); hctx.arc(cx, cy, 5.5, 0, 7); hctx.fill();
-    hctx.fillStyle = '#ffc94d';
-    hctx.beginPath(); hctx.arc(cx, cy, 3.5, 0, 7); hctx.fill();
-
-    // roll scale (fixed) + rolling pointer
-    var R = Math.min(w, h) * 0.36;
-    cased(function () {
-      hctx.beginPath(); hctx.arc(cx, cy, R, Math.PI * 1.18, Math.PI * 1.82); hctx.stroke();
-    }, LINE, 2.5);
-    [-60, -45, -30, -15, 0, 15, 30, 45, 60].forEach(function (a) {
-      var ar = (a - 90) * Math.PI / 180;
-      var big = (a % 30 === 0);
-      var inr = big ? R - 16 : R - 10;
-      cased(function () {
-        hctx.beginPath();
-        hctx.moveTo(cx + Math.cos(ar) * R, cy + Math.sin(ar) * R);
-        hctx.lineTo(cx + Math.cos(ar) * inr, cy + Math.sin(ar) * inr);
-        hctx.stroke();
-      }, LINE, big ? 3 : 2);
-    });
-    var pa = (-rollDeg - 90) * Math.PI / 180;
-    hctx.strokeStyle = 'rgba(0,0,0,0.8)'; hctx.lineWidth = 2;
-    hctx.fillStyle = '#ffb02e';
-    hctx.beginPath();
-    hctx.moveTo(cx + Math.cos(pa) * R, cy + Math.sin(pa) * R);
-    hctx.lineTo(cx + Math.cos(pa - 0.05) * (R + 16), cy + Math.sin(pa - 0.05) * (R + 16));
-    hctx.lineTo(cx + Math.cos(pa + 0.05) * (R + 16), cy + Math.sin(pa + 0.05) * (R + 16));
-    hctx.closePath(); hctx.fill(); hctx.stroke();
-
-    // readout boxes: airspeed (L), altitude (R), heading (top)
-    function box(x, y, txt, cap) {
-      var bw = 104, bh = 34;
-      hctx.fillStyle = 'rgba(0,0,0,0.72)';
-      hctx.fillRect(x - bw / 2, y - bh / 2, bw, bh);
-      hctx.strokeStyle = 'rgba(255,255,255,0.9)'; hctx.lineWidth = 2;
-      hctx.strokeRect(x - bw / 2, y - bh / 2, bw, bh);
-      hctx.textAlign = 'center'; hctx.textBaseline = 'middle';
-      hctx.fillStyle = '#ffffff';
-      hctx.font = '700 18px "IBM Plex Mono", monospace';
-      hctx.fillText(txt, x, y + 1);
-      if (cap) {
-        hctx.font = '600 10px -apple-system, sans-serif';
-        hctx.fillStyle = 'rgba(255,255,255,0.7)';
-        hctx.fillText(cap, x, y - bh / 2 - 8);
-      }
-    }
-    var spd = (telem.airspeed_ms != null && telem.airspeed_ms > 0.2) ? telem.airspeed_ms : telem.groundspeed_ms;
-    box(76, cy, (spd != null ? spd.toFixed(0) : '--') + ' m/s', 'SPEED');
-    box(w - 76, cy, (telem.altitude_m != null ? telem.altitude_m.toFixed(0) : '--') + ' m', 'ALT AGL');
-    box(cx, 30, (telem.heading_deg != null ? Math.round(telem.heading_deg) : '--') + '°', null);
-
-    // Top left, clear of the heading box above and of the gyro, which sits
-    // over the bottom centre of the picture.
-    hctx.textAlign = 'left'; hctx.textBaseline = 'middle';
-    casedText('BANK ' + rollDeg.toFixed(0) + '°   PITCH ' + pitchDeg.toFixed(0) + '°',
-              18, 24, '600 13px -apple-system, sans-serif', '#ffffff');
-  }
+  // The attitude display moved to flight_display.py on 11 Oct 2026, where
+  // it is drawn into every canvas on the page carrying class "hud" or
+  // "fpv-hud" - the nose view, the chase view and this page - instead of
+  // into one canvas looked up by id. See that module for the layout and
+  // for the low-altitude warning it also drives.
 
   // ---------- Flight path plan view ----------
   var fp = document.getElementById('flightpath');
   var fctx = fp.getContext('2d');
+
+  // Smallest the plan view ever shows, in metres across. The station's range
+  // limit is 500 m, so 300 m keeps the whole working area in sight from the
+  // moment the aircraft is on the pad.
+  var MAP_MIN_SPAN_M = 300;
+  var mapZoom = 1;
+  function setMapZoom(z) {
+    mapZoom = Math.max(0.25, Math.min(16, z));
+    var out = document.getElementById('fp-zoom');
+    if (out) { out.innerText = (mapZoom < 1 ? mapZoom.toFixed(2) : mapZoom.toFixed(1)) + 'x'; }
+    drawPath();
+  }
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest ? e.target.closest('[data-mapzoom]') : null;
+    if (!b) { return; }
+    var how = b.dataset.mapzoom;
+    setMapZoom(how === 'in' ? mapZoom * 1.5 : how === 'out' ? mapZoom / 1.5 : 1);
+  });
 
   // Shaded relief of the world's own terrain, under the track. Loaded once;
   // a world with no heightmap (flat_test) reports available:false and the
@@ -1080,6 +988,12 @@ EXTRA_SCRIPT = """
         maxAbs = Math.max(maxAbs, Math.abs(ex), Math.abs(ny));
       }
       maxAbs *= 1.15;
+      // A parked aircraft has a track a few metres across, so auto-fit alone
+      // zoomed to a 50 m square of blank ground with the aircraft and home on
+      // top of each other and nothing around them to read. Never show less
+      // than MAP_MIN_SPAN_M across, and let the instructor zoom from there.
+      maxAbs = Math.max(maxAbs, MAP_MIN_SPAN_M / 2);
+      maxAbs /= mapZoom;
       var scale = Math.min(W, H) / (2 * maxAbs);
       var ox = W / 2, oy = H / 2;
 
@@ -1101,20 +1015,23 @@ EXTRA_SCRIPT = """
       // so nothing was lost by taking them off the picture.
       //
       // A scale bar stays, because a map with no scale cannot be read.
+      // Under the legend at the top left, for the same reason the legend
+      // moved there: the bottom corners belong to the two small views.
       var step = niceStep(maxAbs / 2.2);
       var barPx = step * scale;
+      var by2 = (H > 300) ? 96 : H - 16;
       fctx.strokeStyle = 'rgba(255,255,255,0.85)'; fctx.lineWidth = 2;
       fctx.beginPath();
-      fctx.moveTo(14, H - 16); fctx.lineTo(14 + barPx, H - 16);
-      fctx.moveTo(14, H - 21); fctx.lineTo(14, H - 11);
-      fctx.moveTo(14 + barPx, H - 21); fctx.lineTo(14 + barPx, H - 11);
+      fctx.moveTo(14, by2); fctx.lineTo(14 + barPx, by2);
+      fctx.moveTo(14, by2 - 5); fctx.lineTo(14, by2 + 5);
+      fctx.moveTo(14 + barPx, by2 - 5); fctx.lineTo(14 + barPx, by2 + 5);
       fctx.stroke();
       fctx.fillStyle = '#ffffff';
       fctx.font = '11px -apple-system, sans-serif'; fctx.textAlign = 'left';
       fctx.shadowColor = 'rgba(0,0,0,0.85)'; fctx.shadowBlur = 3;
-      fctx.fillText(fmt(step), 14, H - 24);
+      fctx.fillText(fmt(step), 14, by2 + 18);
       fctx.textAlign = 'center';
-      fctx.fillText('N', ox, 14);
+      fctx.fillText('N', ox, (H > 300) ? 60 : 14);
       fctx.shadowBlur = 0;
 
       // Drawn twice: a dark casing under a bright line, so the track stays
@@ -1127,21 +1044,44 @@ EXTRA_SCRIPT = """
       fctx.strokeStyle = 'rgba(0,0,0,0.55)'; fctx.lineWidth = 5; fctx.stroke();
       fctx.strokeStyle = '#4ad0ff'; fctx.lineWidth = 2.5; fctx.stroke();
 
-      // Home, drawn as a marker rather than a dot so it is still readable
-      // over imagery.
-      fctx.fillStyle = '#4caf50';
-      fctx.strokeStyle = '#0d1219'; fctx.lineWidth = 2;
-      fctx.beginPath(); fctx.arc(ox, oy, 6, 0, 7); fctx.fill(); fctx.stroke();
-      fctx.fillStyle = '#0d1219';
-      fctx.beginPath(); fctx.arc(ox, oy, 2, 0, 7); fctx.fill();
-
       var last = pts.length - 1;
       var hx = ox + mx[last] * scale, hy = oy - my[last] * scale;
+
+      // The leg from home to the aircraft, so the two are read as a pair
+      // rather than as two unrelated marks on an empty field.
+      var apart = Math.hypot(hx - ox, hy - oy);
+      if (apart > 18) {
+        fctx.save();
+        fctx.setLineDash([7, 6]);
+        fctx.strokeStyle = 'rgba(255,255,255,0.5)'; fctx.lineWidth = 1.5;
+        fctx.beginPath(); fctx.moveTo(ox, oy); fctx.lineTo(hx, hy); fctx.stroke();
+        fctx.restore();
+      }
+
+      // Home: a ringed marker, labelled. Drawn larger than it was - at the
+      // old 6px radius it disappeared into a 1600px picture.
+      fctx.strokeStyle = 'rgba(0,0,0,0.75)'; fctx.lineWidth = 5;
+      fctx.beginPath(); fctx.arc(ox, oy, 10, 0, 7); fctx.stroke();
+      fctx.strokeStyle = '#4ade80'; fctx.lineWidth = 2.5;
+      fctx.beginPath(); fctx.arc(ox, oy, 10, 0, 7); fctx.stroke();
+      fctx.beginPath(); fctx.moveTo(ox - 14, oy); fctx.lineTo(ox + 14, oy);
+      fctx.moveTo(ox, oy - 14); fctx.lineTo(ox, oy + 14); fctx.stroke();
+      fctx.fillStyle = '#4ade80';
+      fctx.beginPath(); fctx.arc(ox, oy, 3.5, 0, 7); fctx.fill();
+      fctx.font = '700 11px -apple-system, sans-serif'; fctx.textAlign = 'left';
+      fctx.lineJoin = 'round';
+      fctx.strokeStyle = 'rgba(0,0,0,0.85)'; fctx.lineWidth = 3.5;
+      fctx.strokeText('HOME', ox + 17, oy + 4);
+      fctx.fillText('HOME', ox + 17, oy + 4);
+
+      // The aircraft, pointing where it is heading, at twice its old size.
       var hdg = (telem.heading_deg || 0) * Math.PI / 180;
       fctx.save(); fctx.translate(hx, hy); fctx.rotate(hdg);
-      fctx.fillStyle = '#ffd24a';
-      fctx.beginPath(); fctx.moveTo(0, -10); fctx.lineTo(7, 8); fctx.lineTo(0, 3); fctx.lineTo(-7, 8);
-      fctx.closePath(); fctx.fill();
+      fctx.beginPath();
+      fctx.moveTo(0, -19); fctx.lineTo(13, 15); fctx.lineTo(0, 7); fctx.lineTo(-13, 15);
+      fctx.closePath();
+      fctx.strokeStyle = 'rgba(0,0,0,0.8)'; fctx.lineWidth = 4; fctx.stroke();
+      fctx.fillStyle = '#ffd24a'; fctx.fill();
       fctx.restore();
 
       var dist = Math.sqrt(mx[last] * mx[last] + my[last] * my[last]);
@@ -1186,11 +1126,9 @@ EXTRA_SCRIPT = """
   // for the map - so a swap showed a 208px map stretched across the screen
   // until then. Let the page ask for an immediate resize and redraw.
   window.gcsRedraw = function () {
-    fit(hud); drawHud();
+    if (window.gcsDrawHud) { window.gcsDrawHud(); }
     fit(fp); drawPath();
   };
-
-  setInterval(function () { fit(hud); drawHud(); }, 150);
   setInterval(function () { fit(fp); drawPath(); }, 1000);
   setInterval(refreshLimits, 1000);
   setInterval(refreshHealth, 1000);
@@ -1530,6 +1468,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 page = PAGE_TEMPLATE.format(buttons=render_buttons())
                 page = page.replace("<!--EXTRA_PANELS-->", EXTRA_PANELS)
                 page = page.replace("</body>", EXTRA_STYLE + EXTRA_SCRIPT
+                                    + _limits_script()
+                                    + flight_display.STYLE + flight_display.script()
                                     + LAYOUT_STYLE + LAYOUT_SCRIPT + "</body>")
                 self.wfile.write(page.encode("utf-8"))
             else:
