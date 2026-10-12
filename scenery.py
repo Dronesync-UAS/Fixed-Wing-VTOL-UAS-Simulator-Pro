@@ -130,27 +130,69 @@ def seed_for(name):
 # parsing XML.
 # --------------------------------------------------------------------
 
-def box(x, y, z, sx, sy, sz, colour, yaw=0.0, collide=False):
+# HOW A SURFACE BEHAVES IN LIGHT, added 12 Oct 2026. Until then every
+# object in every world carried the same flat material - ambient,
+# diffuse and a token specular - so water, a painted container, wet mud
+# and a hedge all caught light identically. That is a large part of why
+# the scenery read as coloured cardboard.
+#
+# These are the two numbers ogre2's metal/roughness workflow wants, and
+# they are SCALARS, not texture maps. That is deliberate: a box face in
+# SDF maps one texture across its whole face, so a brick image on a 14 m
+# wall is one enormous brick. Roughness and metalness need no texture
+# coordinates at all, so they improve every object immediately and
+# cannot be stretched wrong.
+#
+#   roughness  0 = mirror, 1 = chalk
+#   metalness  0 = not metal, 1 = bare metal
+SURFACES = {
+    # Earth, concrete, render, painted wood, crops. Nearly all of it.
+    "matte": (0.90, 0.0),
+    # Leaves scatter light but are not chalk, and a waxy leaf has a
+    # slight sheen that chalk does not.
+    "vegetation": (0.82, 0.0),
+    # THE ONE THAT MATTERS MOST. Water is close to a mirror, and the sea
+    # at Norfolk, the flooded Levels and the estuary at the estate are
+    # between them a large fraction of three worlds' picture. At 0.9
+    # roughness they were matte grey-green plates.
+    "water": (0.06, 0.0),
+    # Shipping containers, vehicle bodies, silos, hangar cladding. Metal
+    # that has been outside: not a mirror, but unmistakably metal.
+    "metal": (0.38, 0.85),
+    # Tarmac and runway: darker and glossier than concrete, more so wet.
+    "asphalt": (0.65, 0.0),
+    # Glass in a window or a cab.
+    "glass": (0.10, 0.0),
+}
+
+DEFAULT_SURFACE = "matte"
+
+
+def box(x, y, z, sx, sy, sz, colour, yaw=0.0, collide=False,
+        surface=DEFAULT_SURFACE):
     return ("box", {"x": x, "y": y, "z": z, "sx": sx, "sy": sy, "sz": sz,
-                    "colour": colour, "yaw": yaw, "collide": collide})
+                    "colour": colour, "yaw": yaw, "collide": collide,
+                    "surface": surface})
 
 
-def cyl(x, y, z, r, h, colour, pitch=0.0, yaw=0.0, collide=False):
+def cyl(x, y, z, r, h, colour, pitch=0.0, yaw=0.0, collide=False,
+        surface=DEFAULT_SURFACE):
     return ("cylinder", {"x": x, "y": y, "z": z, "r": r, "h": h,
                          "colour": colour, "pitch": pitch, "yaw": yaw,
-                         "collide": collide})
+                         "collide": collide, "surface": surface})
 
 
-def sphere(x, y, z, r, colour, squash=1.0):
+def sphere(x, y, z, r, colour, squash=1.0, surface=DEFAULT_SURFACE):
     return ("sphere", {"x": x, "y": y, "z": z, "r": r, "colour": colour,
-                       "squash": squash})
+                       "squash": squash, "surface": surface})
 
 
-def cone(x, y, z, r, h, colour):
+def cone(x, y, z, r, h, colour, surface=DEFAULT_SURFACE):
     # Gazebo 8 has no cone primitive everywhere, so a cone is a cylinder
     # with a tiny top - which at these sizes is indistinguishable and
     # needs no capability check.
-    return ("cone", {"x": x, "y": y, "z": z, "r": r, "h": h, "colour": colour})
+    return ("cone", {"x": x, "y": y, "z": z, "r": r, "h": h,
+                     "colour": colour, "surface": surface})
 
 
 WALL = (0.78, 0.74, 0.66)
@@ -205,17 +247,21 @@ def building(w, d, h, wall, roof, pitched=True):
 def tree(height, leaf=LEAF):
     r = height * 0.26
     return [cyl(0, 0, height * 0.28, height * 0.05, height * 0.56, TRUNK),
-            sphere(0, 0, height * 0.72, r, leaf, squash=0.82),
-            sphere(r * 0.4, 0, height * 0.58, r * 0.72, leaf, squash=0.8)]
+            sphere(0, 0, height * 0.72, r, leaf, squash=0.82,
+                   surface="vegetation"),
+            sphere(r * 0.4, 0, height * 0.58, r * 0.72, leaf, squash=0.8,
+                   surface="vegetation")]
 
 
 def palm(height):
     return [cyl(0, 0, height / 2, height * 0.035, height, (0.40, 0.33, 0.22)),
-            sphere(0, 0, height, height * 0.22, (0.22, 0.36, 0.16), squash=0.35)]
+            sphere(0, 0, height, height * 0.22, (0.22, 0.36, 0.16),
+                   squash=0.35, surface="vegetation")]
 
 
 def bush(size, colour=SCRUB):
-    return [sphere(0, 0, size * 0.35, size, colour, squash=0.45)]
+    return [sphere(0, 0, size * 0.35, size, colour, squash=0.45,
+                   surface="vegetation")]
 
 
 def boulder(size):
@@ -223,8 +269,10 @@ def boulder(size):
 
 
 def vehicle(colour=(0.85, 0.85, 0.85)):
-    return [box(0, 0, 0.75, 5.2, 2.0, 1.0, colour, collide=True),
-            box(-0.4, 0, 1.5, 2.4, 1.9, 0.9, (0.2, 0.22, 0.25)),
+    return [box(0, 0, 0.75, 5.2, 2.0, 1.0, colour, collide=True,
+                surface="metal"),
+            box(-0.4, 0, 1.5, 2.4, 1.9, 0.9, (0.2, 0.22, 0.25),
+                surface="glass"),
             cyl(1.7, 1.0, 0.38, 0.38, 0.25, (0.1, 0.1, 0.1), pitch=1.5708),
             cyl(1.7, -1.0, 0.38, 0.38, 0.25, (0.1, 0.1, 0.1), pitch=1.5708),
             cyl(-1.7, 1.0, 0.38, 0.38, 0.25, (0.1, 0.1, 0.1), pitch=1.5708),
@@ -232,21 +280,26 @@ def vehicle(colour=(0.85, 0.85, 0.85)):
 
 
 def container(colour=HI_VIS):
-    return [box(0, 0, 1.3, 12.2, 2.44, 2.6, colour, collide=True)]
+    return [box(0, 0, 1.3, 12.2, 2.44, 2.6, colour, collide=True,
+                surface="metal")]
 
 
 def hangar(w=28.0, d=18.0, h=6.0):
-    parts = [box(0, 0, h / 2, w, d, h, METAL, collide=True)]
+    parts = [box(0, 0, h / 2, w, d, h, METAL, collide=True,
+                 surface="metal")]
     for i in range(7):
         a = math.pi * i / 6.0
         parts.append(box(math.cos(a) * w * 0.44, 0,
-                         h + math.sin(a) * 2.6, w * 0.16, d * 1.02, 0.4, METAL))
+                         h + math.sin(a) * 2.6, w * 0.16, d * 1.02, 0.4,
+                         METAL, surface="metal"))
     return parts
 
 
 def mast(height, colour=METAL):
-    return [cyl(0, 0, height / 2, 0.22, height, colour, collide=True),
-            box(0, 0, height * 0.92, 0.3, height * 0.22, 0.2, colour)]
+    return [cyl(0, 0, height / 2, 0.22, height, colour, collide=True,
+                surface="metal"),
+            box(0, 0, height * 0.92, 0.3, height * 0.22, 0.2, colour,
+                surface="metal")]
 
 
 def windsock():
@@ -299,7 +352,8 @@ def field(size, colour):
 
 
 def hedge(length):
-    return [box(0, 0, 1.1, length, 1.8, 2.2, HEDGE)]
+    return [box(0, 0, 1.1, length, 1.8, 2.2, HEDGE,
+                surface="vegetation")]
 
 
 def fence(length):
@@ -376,8 +430,10 @@ def dock_crane(height=34.0, reach=26.0):
 
 
 def silo(radius=4.0, height=16.0):
-    return [cyl(0, 0, height / 2, radius, height, (0.76, 0.76, 0.74), collide=True),
-            cone(0, 0, height, radius, 3.0, (0.55, 0.56, 0.57))]
+    return [cyl(0, 0, height / 2, radius, height, (0.76, 0.76, 0.74),
+                collide=True, surface="metal"),
+            cone(0, 0, height, radius, 3.0, (0.55, 0.56, 0.57),
+                 surface="metal")]
 
 
 def fire_tower(height=18.0):
@@ -409,7 +465,8 @@ def runway(length=900.0, width=23.0):
     they are the only thing in any of these worlds with a standard
     behind it.
     """
-    out = [box(0, 0, 0.05, length, width, 0.1, TARMAC_LIGHT)]
+    out = [box(0, 0, 0.05, length, width, 0.1, TARMAC_LIGHT,
+               surface="asphalt")]
     # Centreline: 30 m dash, 20 m gap, which is the usual proportion.
     at = -length / 2 + 40.0
     while at < length / 2 - 40.0:
@@ -450,7 +507,8 @@ def water(size, colour=SEA):
     by - not so anyone can practise a water landing.
     """
     return [("sphere", {"x": 0, "y": 0, "z": 0.03, "r": size,
-                        "colour": colour, "squash": 0.0025})]
+                        "colour": colour, "squash": 0.0025,
+                        "surface": "water"})]
 
 
 def sandbag_line(length=24.0):

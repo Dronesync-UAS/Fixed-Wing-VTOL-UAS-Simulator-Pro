@@ -128,6 +128,24 @@ check("start_world.sh lists every environment (%s)"
 check("and installs the worlds before launching",
       "install_worlds.py" in launcher)
 
+print("\nEvery world still has everything applied to it")
+# THE TRAP THIS CATCHES, hit on 12 Oct 2026. Four tools edit the world
+# files and each keeps its own backup of the file AS IT FOUND IT. So one
+# tool's --revert restores a snapshot predating the others and silently
+# undoes them. Re-applying the scenery took the 220 km ground widening
+# and the real normal maps with it; everything still parsed and every
+# check still passed.
+import subprocess as _sp                                    # noqa: E402
+
+_done = _sp.run([sys.executable,
+                 os.path.join(REPO, "tools", "worlds_state.py")],
+                capture_output=True, text=True)
+check("worlds_state.py reports every world complete",
+      _done.returncode == 0)
+if _done.returncode != 0:
+    for line in _done.stdout.strip().splitlines()[-12:]:
+        print("        " + line)
+
 print()
 if fails:
     print("%d check(s) failed:" % len(fails))

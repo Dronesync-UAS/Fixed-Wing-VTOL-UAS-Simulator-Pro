@@ -41,12 +41,35 @@ SUFFIX = ".prescenery"
 MARKER = "<!-- SCENERY: added by tools/scenery_apply.py"
 
 
-def _material(colour):
+def _material(colour, surface=scenery.DEFAULT_SURFACE):
+    """One object's material, including how it behaves in light.
+
+    THE <pbr> BLOCK, added 12 Oct 2026. Until then every object in every
+    world carried the same flat material, so water, a painted container,
+    wet mud and a hedge all caught light identically - a large part of
+    why the scenery read as coloured cardboard.
+
+    ROUGHNESS AND METALNESS ARE SCALARS HERE, not texture maps, and that
+    is the whole trick. A box face in SDF maps one texture across its
+    entire face, so a brick image on a 14 m wall would be one enormous
+    brick. These two numbers need no texture coordinates at all, so they
+    improve every object immediately and cannot be stretched wrong.
+
+    The ambient and diffuse are kept as well: ogre2 uses the PBR block,
+    and anything that falls back to the simple path still gets a colour
+    rather than white.
+    """
     r, g, b = colour
+    roughness, metalness = scenery.SURFACES.get(
+        surface, scenery.SURFACES[scenery.DEFAULT_SURFACE])
     return ("<material><ambient>%g %g %g 1</ambient>"
             "<diffuse>%g %g %g 1</diffuse>"
-            "<specular>0.04 0.04 0.04 1</specular></material>"
-            % (r * 0.55, g * 0.55, b * 0.55, r, g, b))
+            "<specular>0.04 0.04 0.04 1</specular>"
+            "<pbr><metal>"
+            "<roughness>%g</roughness>"
+            "<metalness>%g</metalness>"
+            "</metal></pbr></material>"
+            % (r * 0.55, g * 0.55, b * 0.55, r, g, b, roughness, metalness))
 
 
 def _part_xml(kind, a, index):
@@ -83,7 +106,9 @@ def _part_xml(kind, a, index):
     else:
         return ""
     out = ('<visual name="%s"><pose>%s</pose><geometry>%s</geometry>%s</visual>'
-           % (name, pose, geometry, _material(a["colour"])))
+           % (name, pose, geometry,
+              _material(a["colour"],
+                        a.get("surface", scenery.DEFAULT_SURFACE))))
     if a.get("collide"):
         out += ('<collision name="%s_c"><pose>%s</pose><geometry>%s</geometry>'
                 '<surface><friction><ode/></friction><bounce/><contact/>'

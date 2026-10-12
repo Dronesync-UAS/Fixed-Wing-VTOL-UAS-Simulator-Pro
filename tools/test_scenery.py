@@ -163,6 +163,62 @@ on_disk = open(os.path.join(REPO, "docs", "scenery-targets.md")).read()
 check("docs/scenery-targets.md is up to date "
       "(run tools/scenery_targets_doc.py if not)", generated == on_disk)
 
+
+print("How surfaces behave in light")
+# Added 12 Oct 2026. Until then every object in every world carried the
+# same flat material, so water, a painted container, wet mud and a hedge
+# all caught light identically - a large part of why the scenery read as
+# coloured cardboard.
+from collections import Counter                             # noqa: E402
+
+counts = Counter()
+unknown = set()
+for name in scenery.THEMES:
+    for item in scenery.THEMES[name](scenery.Rng(7)):
+        for kind, a in item[3]:
+            surface = a.get("surface", scenery.DEFAULT_SURFACE)
+            counts[surface] += 1
+            if surface not in scenery.SURFACES:
+                unknown.add(surface)
+
+check("every part names a surface this project knows (%s)"
+      % (", ".join(sorted(unknown)) or "all known"), not unknown)
+check("water is marked as water (%d parts)" % counts["water"],
+      counts["water"] > 0)
+check("vegetation is marked (%d parts)" % counts["vegetation"],
+      counts["vegetation"] > 50)
+check("metal is marked (%d parts)" % counts["metal"], counts["metal"] > 10)
+
+# Water must be near-mirror, or the sea at Norfolk, the flooded Levels
+# and the estuary stay matte plates - which is what they were.
+rough_water, metal_water = scenery.SURFACES["water"]
+check("water is near-mirror (roughness %.2f)" % rough_water,
+      rough_water < 0.2)
+rough_matte, _ = scenery.SURFACES["matte"]
+check("and far smoother than earth (%.2f against %.2f)"
+      % (rough_water, rough_matte), rough_water < rough_matte / 3)
+_, metalness = scenery.SURFACES["metal"]
+check("metal reads as metal (metalness %.2f)" % metalness, metalness > 0.5)
+check("nothing else is metal",
+      all(m < 0.1 for k, (r, m) in scenery.SURFACES.items() if k != "metal"))
+
+# The writer has to put those numbers in the XML, or none of it reaches
+# Gazebo.
+sys.path.insert(0, os.path.join(REPO, "tools"))
+import scenery_apply as _sa                                 # noqa: E402
+
+xml = _sa._material((0.1, 0.22, 0.3), "water")
+check("the writer emits a <pbr> block", "<pbr>" in xml and "<metal>" in xml)
+check("with water's roughness in it (%s)" % rough_water,
+      "<roughness>%g</roughness>" % rough_water in xml)
+xml = _sa._material((0.8, 0.8, 0.8), "metal")
+check("and metal's metalness", "<metalness>%g</metalness>" % metalness in xml)
+xml = _sa._material((0.4, 0.5, 0.3))
+check("an untagged object still gets a material",
+      "<diffuse>" in xml and "<pbr>" in xml)
+check("and no empty albedo_map, which reads as a missing texture",
+      "albedo_map" not in xml)
+
 print()
 if fails:
     print("%d check(s) failed:" % len(fails))
