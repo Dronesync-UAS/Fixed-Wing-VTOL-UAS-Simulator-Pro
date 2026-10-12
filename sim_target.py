@@ -187,6 +187,16 @@ CHASE_BOOM_JOINTS = ("chase_az_joint", "chase_el_joint")
 GIMBAL_FOV_RAD = 1.05
 
 
+def world_topic(name):
+    """A topic published under this world, e.g. material_color.
+
+    Same shape as service(); named apart because a reader who sees
+    service() reasonably expects a request and an answer, and a topic
+    gives neither.
+    """
+    return f"/world/{WORLD}/{name}"
+
+
 def service(name):
     """Full path of one of Gazebo's own world services, e.g. "control"."""
     return f"/world/{WORLD}/{name}"

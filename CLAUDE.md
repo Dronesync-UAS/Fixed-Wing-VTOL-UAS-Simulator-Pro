@@ -119,6 +119,13 @@ textures, or which world points at which - run:
 python3 tools/test_surface_maps.py
 ```
 
+After changing the sky - the dome mesh, the sky image, the scene's
+ambient light or the day/night control - run:
+
+```
+python3 tools/test_sky.py
+```
+
 After changing a world file, or the launcher, run the install check -
 there are two copies of every world and only one of them flies:
 
@@ -137,14 +144,14 @@ Other tools under `tools/` are self-describing; `--dry-run` and `--revert`
 exist on anything that edits world files, and world edits are always backed
 up and auto-restored if the result does not parse.
 
-## Four tools edit the worlds, and one tool's --revert undoes the others
+## Five tools edit the worlds, and one tool's --revert undoes the others
 
-`far_ground_apply`, `ground_texture_apply`, `plane_ground_texture` and
-`scenery_apply` each keep a backup of the world file **as they found
-it**. So one tool's `--revert` restores a snapshot that predates the
-others and silently undoes them. That happened on 12 Oct 2026: reverting
-the scenery to re-apply it took the 220 km ground widening and the real
-normal maps with it, and everything still parsed.
+`far_ground_apply`, `ground_texture_apply`, `plane_ground_texture`,
+`scenery_apply` and `sky_dome_apply` each keep a backup of the world file
+**as they found it**. So one tool's `--revert` restores a snapshot that
+predates the others and silently undoes them. That happened on 12 Oct
+2026: reverting the scenery to re-apply it took the 220 km ground
+widening and the real normal maps with it, and everything still parsed.
 
 So after any `--revert`, check what is actually in the worlds:
 
@@ -153,7 +160,7 @@ python3 tools/worlds_state.py
 ```
 
 It prints a table and, if anything is missing, the commands to put it
-back in the right order. All four tools are idempotent, so re-running
+back in the right order. All five tools are idempotent, so re-running
 the lot is always safe. `tools/test_install_worlds.py` runs this check
 too.
 

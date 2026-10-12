@@ -4,9 +4,10 @@ What has been applied to every world, in one table.
 
     python3 tools/worlds_state.py
 
-WHY THIS EXISTS. Four tools edit the world files - far_ground_apply,
-ground_texture_apply, plane_ground_texture and scenery_apply - and each
-keeps its own backup of the file as it found it. So running one tool's
+WHY THIS EXISTS. Five tools edit the world files - far_ground_apply,
+ground_texture_apply, plane_ground_texture, scenery_apply and
+sky_dome_apply - and each keeps its own backup of the file as it found
+it. So running one tool's
 --revert puts back a snapshot that PREDATES the others, and silently
 undoes them.
 
@@ -24,9 +25,10 @@ THE ORDER TO RE-APPLY, if this shows gaps:
     python3 tools/ground_texture_apply.py --all
     python3 tools/plane_ground_texture.py --all
     python3 tools/scenery_apply.py
+    python3 tools/sky_dome_apply.py --all
     python3 tools/install_worlds.py
 
-All four are idempotent - running one twice does nothing the second
+All five are idempotent - running one twice does nothing the second
 time - so re-running the lot is always safe.
 """
 
@@ -66,6 +68,12 @@ FEATURES = [
     ("PBR materials",
      lambda t: "<pbr>" in t,
      "python3 tools/scenery_apply.py --revert then again (see the note above)"),
+    # The dome replaces Gazebo's own one-bit sky. A world that lost it
+    # goes back to a flat near-white ceiling, which is easy to miss in a
+    # screenshot and impossible to miss in the air.
+    ("painted sky",
+     lambda t: 'name="sky_dome"' in t,
+     "python3 tools/sky_dome_apply.py --all"),
 ]
 
 

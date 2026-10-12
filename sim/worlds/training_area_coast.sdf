@@ -79,15 +79,17 @@
     </light>
 
     <scene>
-      <ambient>0.40 0.41 0.44 1</ambient>
-      <background>0.6 0.75 0.9 1</background>
+      <ambient>0.26 0.28 0.32 1</ambient>
+      <background>0.52 0.66 0.84 1</background>
       <shadows>true</shadows>
       <!-- A real skybox instead of one flat colour. gz-rendering8
            applies it to every sensor camera too, so the chase and
            nose feeds get it, not only the Gazebo window. Its
            sdformat sub-elements (time, clouds, humidity) are
            ignored by this renderer - it is on or off. -->
-      <sky></sky>
+      <!-- The built-in sky was removed 12 Oct 2026: it is one
+           bit in this renderer, with no gradient and no cloud. The
+           sky_dome model at the end of this file replaces it. -->
     </scene>
 
     <!-- Flat ground with its top surface at Z=0.
@@ -615,6 +617,48 @@
               <pos>0 0 0</pos>
             </heightmap>
           </geometry>
+        </visual>
+      </link>
+    </model>
+    <!-- THE SKY, added 12 Oct 2026 by tools/sky_dome_apply.py.
+    
+         An inside-out dome at 7000 m - inside the cameras' 8000 m clip
+         plane - carrying the sky image from tools/make_sky_dome.py. It
+         replaces <sky></sky>, which in this renderer is a flat near-white
+         ceiling with no gradient and no cloud.
+    
+         EMISSIVE, ALBEDO BLACK. A sky is not a surface the sun falls on.
+         The image is the emissive map and nothing else lights the dome, so
+         it shows exactly what was painted. plugins/time_of_day.py dims it
+         for dusk and night over /world/NAME/material_color.
+    
+         NO SHADOWS, NO COLLISION. It is 7 km of geometry around everything;
+         either one would be a disaster. -->
+    <model name="sky_dome">
+      <static>true</static>
+      <pose>0 0 0 0 0 0</pose>
+      <link name="sky_dome_link">
+        <visual name="sky_dome_visual">
+          <cast_shadows>false</cast_shadows>
+          <geometry>
+            <mesh>
+              <uri>file://media/sky_dome.obj</uri>
+              <scale>7000 7000 7000</scale>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0 0 0 1</ambient>
+            <diffuse>0 0 0 1</diffuse>
+            <specular>0 0 0 1</specular>
+            <emissive>1 1 1 1</emissive>
+            <pbr>
+              <metal>
+                <roughness>1.0</roughness>
+                <metalness>0.0</metalness>
+                <emissive_map>file://media/sky_day.png</emissive_map>
+              </metal>
+            </pbr>
+          </material>
         </visual>
       </link>
     </model>

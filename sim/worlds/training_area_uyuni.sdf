@@ -37,15 +37,17 @@
     </light>
 
     <scene>
-      <ambient>0.40 0.41 0.44 1</ambient>
-      <background>0.6 0.75 0.9 1</background>
+      <ambient>0.26 0.28 0.32 1</ambient>
+      <background>0.52 0.66 0.84 1</background>
       <shadows>true</shadows>
       <!-- A real skybox instead of one flat colour. gz-rendering8
            applies it to every sensor camera too, so the chase and
            nose feeds get it, not only the Gazebo window. Its
            sdformat sub-elements (time, clouds, humidity) are
            ignored by this renderer - it is on or off. -->
-      <sky></sky>
+      <!-- The built-in sky was removed 12 Oct 2026: it is one
+           bit in this renderer, with no gradient and no cloud. The
+           sky_dome model at the end of this file replaces it. -->
     </scene>
 
     <!-- ============================================================
@@ -759,6 +761,48 @@
       <static>true</static>
       <pose>181.173 -676.148 0 0 0 6.54498</pose>
       <link name="l"><visual name="p0"><pose>0 0 1.6 0 0 0</pose><geometry><box><size>0.3 6 3.2</size></box></geometry><material><ambient>0.5225 0.5225 0.5225 1</ambient><diffuse>0.95 0.95 0.95 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 1.6 0 0 0</pose><geometry><box><size>0.3 6 3.2</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision><visual name="p1"><pose>0.2 -2 0.8 0 0 0</pose><geometry><box><size>0.05 2 1.6</size></box></geometry><material><ambient>0.0275 0.0275 0.0275 1</ambient><diffuse>0.05 0.05 0.05 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p2"><pose>0.2 0 2.4 0 0 0</pose><geometry><box><size>0.05 2 1.6</size></box></geometry><material><ambient>0.0275 0.0275 0.0275 1</ambient><diffuse>0.05 0.05 0.05 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p3"><pose>0.2 2 0.8 0 0 0</pose><geometry><box><size>0.05 2 1.6</size></box></geometry><material><ambient>0.0275 0.0275 0.0275 1</ambient><diffuse>0.05 0.05 0.05 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p4"><pose>0 0 0.3 0 0 0</pose><geometry><cylinder><radius>0.3</radius><length>0.6</length></cylinder></geometry><material><ambient>0.5225 0.231 0.0275 1</ambient><diffuse>0.95 0.42 0.05 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p5"><pose>0.25 -1 3.5 0 0 0</pose><geometry><box><size>0.1 0.5 0.5</size></box></geometry><material><ambient>0.5225 0.231 0.0275 1</ambient><diffuse>0.95 0.42 0.05 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p6"><pose>0.25 0 3.5 0 0 0</pose><geometry><box><size>0.1 0.5 0.5</size></box></geometry><material><ambient>0.5225 0.231 0.0275 1</ambient><diffuse>0.95 0.42 0.05 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p7"><pose>0.25 1 3.5 0 0 0</pose><geometry><box><size>0.1 0.5 0.5</size></box></geometry><material><ambient>0.5225 0.231 0.0275 1</ambient><diffuse>0.95 0.42 0.05 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <!-- THE SKY, added 12 Oct 2026 by tools/sky_dome_apply.py.
+    
+         An inside-out dome at 7000 m - inside the cameras' 8000 m clip
+         plane - carrying the sky image from tools/make_sky_dome.py. It
+         replaces <sky></sky>, which in this renderer is a flat near-white
+         ceiling with no gradient and no cloud.
+    
+         EMISSIVE, ALBEDO BLACK. A sky is not a surface the sun falls on.
+         The image is the emissive map and nothing else lights the dome, so
+         it shows exactly what was painted. plugins/time_of_day.py dims it
+         for dusk and night over /world/NAME/material_color.
+    
+         NO SHADOWS, NO COLLISION. It is 7 km of geometry around everything;
+         either one would be a disaster. -->
+    <model name="sky_dome">
+      <static>true</static>
+      <pose>0 0 0 0 0 0</pose>
+      <link name="sky_dome_link">
+        <visual name="sky_dome_visual">
+          <cast_shadows>false</cast_shadows>
+          <geometry>
+            <mesh>
+              <uri>file://media/sky_dome.obj</uri>
+              <scale>7000 7000 7000</scale>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0 0 0 1</ambient>
+            <diffuse>0 0 0 1</diffuse>
+            <specular>0 0 0 1</specular>
+            <emissive>1 1 1 1</emissive>
+            <pbr>
+              <metal>
+                <roughness>1.0</roughness>
+                <metalness>0.0</metalness>
+                <emissive_map>file://media/sky_day.png</emissive_map>
+              </metal>
+            </pbr>
+          </material>
+        </visual>
+      </link>
     </model>
 </world>
 </sdf>

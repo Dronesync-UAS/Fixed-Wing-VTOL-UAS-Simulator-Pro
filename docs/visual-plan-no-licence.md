@@ -15,7 +15,8 @@ the picture poor is this project's own content, measured:
   **Fixed.**
 * Seven worlds with no ground texture whatsoever. **Fixed.**
 * Scenery built from untextured flat-colour boxes - 40 to 130 per world.
-* No sky material; a flat gradient to the horizon.
+* No sky material; a flat near-white ceiling. **Fixed** - painted dome.
+* Ambient light at 0.40, washing every surface out. **Fixed** - 0.26.
 * An untextured aircraft.
 * Global illumination available in ogre2 and switched off.
 
@@ -28,9 +29,9 @@ connection. It is ours.
 |---|---|
 | 1. Real normal maps, generated from a height field | **done** - 12 Oct |
 | 2. Textured ground in the seven plane worlds | **done** - 12 Oct |
-| 3. PBR materials on the scenery, instead of flat-colour boxes | next, and the biggest remaining win |
-| 4. A real sky and distance fog | next |
-| 5. Texture the aircraft | after that |
+| 3. PBR materials on the scenery, instead of flat-colour boxes | **done** - 12 Oct |
+| 4. A real sky, and haze where fog cannot go | **done** - 12 Oct. There is no fog in this renderer; see below |
+| 5. Texture the aircraft | next |
 | 6. Global illumination on, frame rate measured | last, because it costs |
 
 Step 3 matters most for the payload view, which is what a sensor
@@ -99,3 +100,18 @@ Steps 1 and 2 are committed and pushed. Neither has been seen in
 Gazebo. `tools/test_surface_maps.py` checks the maps have real relief,
 decode to unit normals, tile without a seam, and that no world is left
 with untextured ground.
+
+
+## Added 12 Oct 2026, after step 4
+
+**There is no fog in Gazebo Harmonic.** gz-sim8's `RenderUtil.cc` reads
+`Ambient()`, `Background()` and `Sky()` out of `<scene>` and nothing
+else; the word "fog" does not appear in the file. sdformat will accept
+`<scene><fog>` and gz-sim will ignore it. So the hard horizon is
+softened with a painted haze band on the sky dome instead - it looks
+like haze, it attenuates nothing.
+
+**The ambient light mattered more than any of the materials.** At 0.40,
+flat from every direction, a normal map has no direction to shade
+against and roughness has no highlight to sharpen. Steps 1 to 3 were
+all being washed out by one number. It is now 0.26.

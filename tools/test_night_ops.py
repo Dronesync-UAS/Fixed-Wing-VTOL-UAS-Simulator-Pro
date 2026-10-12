@@ -86,6 +86,7 @@ spec = importlib.util.spec_from_file_location(
 st = types.ModuleType("sim_target")
 st.WORLD = "training_area_blackrock"
 st.service = lambda name: f"/world/{st.WORLD}/{name}"
+st.world_topic = lambda name: f"/world/{st.WORLD}/{name}"
 sys.modules["sim_target"] = st
 sl = types.ModuleType("simulator_link")
 sl.log_instructor_action = lambda *a, **k: None
@@ -101,12 +102,31 @@ subprocess.run = lambda *a, **k: sent.append(a[0]) or types.SimpleNamespace(
 check("refuses a time it does not have", "not one of" in tod.set_time("teatime"))
 reply = tod.set_time("night")
 check("night accepted (%s...)" % reply[:28], "Night" in reply)
-request = sent[-1][sent[-1].index("--req") + 1]
+# Two calls go out now, not one: the sun, then the sky dome. Pick each
+# out by what it is for rather than by position, so adding a third does
+# not quietly break this.
+light_call = [c for c in sent if any("light_config" in a for a in c)][-1]
+sky_call = [c for c in sent if any("material_color" in a for a in c)][-1]
+
+request = light_call[light_call.index("--req") + 1]
 check("asks Gazebo for the light every world here calls 'sun'",
       "name: 'sun'" in request)
 check("through the world's own light_config service",
-      any("light_config" in a and st.WORLD in a for a in sent[-1]))
+      any("light_config" in a and st.WORLD in a for a in light_call))
 check("and says night is not darkness", "not darkness" in reply)
+
+sky_request = sky_call[sky_call.index("-p") + 1]
+check("dims the painted sky dome as well as the sun",
+      "sky_dome" in sky_request)
+check("on the world's own material_color topic",
+      any("material_color" in a and st.WORLD in a for a in sky_call))
+check("to a night sky, not a blue one (%s)" % tod.TIMES["night"]["sky"][2],
+      tod.TIMES["night"]["sky"][2] < 0.2)
+tod.set_time("day")
+day_request = [c for c in sent if any("material_color" in a for a in c)][-1]
+check("and puts it back at midday",
+      "emissive: {r: 1.0, g: 1.0, b: 1.0" in
+      day_request[day_request.index("-p") + 1])
 
 day = tod.TIMES["day"]["diffuse"]
 night_c = tod.TIMES["night"]["diffuse"]
