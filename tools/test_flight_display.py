@@ -199,12 +199,18 @@ def main():
               page.evaluate("() => window.gcsHomePoint('#hero canvas.hud')") is None)
 
         print("5. the sound can be silenced")
+        # The alarm switch lives in the settings panel now, so it has to be
+        # opened before it can be clicked.
         check("there is an alarm switch", page.locator("#alarm-on").count() == 1)
+        page.click("#settings-open")
+        page.wait_for_timeout(400)
         page.uncheck("#alarm-on")
         state(armed=True, mode="Hold", altitude_m=60.0)
         s = state(armed=True, mode="Hold", altitude_m=5.0)
         check("the warning still shows with the sound off", s["lowActive"])
         page.check("#alarm-on")
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(250)
 
         if "--shot" in sys.argv:
             out = sys.argv[sys.argv.index("--shot") + 1]

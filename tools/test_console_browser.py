@@ -210,6 +210,13 @@ def main():
 
     fails = []
 
+    def set_layout(name):
+        """Switch layout without caring whether the settings panel is open."""
+        page.evaluate(
+            "n => document.querySelector('#layouttabs button[data-layout=\"'"
+            " + n + '\"]').click()", name)
+        page.wait_for_timeout(420)
+
     def check(tag, cond):
         print(("  PASS  " if cond else "  FAIL  ") + tag)
         if not cond:
@@ -248,11 +255,35 @@ def main():
             "  height: b.getBoundingClientRect().height}; }")
         check("nothing is clipped off the ends (%s wide in %s)"
               % (bar["scroll"], bar["client"]), bar["scroll"] <= bar["client"] + 1)
+        # scrollWidth alone is not enough, and this is how the last one got
+        # through: the middle group can shrink below its own content while
+        # the bar clips rather than scrolls, so the controls inside spill
+        # sideways over the aircraft's state without the bar ever growing.
+        SPILL_PROBE = """() => {
+              const tools = document.querySelector('#topbar .tools');
+              const icons = document.querySelector('#topbar .icons');
+              if (!tools || !icons) { return 'missing'; }
+              const i = icons.getBoundingClientRect();
+              const over = [...tools.children].map(e => e.getBoundingClientRect())
+                .filter(r => r.right > i.left + 1);
+              return over.length ? Math.round(over[0].right - i.left) : 0;
+            }"""
+        spill = page.evaluate(SPILL_PROBE)
+        check("and nothing spills over the aircraft's state (%s)"
+              % (("%s px" % spill) if spill else "clear"), spill == 0)
+        # Squeezed to a narrow laptop, where it has to give somewhere.
+        page.set_viewport_size({"width": 1100, "height": 800})
+        page.wait_for_timeout(400)
+        tight = page.evaluate(SPILL_PROBE)
+        check("still clear at 1100 wide (%s)"
+              % (("%s px" % tight) if tight else "clear"), tight == 0)
+        page.set_viewport_size({"width": 1600, "height": 900})
+        page.wait_for_timeout(400)
         check("and it is still one row high (%s px)" % round(bar["height"]),
               bar["height"] <= 56)
         sizes = page.evaluate(
-            "() => [...document.querySelectorAll('#topbar button, #topbar label,"
-            " #topbar .badge, #topbar #t-mode')]"
+            "() => [...document.querySelectorAll('#topbar button, #topbar"
+            " .badge, #topbar #t-mode')]"
             " .map(e => getComputedStyle(e).fontSize)")
         check("every label is the same size (%s)" % sorted(set(sizes)),
               len(set(sizes)) == 1)
@@ -380,8 +411,7 @@ def main():
         # ladder still run the full width - they have to line up with the
         # real horizon - so what is checked is the margin the gauge works
         # out for everything else.
-        page.click('#layouttabs button[data-layout="pilot"]')
-        page.wait_for_timeout(500)
+        set_layout("pilot")
         safe = page.evaluate("() => window.gcsHudSafe('#hero canvas.hud')")
         for sel, side in (("#rail-left", "left"), ("#rail-right", "right"),
                           ("#topbar", "top")):
@@ -483,8 +513,7 @@ def main():
         # Both layouts, because Pilot's columns are narrower and that is
         # where a label is most likely to be pushed onto its neighbour.
         for layout in ("station", "pilot"):
-            page.click('#layouttabs button[data-layout="%s"]' % layout)
-            page.wait_for_timeout(450)
+            set_layout(layout)
             found = measure_overlaps()
             check("%s: nothing overlaps (%s)" % (layout, found[:3] or "clear"),
                   not found)
@@ -505,8 +534,7 @@ def main():
 
         print("6. the layout switch changes the chrome")
         before = page.locator("#hero").bounding_box()
-        page.click('#layouttabs button[data-layout="station"]')
-        page.wait_for_timeout(300)
+        set_layout("station")
         after = page.locator("#hero").bounding_box()
         check("Station insets the picture (%s -> %s)" % (before["x"], after["x"]),
               after["x"] > before["x"])
@@ -575,15 +603,15 @@ def main():
               page.locator("#rail-right #btn-new_session").count() == 1)
 
         print("7c. the picture is not inset for a panel that left the edge")
-        page.click('#layouttabs button[data-layout="station"]')
-        page.wait_for_timeout(250)
+        set_layout("station")
         hero = page.locator("#hero").bounding_box()
         check("no dead strip on the right (%s + %s vs %s)"
               % (round(hero["x"]), round(hero["width"]), 1600),
               hero["x"] + hero["width"] > 1590)
 
-        page.click("#resettiles")
-        page.wait_for_timeout(250)
+        # Reset lives in the settings panel now, like the layout tabs.
+        page.evaluate("() => document.getElementById('resettiles').click()")
+        page.wait_for_timeout(300)
         check("Reset panels re-docks it",
               "floating" not in (page.get_attribute("#rail-right", "class") or ""))
 
@@ -656,6 +684,35 @@ def main():
         page.wait_for_timeout(300)
         check("Escape closes it", page.locator("#win-failures.open").count() == 0)
 
+        print("7c3. the settings panel")
+        # The bar had grown until the camera-view select printed over the
+        # aircraft's state. What is set once and left now lives behind the
+        # gear instead.
+        for gone in ("hud-on", "alarm-on", "voice-on", "viewmode",
+                     "resettiles", "layouttabs"):
+            check("%s is off the bar" % gone,
+                  page.locator("#topbar #%s" % gone).count() == 0)
+        page.click("#settings-open")
+        page.wait_for_timeout(400)
+        check("the gear opens it", page.locator("#win-settings.open").count() == 1)
+        for here in ("hud-on", "alarm-on", "voice-on", "viewmode",
+                     "resettiles", "layouttabs"):
+            check("%s is in settings" % here,
+                  page.locator("#win-settings #%s" % here).count() == 1)
+        # And they still work from in there.
+        page.click('#win-settings #layouttabs button[data-layout="station"]')
+        page.wait_for_timeout(400)
+        check("the layout switch still switches",
+              "on" in (page.get_attribute(
+                  '#layouttabs button[data-layout="station"]', "class") or ""))
+        check("and the panel stays open while you use it",
+              page.locator("#win-settings.open").count() == 1)
+        page.evaluate("() => { document.querySelector('#layouttabs"
+                      " button[data-layout=\"pilot\"]').click(); }")
+        page.wait_for_timeout(300)
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(300)
+
         print("7d. the pre-flight checklist")
         page.click("#pf-open")
         page.wait_for_timeout(600)
@@ -709,16 +766,17 @@ def main():
             # --nose puts the attitude overlay on screen over a stand-in for
             # bright desert, which is the only way to judge whether it reads.
             if "--window" in sys.argv:
-                page.click('[data-open-win="%s"]'
-                           % sys.argv[sys.argv.index("--window") + 1])
+                which = sys.argv[sys.argv.index("--window") + 1]
+                if which == "settings":
+                    page.click("#settings-open")
+                else:
+                    page.click('[data-open-win="%s"]' % which)
                 page.wait_for_timeout(600)
             if "--checklist" in sys.argv:
                 page.click("#pf-open")
                 page.wait_for_timeout(700)
             if "--layout" in sys.argv:
-                page.click('#layouttabs button[data-layout="%s"]'
-                           % sys.argv[sys.argv.index("--layout") + 1])
-                page.wait_for_timeout(400)
+                set_layout(sys.argv[sys.argv.index("--layout") + 1])
             if "--view" in sys.argv:
                 page.click('#viewtabs button[data-view="%s"]'
                            % sys.argv[sys.argv.index("--view") + 1])

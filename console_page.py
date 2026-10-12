@@ -379,6 +379,13 @@ TEMPLATE = """<!DOCTYPE html>
     cursor: pointer; background: rgba(0,0,0,0.5); color: #fff; font-weight: 500;
   }
   .topbtn.danger { background: rgba(123,26,45,0.95); color: #ffc3cd; }
+  .topbtn.icon { padding: 0 9px; display: flex; align-items: center; }
+  .topbtn.icon svg { width: 20px; height: 20px; display: block; }
+  #win-settings { width: 380px; }
+  .win-body.settings { flex-direction: column; gap: 14px; align-items: stretch; }
+  .set-row { display: flex; align-items: center; gap: 12px; }
+  .set-label { width: 112px; flex: none; color: var(--dim); font-size: 12px; }
+  .set-stack { display: flex; flex-direction: column; gap: 6px; }
   .topsel {
     height: 30px; padding: 0 8px; border: 1px solid rgba(255,255,255,0.18);
     border-radius: 7px; background: rgba(0,0,0,0.5); color: #fff; cursor: pointer;
@@ -520,31 +527,26 @@ TEMPLATE = """<!DOCTYPE html>
 <div id="topbar">
   <div class="badge">Instructor</div>
   <div id="t-mode">-</div>
+  <!-- Only what is used in flight stays on the bar. Everything set once
+       and left alone - the gauge, the alarm, the voice, how the camera is
+       rendered, the layout - lives behind the gear, which is where a DJI
+       controller puts the same things. The bar had grown until the camera
+       view select was printing over the aircraft's own state. -->
   <div class="tools" style="flex: 1 1 auto; justify-content: center; gap: 14px">
     <div class="seg" id="viewtabs">
       <button data-view="chase">Chase</button>
       <button data-view="nose">Nose</button>
       <button data-view="map">Map</button>
     </div>
-    <div style="display: flex; align-items: center; gap: 7px">
-      <div class="seg" id="layouttabs" title="Pilot floats the controls over the picture; Station insets it so nothing covers it">
-        <button data-layout="pilot">Pilot</button>
-        <button data-layout="station">Station</button>
-      </div>
-    </div>
-    <button class="topbtn" id="resettiles" title="Put every panel back to its default place and size">Reset</button>
-    <label class="topswitch" title="The flight display drawn over the camera views"><input type="checkbox" id="hud-on" checked> Gauge</label>
-    <label class="topswitch" title="The low-altitude warning tone"><input type="checkbox" id="alarm-on" checked> Alarm</label>
-    <label class="topswitch" title="Call out each command and each change of state"><input type="checkbox" id="voice-on"> Voice</label>
     <button class="topbtn" id="pf-open">Checklist</button>
     <button class="topbtn" data-open-win="motors">Motors</button>
     <button class="topbtn danger" data-open-win="failures">Failures</button>
-    <select id="viewmode" class="topsel" title="How the camera pictures are rendered. The infrared views are renderings of the colour camera, not a thermal sensor.">
-      <option value="normal">Daylight</option>
-      <option value="night_vision">Night vision</option>
-      <option value="white_hot">IR white hot</option>
-      <option value="black_hot">IR black hot</option>
-    </select>
+    <button class="topbtn icon" id="settings-open" title="Settings" aria-label="Settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="3.2"></circle>
+        <path d="M12 2.6v2.3M12 19.1v2.3M21.4 12h-2.3M4.9 12H2.6M18.6 5.4l-1.6 1.6M7 17l-1.6 1.6M18.6 18.6 17 17M7 7 5.4 5.4"></path>
+      </svg>
+    </button>
   </div>
   <div class="icons">
     <span class="item" id="t-armcheck-wrap" title="Whether PX4 will accept ARM or TAKEOFF right now">
@@ -662,6 +664,46 @@ TEMPLATE = """<!DOCTYPE html>
 <!-- Function test and Failure injection, as windows rather than as more
      entries in a column. Rendered by the station from the same plugins. -->
 __WINDOWS__
+
+<!-- Settings: everything set once and left alone. -->
+<div class="window" id="win-settings">
+  <div class="win-head"><b>Settings</b>
+    <button class="win-close" data-win="settings" title="Close">&times;</button>
+  </div>
+  <div class="win-body settings">
+    <div class="set-row">
+      <span class="set-label">Layout</span>
+      <div class="seg" id="layouttabs" title="Pilot floats the controls over the picture; Station insets it so nothing covers it">
+        <button data-layout="pilot">Pilot</button>
+        <button data-layout="station">Station</button>
+      </div>
+    </div>
+    <div class="set-row">
+      <span class="set-label">Camera view</span>
+      <select id="viewmode" class="topsel" title="The infrared views are renderings of the colour camera, not a thermal sensor.">
+        <option value="normal">Daylight</option>
+        <option value="night_vision">Night vision</option>
+        <option value="white_hot">IR white hot</option>
+        <option value="black_hot">IR black hot</option>
+      </select>
+    </div>
+    <div class="set-row">
+      <span class="set-label">Flight display</span>
+      <label class="topswitch"><input type="checkbox" id="hud-on" checked> Gauge over the camera views</label>
+    </div>
+    <div class="set-row">
+      <span class="set-label">Warnings</span>
+      <div class="set-stack">
+        <label class="topswitch"><input type="checkbox" id="alarm-on" checked> Alarm tone</label>
+        <label class="topswitch"><input type="checkbox" id="voice-on"> Spoken callouts</label>
+      </div>
+    </div>
+    <div class="set-row">
+      <span class="set-label">Panels</span>
+      <button class="topbtn" id="resettiles" title="Put every panel back to its default place and size">Reset every panel</button>
+    </div>
+  </div>
+</div>
 
 <div id="dragmask"></div>
 
@@ -1504,6 +1546,10 @@ SCRIPT = """
     fetch('/preflight').then(function (r) { return r.json(); })
       .then(drawPreflight).catch(function () {});
   }
+
+  el('settings-open').addEventListener('click', function () {
+    openWindow('settings');
+  });
 
   el('pf-open').addEventListener('click', function () {
     closeWindows();
