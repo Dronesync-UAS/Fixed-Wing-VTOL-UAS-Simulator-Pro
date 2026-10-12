@@ -250,14 +250,16 @@ else:
             note("%-11s no imagery" % env["key"])
             continue
         size_kb = os.path.getsize(image) / 1024
-        extent, mpp = "?", "?"
+        extent, mpp = "?", "-"
         try:
             with open(meta) as handle:
                 m = json.load(handle)
             extent = "%.0f km" % m.get("extent_km",
                                        (m["east_max"] - m["east_min"]) / 1000.0)
+            # Fetched before 12 Oct 2026, when the sidecar started
+            # carrying the resolution. Not a fault.
             mpp = ("%.0f m/px" % m["metres_per_pixel"]
-                   if "metres_per_pixel" in m else "?")
+                   if "metres_per_pixel" in m else "-")
         except (OSError, ValueError, KeyError):
             bad("%s imagery has no readable sidecar, so the plan view cannot "
                 "place it" % env["key"],

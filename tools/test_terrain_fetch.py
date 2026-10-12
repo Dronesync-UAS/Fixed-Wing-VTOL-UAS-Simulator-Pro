@@ -157,7 +157,17 @@ check("its URL has somewhere to put the token",
       "{token}" in fs.PROVIDERS["mapbox"]["url"])
 
 # main() reads sys.argv, so drive it that way.
+#
+# AND it reads the token from three places - the command line, the
+# environment, and ~/.mapbox_token. This block checks what happens with
+# NO token, so all three have to be empty for the length of it. Found on
+# 12 Oct 2026 by verify_install.py on a machine that had a real token in
+# the file: main() went off to download instead of refusing, and these
+# three checks failed on a machine where nothing was wrong.
 saved_argv = sys.argv
+saved_token_file = fs.TOKEN_FILE
+saved_env = os.environ.pop("MAPBOX_TOKEN", None)
+fs.TOKEN_FILE = os.path.join(REPO, "no-such-token-file")
 sys.argv = ["fetch_satellite.py", "coast", "--provider", "mapbox"]
 captured = io.StringIO()
 try:
@@ -165,6 +175,9 @@ try:
         code = fs.main()
 finally:
     sys.argv = saved_argv
+    fs.TOKEN_FILE = saved_token_file
+    if saved_env is not None:
+        os.environ["MAPBOX_TOKEN"] = saved_env
 message = captured.getvalue()
 check("without a token it refuses rather than failing mid-download", code == 1)
 check("and says where to get one", "account.mapbox.com" in message)
