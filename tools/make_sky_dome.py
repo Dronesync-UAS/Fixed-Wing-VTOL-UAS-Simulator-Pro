@@ -23,6 +23,13 @@ not worth depending on. An inside-out mesh has no back faces to cull:
 every triangle is wound and normalled to face the middle, which is where
 the aircraft is.
 
+WHICH WAY UP. gz-common's mesh importer sets aiProcess_FlipUVs
+(graphics/src/AssimpLoader.cc line 877), so the v coordinate in this file
+is flipped before anything samples the image. The zenith therefore gets
+v=1 here. Getting this backwards does not fail, it renders the painted
+ground-haze tone across the entire sky, which is what happened the first
+time.
+
 WHY EMISSIVE AND NOT LIT. A sky is not a surface that the sun falls on.
 The dome's albedo is black and the sky image is its emissive map, so it
 shows exactly what was painted, whatever the sun is doing. plugins/
@@ -105,7 +112,12 @@ def dome_obj():
             x = r * math.sin(az)      # east
             y = r * math.cos(az)      # north
             verts.append((x, y, z))
-            uvs.append((i / AZIMUTH_STEPS, j / POLAR_STEPS))
+            # v is 1 AT THE ZENITH, not 0. gz-common imports meshes with
+            # aiProcess_FlipUVs set - graphics/src/AssimpLoader.cc line
+            # 877 - so whatever v is in this file arrives flipped. The
+            # first dome written here had v=0 at the zenith and rendered
+            # the painted below-horizon tone across the whole sky.
+            uvs.append((i / AZIMUTH_STEPS, 1.0 - j / POLAR_STEPS))
             # Inward: the surface faces the middle of the dome.
             norms.append((-x, -y, -z))
 

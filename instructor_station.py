@@ -300,6 +300,10 @@ LIMIT_WARN_FRACTION = 0.9
 _limit_state = {}
 _limit_lock = threading.Lock()
 _video_node = start_video_capture()  # starts listening for camera frames immediately
+# The chase boom needs its opening angles sent, and re-sent: see
+# gimbal.start_chase_keeper for the three separate ways it was ending up
+# at the wrong angle while the console showed the right one.
+gimbal.start_chase_keeper()
 on_armed_change(aircraft_lights.set_armed)
 
 # Every flight goes in the record, from ARM to DISARM, without anyone

@@ -44,6 +44,17 @@ def close(a, b, tol=1e-6):
 import gimbal                                               # noqa: E402
 
 print("1. where the camera is looking")
+# THE BOOM STARTS WHERE THE CONSOLE SAYS. The console shows Behind
+# highlighted from the first frame, so if the opening angle is not the
+# Behind angle, the view is wrong and no instructor would think to press
+# an already-lit button. That is exactly what happened on 12 Oct 2026:
+# the state said 7.0 while the preset said 17.0.
+check("the boom starts at the Behind preset, not some other angle",
+      (gimbal.chase["az_deg"], gimbal.chase["el_deg"])
+      == gimbal.CHASE_PRESETS["behind"])
+check("and the console is told whether the command went out",
+      "sent" in gimbal.chase_status())
+
 check("tilt 90 is straight down",
       close(gimbal.boresight_body(0, 90)[2], 1.0, 1e-9))
 check("tilt 0 pan 0 is dead ahead",
@@ -335,7 +346,8 @@ def browser_checks():
             parsed = urlparse(self.path)
             if parsed.path == "/chase_view":
                 query = parse_qs(parsed.query)
-                body = json.dumps({"az_deg": 0.0, "el_deg": 13.8,
+                body = json.dumps({"az_deg": 0.0, "el_deg": 17.0,
+                                   "sent": True,
                                    "preset": query.get("preset", ["behind"])[0]
                                    }).encode()
                 self.send_response(200)

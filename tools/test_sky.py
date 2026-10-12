@@ -110,11 +110,19 @@ def test_mesh():
           seam_zero > 1 and seam_zero == seam_one,
           "%d vertices at u=0, %d at u=1" % (seam_zero, seam_one))
 
-    # v=0 must be the zenith, because the image is painted that way up.
-    top = verts[np.abs(uvs[:, 1]) < 1e-9]
-    check("v=0 is the zenith, not the ground",
+    # v=1 must be the zenith. gz-common imports meshes with
+    # aiProcess_FlipUVs set - graphics/src/AssimpLoader.cc line 877 - so
+    # v in the file arrives flipped. With this the wrong way round the
+    # dome still renders, in the painted ground-haze tone, all over the
+    # sky. That is exactly what happened on the first flight of it.
+    top = verts[np.abs(uvs[:, 1] - 1.0) < 1e-9]
+    bottom = verts[np.abs(uvs[:, 1]) < 1e-9]
+    check("v=1 is the zenith (gz flips UVs on import)",
           bool(len(top) and np.all(top[:, 2] > 0.999)),
           "z %.3f" % (top[:, 2].min() if len(top) else float("nan")))
+    check("v=0 is the nadir",
+          bool(len(bottom) and np.all(bottom[:, 2] < -0.999)),
+          "z %.3f" % (bottom[:, 2].max() if len(bottom) else float("nan")))
 
 
 def test_texture():

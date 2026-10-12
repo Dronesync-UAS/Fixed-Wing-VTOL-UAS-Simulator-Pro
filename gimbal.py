@@ -644,8 +644,6 @@ def status():
 # the view from the STARBOARD side.
 # ---------------------------------------------------------------------
 
-chase = {"az_deg": 0.0, "el_deg": 7.0, "preset": "behind"}
-
 # The angles each named view needs. Elevation is positive upwards: the
 # camera rises and tilts down to keep the aircraft in frame.
 #   behind    the default: over the aircraft's shoulder
@@ -687,7 +685,23 @@ CHASE_PRESETS = {
     "low": (0.0, -14.0),
 }
 
+# STARTS WHERE THE CONSOLE SAYS IT IS. This used to be written out by
+# hand as 7.0 while CHASE_PRESETS["behind"] said 17.0, and the console
+# shows Behind already highlighted - so the boom sat at one angle while
+# the console claimed another, and nobody would think to press a button
+# that is already lit. Derived from the table now so the two cannot
+# drift apart again.
+chase = {"az_deg": CHASE_PRESETS["behind"][0],
+         "el_deg": CHASE_PRESETS["behind"][1],
+         "preset": "behind",
+         # Whether the last command actually went out. The console used
+         # to say "this only moves once the camera is on its boom" after
+         # every click, whether it had worked or not, which is no use to
+         # anybody trying to find out why the view will not move.
+         "sent": False}
+
 _chase_node = None
+_chase_keeper = None
 
 
 def _chase_publishers():
@@ -707,6 +721,56 @@ def _chase_publishers():
         return _chase_node
 
 
+def _send_chase():
+    """Publish the boom's current angles. True if they went out."""
+    node = _chase_publishers()
+    if node is None:
+        return False
+    az_joint, el_joint = sim_target.CHASE_BOOM_JOINTS
+    for joint, degrees in ((az_joint, chase["az_deg"]),
+                           (el_joint, chase["el_deg"])):
+        message = node["Double"]()
+        message.data = math.radians(degrees)
+        node["pubs"][joint].publish(message)
+    return True
+
+
+def start_chase_keeper(period_s=2.0):
+    """Keep re-sending the boom's angles, quietly, for as long as we run.
+
+    THREE REASONS, all of them things that went wrong:
+
+    * Nothing ever sent the opening angles. The console shows Behind
+      highlighted from the first frame, so an instructor has no reason to
+      press it, and the boom stayed at whatever the model file left it at.
+    * gz-transport drops messages published on a brand-new publisher
+      before discovery has finished, so the first command after the
+      station starts is lost even when everything else is right.
+    * A restarted Gazebo, or NEW SESSION, puts the joints back to zero
+      and the station would not know.
+
+    Two Double messages every two seconds is nothing, and it means the
+    view is where the console says it is.
+    """
+    global _chase_keeper
+    with _lock:
+        if _chase_keeper is not None:
+            return _chase_keeper
+
+        def loop():
+            while True:
+                try:
+                    chase["sent"] = _send_chase()
+                except Exception:          # noqa: BLE001 - never kill the thread
+                    chase["sent"] = False
+                time.sleep(period_s)
+
+        _chase_keeper = threading.Thread(target=loop, daemon=True,
+                                         name="chase-boom")
+        _chase_keeper.start()
+        return _chase_keeper
+
+
 def chase_view(preset=None, az_deg=None, el_deg=None):
     """Swing the chase boom. Named preset, or explicit angles."""
     if preset is not None:
@@ -719,16 +783,7 @@ def chase_view(preset=None, az_deg=None, el_deg=None):
     az = (float(az_deg) + 180.0) % 360.0 - 180.0
     el = clamp(float(el_deg), -28.0, 83.0)      # the joint's own travel
     chase["az_deg"], chase["el_deg"] = round(az, 1), round(el, 1)
-    node = _chase_publishers()
-    if node is None:
-        return chase
-    az_joint, el_joint = sim_target.CHASE_BOOM_JOINTS
-    message = node["Double"]()
-    message.data = math.radians(az)
-    node["pubs"][az_joint].publish(message)
-    message = node["Double"]()
-    message.data = math.radians(el)
-    node["pubs"][el_joint].publish(message)
+    chase["sent"] = _send_chase()
     return chase
 
 

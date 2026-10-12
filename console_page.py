@@ -2345,8 +2345,17 @@ SCRIPT = """
         el('chasebar').querySelectorAll('button').forEach(function (x) {
           x.className = (x.dataset.chase === d.preset) ? 'on' : '';
         });
-        say('External view: ' + b.innerText + '. This only moves once the '
-            + 'camera is on its boom - tools/chase_angles_apply.py.');
+        // Say what actually happened. This used to claim "only moves
+        // once the camera is on its boom" after every click, worked or
+        // not, which told an instructor nothing and sent a day of
+        // debugging the wrong way.
+        if (d.sent) {
+          say('External view: ' + b.innerText + '.');
+        } else {
+          say('External view ' + b.innerText + ' NOT sent - the station '
+              + 'could not reach the boom. Run tools/chase_angles_apply.py '
+              + 'and restart the simulator.', true);
+        }
       }).catch(function () { say('The station did not answer.', true); });
   });
 
