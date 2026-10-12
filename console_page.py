@@ -393,12 +393,14 @@ TEMPLATE = """<!DOCTYPE html>
     box-shadow: 0 18px 54px rgba(0,0,0,0.8);
   }
   .window.open { display: flex; }
-  /* Failure injection sits out of the way at the top right, near the
-     instructor's own readouts, rather than over the picture: it is set up
-     while watching the aircraft, not instead of watching it. */
+  /* Failure injection sits in the one part of the screen with nothing on
+     it: inboard of the right-hand column, below the aircraft's state
+     readouts in the gauge's top corner, above the corner view. Everything
+     an instructor reads while a student flies - the tapes, the heading,
+     the attitude indicator, the parameter band - stays uncovered. */
   .window.topright {
-    left: auto; right: 14px; top: 60px; transform: none;
-    min-width: 0; width: 272px;
+    left: auto; right: 158px; top: 178px; transform: none;
+    min-width: 0; width: 204px;
   }
   .window.topright .win-controls { min-width: 0; }
   .window.topright .win-controls button {
@@ -445,7 +447,8 @@ TEMPLATE = """<!DOCTYPE html>
   .airframe .body { fill: #39404d; }
   .airframe .wing { fill: #2c323d; }
   .airframe .disc { fill: rgba(90,160,220,0.18); stroke: rgba(255,255,255,0.45); stroke-width: 1.5; }
-  .airframe .arrow { fill: none; stroke: #ffc94d; stroke-width: 2; stroke-linecap: round; }
+  .airframe .arrow { fill: none; stroke: #ffc94d; stroke-width: 2.6; stroke-linecap: round; }
+  .airframe .arrowhead { fill: #ffc94d; }
   .airframe .num { fill: #fff; font: 700 15px 'IBM Plex Mono', monospace; text-anchor: middle; }
   .airframe .spin { fill: #9fb0c4; font: 600 9px 'IBM Plex Sans', sans-serif; text-anchor: middle; letter-spacing: 1px; }
   .airframe .role { fill: #7f8c9e; font: 600 9px 'IBM Plex Sans', sans-serif; text-anchor: middle; letter-spacing: 1px; }

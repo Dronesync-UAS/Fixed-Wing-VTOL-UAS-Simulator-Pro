@@ -279,8 +279,8 @@ WINDOW_CATEGORIES = {
         "id": "failures",
         "place": "topright",
         "title": "Failure injection",
-        "note": "Each is a toggle: press once to inject, again to clear. "
-                "A lit dot means it is still on.",
+        "note": "Press once to inject, again to clear. A lit dot means it "
+                "is still on.",
     },
 }
 
@@ -306,6 +306,18 @@ RAIL_ORDER = {
 # Labels written for a wide panel do not fit a 120px rail. These are the
 # rail's own shorter names; the plugin's own label is used for anything not
 # listed, and the classic page is untouched.
+# Shorter again for the failure window, which is a narrow panel sitting in
+# the only part of the picture with nothing else in it. "Toggle GPS
+# Failure" in a 200px panel wraps to three lines; "GPS" does not, and the
+# window's own title already says these are failures.
+WINDOW_LABELS = {
+    "gps_failure": "GPS",
+    "data_link_loss": "Data link (C2)",
+    "rc_signal_loss": "RC signal",
+    "engine_failure": "Engine",
+    "motor_failure": "Motor",
+}
+
 RAIL_LABELS = {
     "rtl": "Return to launch",
     "climb_to": "Climb / descend",
@@ -529,6 +541,40 @@ ROTOR_LAYOUT = [
 PUSHER_ID = "motor_test_5"
 
 
+def _spin_arrow(cx, cy, r, spin):
+    """A three-quarter circular arrow round a rotor, with a solid head.
+
+    REDRAWN 12 Oct 2026: it was a shallow arc with two short strokes for a
+    head, and at rotor size nobody could tell which way it pointed - which
+    is the entire content of the drawing. This sweeps 260 degrees so the
+    curve itself reads as a rotation, and ends in a filled triangle.
+
+    SVG has y pointing DOWN, so an angle that increases goes clockwise on
+    screen. That is the whole of the direction logic, and getting it
+    backwards is the easy mistake here.
+    """
+    start = math.radians(125)
+    span = math.radians(260)
+    end = start + span if spin == "CW" else start - span
+    sweep = 1 if spin == "CW" else 0
+
+    def at(angle, radius=r):
+        return (cx + radius * math.cos(angle), cy + radius * math.sin(angle))
+
+    x0, y0 = at(start)
+    x1, y1 = at(end)
+    # Direction of travel at the end of the arc, then a triangle on it.
+    heading = (end + math.pi / 2) if spin == "CW" else (end - math.pi / 2)
+    tip = (x1 + 9 * math.cos(heading), y1 + 9 * math.sin(heading))
+    left = (x1 + 5.5 * math.cos(heading + 2.4), y1 + 5.5 * math.sin(heading + 2.4))
+    right = (x1 + 5.5 * math.cos(heading - 2.4), y1 + 5.5 * math.sin(heading - 2.4))
+    return (
+        f'<path d="M{x0:.1f} {y0:.1f} A{r} {r} 0 1 {sweep} {x1:.1f} {y1:.1f}" '
+        f'class="arrow"/>'
+        f'<polygon points="{tip[0]:.1f},{tip[1]:.1f} {left[0]:.1f},{left[1]:.1f} '
+        f'{right[0]:.1f},{right[1]:.1f}" class="arrowhead"/>')
+
+
 def _aircraft_diagram():
     """A standard VTOL seen from above: body, wing, four hover rotors with
     the way each turns, and the pusher at the back. Drawn as SVG so it
@@ -536,15 +582,12 @@ def _aircraft_diagram():
     rotors = []
     for rotor in ROTOR_LAYOUT:
         cx, cy = rotor["x"] * 260, rotor["y"] * 240
-        sweep = 1 if rotor["spin"] == "CW" else 0
         rotors.append(
             f'<g class="rotor" data-motor="{rotor["id"]}">'
             f'<circle cx="{cx}" cy="{cy}" r="34" class="disc"/>'
-            f'<path d="M{cx - 20} {cy - 20} A28 28 0 0 {sweep} {cx + 20} {cy - 20}" '
-            f'class="arrow"/>'
-            f'<path d="M{cx + 20} {cy - 20} l-7 -7 m7 7 l-8 6" class="arrow"/>'
+            + _spin_arrow(cx, cy, 26, rotor["spin"]) +
             f'<text x="{cx}" y="{cy + 5}" class="num">{rotor["n"]}</text>'
-            f'<text x="{cx}" y="{cy + 20}" class="spin">{rotor["spin"]}</text>'
+            f'<text x="{cx}" y="{cy + 21}" class="spin">{rotor["spin"]}</text>'
             f'</g>')
     return (
         '<svg viewBox="0 0 260 254" class="airframe">'
@@ -580,7 +623,8 @@ def render_windows():
                 dot = ('<span class="dot%s" id="dot-%s"></span>'
                        % (on, plugin["id"]))
                 klass += " has-dot" + on
-            label = RAIL_LABELS.get(plugin["id"], plugin["label"])
+            label = WINDOW_LABELS.get(
+                plugin["id"], RAIL_LABELS.get(plugin["id"], plugin["label"]))
             button = ('<button id="btn-%s" class="%s" data-motor="%s" '
                       'onclick="send(\'%s\')">%s%s</button>'
                       % (plugin["id"], klass, plugin["id"], plugin["id"],
