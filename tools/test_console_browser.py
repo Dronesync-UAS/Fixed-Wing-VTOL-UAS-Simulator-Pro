@@ -229,6 +229,29 @@ def main():
         check("no JavaScript errors: %s" % (errors[:2] or "none"), not errors)
         check("no failed requests: %s" % (failed[:2] or "none"), not failed)
 
+        print("1b. the top bar fits on one line")
+        # It grew a window button at a time until it wrapped, and the part
+        # that fell off was the aircraft's own state at the right-hand end.
+        bar = page.evaluate(
+            "() => { const b = document.getElementById('topbar');"
+            " return {scroll: b.scrollWidth, client: b.clientWidth,"
+            "  height: b.getBoundingClientRect().height}; }")
+        check("nothing is clipped off the ends (%s wide in %s)"
+              % (bar["scroll"], bar["client"]), bar["scroll"] <= bar["client"] + 1)
+        check("and it is still one row high (%s px)" % round(bar["height"]),
+              bar["height"] <= 56)
+        sizes = page.evaluate(
+            "() => [...document.querySelectorAll('#topbar button, #topbar label,"
+            " #topbar .badge, #topbar #t-mode')]"
+            " .map(e => getComputedStyle(e).fontSize)")
+        check("every label is the same size (%s)" % sorted(set(sizes)),
+              len(set(sizes)) == 1)
+        icons = page.evaluate(
+            "() => [...document.querySelectorAll('#topbar .icons svg')]"
+            " .map(e => Math.round(e.getBoundingClientRect().width))")
+        check("every icon is the same size (%s)" % sorted(set(icons)),
+              len(set(icons)) == 1 and icons[0] >= 18)
+
         print("2. it laid out")
         hero = page.locator("#hero").bounding_box()
         check("hero has real size (%s)" % hero, hero and hero["width"] > 600 and hero["height"] > 300)
@@ -457,8 +480,10 @@ def main():
               % (round(wider["width"]), round(wider["height"]),
                  round(turned["width"]), round(turned["height"])),
               turned["width"] > turned["height"])
+        # GPS failure used to live in this rail; it is in a window now, so
+        # the check moved to a control that still belongs to the rail.
         check("its buttons still reachable",
-              page.locator("#rail-right #btn-gps_failure").count() == 1)
+              page.locator("#rail-right #btn-new_session").count() == 1)
 
         print("7c. the picture is not inset for a panel that left the edge")
         page.click('#layouttabs button[data-layout="station"]')
@@ -472,6 +497,47 @@ def main():
         page.wait_for_timeout(250)
         check("Reset panels re-docks it",
               "floating" not in (page.get_attribute("#rail-right", "class") or ""))
+
+        print("7c2. the two windows, off the columns and into the middle")
+        # Motor tests and failure injections used to be two more sections
+        # in the right-hand column. They are things an instructor stops to
+        # do, not things reached for while watching a student fly.
+        for cat, text in (("Function Test", "Motor"),
+                          ("Failure Injection", "GPS")):
+            check("%s is no longer in a rail" % cat,
+                  page.locator("#rail-right .items button:has-text('%s')" % text).count() == 0)
+        page.click('[data-open-win="motors"]')
+        page.wait_for_timeout(400)
+        check("the motor window opens", page.locator("#win-motors.open").count() == 1)
+        rotors = page.locator("#win-motors .airframe .rotor").count()
+        check("it draws the aircraft from above with its rotors (%s)" % rotors,
+              rotors == 5)
+        spins = page.locator("#win-motors .airframe .spin").all_text_contents()
+        check("each hover rotor says which way it turns (%s)" % spins,
+              sorted(spins) == ["CCW", "CCW", "CW", "CW"])
+        # The aircraft is the control: no list of buttons beside it.
+        check("there is no button list beside it",
+              page.locator("#win-motors .win-controls button").count() == 0)
+        check("the propellers themselves are the controls",
+              page.locator("#win-motors .airframe .rotor[data-motor]").count() == 5)
+        page.click('#win-motors .airframe .rotor[data-motor="motor_test_3"]')
+        page.wait_for_timeout(400)
+        check("clicking one runs that motor's test (%s)"
+              % page.inner_text("#status")[:40],
+              page.locator('#win-motors .airframe .rotor.lit').count() >= 1)
+        page.click("#win-motors .win-close")
+        page.wait_for_timeout(300)
+        check("the X closes it", page.locator("#win-motors.open").count() == 0)
+
+        page.click('[data-open-win="failures"]')
+        page.wait_for_timeout(400)
+        check("the failures window opens",
+              page.locator("#win-failures.open").count() == 1)
+        check("a failure still shows its light",
+              page.locator("#win-failures #dot-gps_failure").count() == 1)
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(300)
+        check("Escape closes it", page.locator("#win-failures.open").count() == 0)
 
         print("7d. the pre-flight checklist")
         page.click("#pf-open")
@@ -516,6 +582,8 @@ def main():
         print("8. telemetry reached the readouts")
         check("altitude shown", "12.5" in page.inner_text("#p-alt"))
         check("arming state shown", "Ready" in page.inner_text("#t-armcheck"))
+        page.click('[data-open-win="failures"]')
+        page.wait_for_timeout(400)
         check("a lit failure shows its light",
               "on" in (page.get_attribute("#dot-gps_failure", "class") or ""))
 
@@ -523,6 +591,10 @@ def main():
             out = sys.argv[sys.argv.index("--shot") + 1]
             # --nose puts the attitude overlay on screen over a stand-in for
             # bright desert, which is the only way to judge whether it reads.
+            if "--window" in sys.argv:
+                page.click('[data-open-win="%s"]'
+                           % sys.argv[sys.argv.index("--window") + 1])
+                page.wait_for_timeout(600)
             if "--checklist" in sys.argv:
                 page.click("#pf-open")
                 page.wait_for_timeout(700)

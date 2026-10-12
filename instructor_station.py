@@ -259,8 +259,30 @@ CATEGORY_ORDER = ["Flight Ops", "Flight Mode", "Function Test", "Failure Injecti
 # the control is for: the left rail is what a pilot does, the right rail is
 # what only an instructor does to them.
 LEFT_CATEGORIES = ["Flight Ops", "Flight Mode", "Emergency"]
-RIGHT_CATEGORIES = ["Failure Injection", "Simulation Control", "Camera",
-                    "Function Test", "Experimental - In Development"]
+RIGHT_CATEGORIES = ["Simulation Control", "Camera",
+                    "Experimental - In Development"]
+
+# Two categories that are not flying controls and do not belong in a
+# column the pilot's eye travels down. Motor tests are a ground check done
+# once, and failure injections are the instructor setting up an exercise -
+# both are "stop and do this thing", which is what a window is for. They
+# open from the top bar instead. See docs/DJI-style-development-plan.md.
+WINDOW_CATEGORIES = {
+    "Function Test": {
+        "id": "motors",
+        "title": "Function test - individual motors",
+        "note": "Click a propeller to spin it. Disarmed only - PX4 refuses "
+                "an actuator test while armed, and caps each spin at three "
+                "seconds.",
+    },
+    "Failure Injection": {
+        "id": "failures",
+        "place": "topright",
+        "title": "Failure injection",
+        "note": "Each is a toggle: press once to inject, again to clear. "
+                "A lit dot means it is still on.",
+    },
+}
 
 # Plugins load in filename order, which put TERMINATE FLIGHT third in the
 # left rail - between DISARM and HOLD, where a mis-click lives. Order the
@@ -493,6 +515,93 @@ def _limits_script():
                           "groundspeed_ms": LIMITS["groundspeed_ms"]}))
 
 
+# The hover rotors of a standard VTOL, as PX4 numbers them, with the way
+# each turns. Taken from the airframe's own actuator mapping rather than
+# assumed - and the plugin files say plainly that the mapping should be
+# cross-checked in QGroundControl's Actuators tab before anyone relies on
+# which physical propeller a number refers to.
+ROTOR_LAYOUT = [
+    {"id": "motor_test_1", "n": 1, "x": 0.72, "y": 0.26, "spin": "CCW"},
+    {"id": "motor_test_2", "n": 2, "x": 0.28, "y": 0.74, "spin": "CCW"},
+    {"id": "motor_test_3", "n": 3, "x": 0.72, "y": 0.74, "spin": "CW"},
+    {"id": "motor_test_4", "n": 4, "x": 0.28, "y": 0.26, "spin": "CW"},
+]
+PUSHER_ID = "motor_test_5"
+
+
+def _aircraft_diagram():
+    """A standard VTOL seen from above: body, wing, four hover rotors with
+    the way each turns, and the pusher at the back. Drawn as SVG so it
+    scales and needs no image file."""
+    rotors = []
+    for rotor in ROTOR_LAYOUT:
+        cx, cy = rotor["x"] * 260, rotor["y"] * 240
+        sweep = 1 if rotor["spin"] == "CW" else 0
+        rotors.append(
+            f'<g class="rotor" data-motor="{rotor["id"]}">'
+            f'<circle cx="{cx}" cy="{cy}" r="34" class="disc"/>'
+            f'<path d="M{cx - 20} {cy - 20} A28 28 0 0 {sweep} {cx + 20} {cy - 20}" '
+            f'class="arrow"/>'
+            f'<path d="M{cx + 20} {cy - 20} l-7 -7 m7 7 l-8 6" class="arrow"/>'
+            f'<text x="{cx}" y="{cy + 5}" class="num">{rotor["n"]}</text>'
+            f'<text x="{cx}" y="{cy + 20}" class="spin">{rotor["spin"]}</text>'
+            f'</g>')
+    return (
+        '<svg viewBox="0 0 260 254" class="airframe">'
+        '<rect x="118" y="34" width="24" height="176" rx="12" class="body"/>'
+        '<rect x="34" y="92" width="192" height="18" rx="9" class="wing"/>'
+        '<rect x="92" y="196" width="76" height="12" rx="6" class="wing"/>'
+        + "".join(rotors)
+        + f'<g class="rotor pusher" data-motor="{PUSHER_ID}">'
+          '<circle cx="130" cy="220" r="17" class="disc"/>'
+          '<text x="130" y="225" class="num">5</text>'
+          '<text x="130" y="246" class="role">PUSHER</text></g>'
+        '<text x="130" y="24" class="nose">NOSE</text>'
+        '</svg>')
+
+
+def render_windows():
+    """The two categories that open as a window instead of living in a rail."""
+    html = ""
+    for category, meta in WINDOW_CATEGORIES.items():
+        members = _rail_sorted(category, categories.get(category, []))
+        status = failure_status()
+        # The motor window has no buttons: the aircraft IS the control.
+        # Clicking the propeller you are about to watch spin is a shorter
+        # path than reading "Motor 3" and working out which one that is.
+        controls = ""
+        if meta["id"] == "motors":
+            members = []
+        for plugin in members:
+            klass = plugin.get("style", "normal")
+            dot = ""
+            if plugin["id"] in status:
+                on = " on" if status[plugin["id"]] else ""
+                dot = ('<span class="dot%s" id="dot-%s"></span>'
+                       % (on, plugin["id"]))
+                klass += " has-dot" + on
+            label = RAIL_LABELS.get(plugin["id"], plugin["label"])
+            button = ('<button id="btn-%s" class="%s" data-motor="%s" '
+                      'onclick="send(\'%s\')">%s%s</button>'
+                      % (plugin["id"], klass, plugin["id"], plugin["id"],
+                         dot, label))
+            fields = _render_inputs(plugin)
+            controls += ('<div class="win-control">%s%s</div>'
+                         % (fields, button))
+        diagram = _aircraft_diagram() if meta["id"] == "motors" else ""
+        html += (
+            '<div class="window %s" id="win-%s">'
+            '  <div class="win-head"><b>%s</b>'
+            '    <button class="win-close" data-win="%s" title="Close">&times;</button>'
+            '  </div>'
+            '  <div class="win-note">%s</div>'
+            '  <div class="win-body">%s<div class="win-controls">%s</div></div>'
+            '</div>'
+            % (meta.get("place", "centred"), meta["id"], meta["title"],
+               meta["id"], meta["note"], diagram, controls))
+    return html
+
+
 def render_console():
     """The rebuilt console page, assembled from the plugins and the saved
     arrangement. The classic page is still built by render_buttons below and
@@ -500,6 +609,7 @@ def render_console():
     page = console_page.TEMPLATE
     page = page.replace("__LEFT_RAIL__", render_rail(LEFT_CATEGORIES))
     page = page.replace("__RIGHT_RAIL__", render_rail(RIGHT_CATEGORIES))
+    page = page.replace("__WINDOWS__", render_windows())
     script = console_page.SCRIPT
     script = script.replace("__SAVED__", json.dumps(console_state_for_page()))
     script = script.replace("__LIMITS__", json.dumps({

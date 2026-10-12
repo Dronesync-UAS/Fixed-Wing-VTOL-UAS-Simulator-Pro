@@ -72,31 +72,54 @@ TEMPLATE = """<!DOCTYPE html>
   .mono { font-family: 'IBM Plex Mono', monospace; }
 
   /* ---------- top bar ---------- */
+  /* One text size across the whole bar. It had five - 11, 12, 13, 14 and
+     whatever the icons inherited - and the eye reads that as five levels
+     of importance when they are all just labels. */
   #topbar {
-    position: absolute; left: 0; right: 0; top: 0; height: 44px; z-index: 40;
-    display: flex; align-items: center; gap: 12px; padding: 0 14px;
+    position: absolute; left: 0; right: 0; top: 0; height: 52px; z-index: 40;
+    display: flex; align-items: center; gap: 10px; padding: 0 12px;
+    font-size: 14px;
+    /* One line, always. With the window buttons added it started wrapping
+       at 1600px and the aircraft's own state - the right-hand end - was
+       the part that fell off, which is the last thing that should. */
+    flex-wrap: nowrap; overflow: hidden; white-space: nowrap;
   }
+  #topbar, #topbar button, #topbar label, #topbar span { font-size: 14px; }
   #topbar .badge {
-    background: rgba(255,255,255,0.14); border-radius: 5px;
-    padding: 4px 12px; font-size: 13px; font-weight: 500;
+    background: rgba(255,255,255,0.14); border-radius: 6px;
+    padding: 5px 13px; font-weight: 500;
   }
-  #t-mode { font-size: 14px; font-weight: 500; }
-  .seg { display: flex; gap: 3px; background: rgba(0,0,0,0.5); border-radius: 8px; padding: 3px; }
+  #t-mode { font-weight: 500; }
+  .seg { display: flex; gap: 3px; background: rgba(0,0,0,0.5); border-radius: 9px; padding: 3px; flex: none; }
   .seg button {
-    height: 26px; padding: 0 14px; border: 0; border-radius: 6px; cursor: pointer;
-    font-size: 12px; font-weight: 500; background: transparent; color: var(--ink);
+    height: 30px; padding: 0 15px; border: 0; border-radius: 7px; cursor: pointer;
+    font-weight: 500; background: transparent; color: var(--ink);
   }
   .seg button.on { background: #ffffff; color: #10151d; font-weight: 600; }
-  .icons { display: flex; align-items: center; gap: 16px; font-size: 13px; }
-  .icons span.item { display: flex; align-items: center; gap: 6px; }
+  /* The aircraft's state never shrinks and never wraps; the controls to
+     its left give up their space first. */
+  .icons { display: flex; align-items: center; gap: 16px; flex: none; }
+  #topbar .tools { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  #topbar .topbtn, #topbar .topswitch { flex: none; }
+  .icons span.item { display: flex; align-items: center; gap: 7px; }
+  /* The icons were drawn at whatever size their glyph happened to be, so a
+     satellite dish and a battery sat at different weights beside the same
+     number. One size, set here, for all of them. */
+  .icons svg { width: 20px; height: 20px; display: block; flex: none; }
+  .icons .num { font-variant-numeric: tabular-nums; }
   #t-health.stale { color: #ff8a8a; }
 
   /* ---------- message strip ---------- */
+  /* Moved off the attitude display. At the top centre it printed straight
+     across the roll arc - the part of the gauge an instructor is reading
+     while the message is still fading. The left is empty except for the
+     bank/pitch line, so it goes there. */
   #status {
-    position: absolute; left: 50%; top: 54px; transform: translateX(-50%); z-index: 45;
-    max-width: 620px; display: flex; align-items: center; gap: 9px;
+    position: absolute; left: 16px; top: 92px; z-index: 45;
+    max-width: 540px; display: flex; align-items: center; gap: 9px;
     padding: 7px 15px; border-radius: 8px; background: rgba(0,0,0,0.78);
     box-shadow: 0 3px 12px rgba(0,0,0,0.45); font-size: 13px; font-weight: 500;
+    transition: opacity 500ms;
   }
   #status.alert { background: rgba(120,26,26,0.94); }
 
@@ -218,8 +241,14 @@ TEMPLATE = """<!DOCTYPE html>
   .rail.horizontal button { width: auto; min-width: 86px; white-space: nowrap; }
   .rail.horizontal .stack { min-width: 104px; }
   .rail.horizontal hr { display: none; }
+  /* The scrollbar used to float over the right-hand edge of whatever was
+     under it, which on a number box is exactly where its up/down arrows
+     are - "Distance (m)" could not be nudged while the pointer was near
+     the scrollbar. scrollbar-gutter reserves the space instead of
+     borrowing it. */
+  .rail .railbody { scrollbar-gutter: stable; padding-right: 2px; }
   .rail { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.35) transparent; }
-  .rail::-webkit-scrollbar { width: 8px; }
+  .rail::-webkit-scrollbar { width: 10px; }
   .rail::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.35); border-radius: 4px; }
   .rail::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.55); }
   /* Each section collapses, because the right rail holds more controls than
@@ -344,6 +373,89 @@ TEMPLATE = """<!DOCTYPE html>
   }
   #preflight .pf-note { font-size: 11px; color: var(--dim); }
 
+  /* ---------- top bar buttons ---------- */
+  .topbtn {
+    height: 30px; padding: 0 13px; border: 0; border-radius: 7px;
+    cursor: pointer; background: rgba(0,0,0,0.5); color: #fff; font-weight: 500;
+  }
+  .topbtn.danger { background: rgba(123,26,45,0.95); color: #ffc3cd; }
+
+  /* ---------- windows ---------- */
+  /* A window, not another column entry: these are things an instructor
+     stops to do - a ground check, or setting up a failure - rather than
+     things reached for while watching a student fly. */
+  .window {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    z-index: 58; display: none; flex-direction: column;
+    max-width: 820px; max-height: calc(100% - 180px); overflow: auto;
+    border-radius: 12px; background: rgba(12,16,22,0.98);
+    border: 1px solid rgba(255,255,255,0.22);
+    box-shadow: 0 18px 54px rgba(0,0,0,0.8);
+  }
+  .window.open { display: flex; }
+  /* Failure injection sits out of the way at the top right, near the
+     instructor's own readouts, rather than over the picture: it is set up
+     while watching the aircraft, not instead of watching it. */
+  .window.topright {
+    left: auto; right: 14px; top: 60px; transform: none;
+    min-width: 0; width: 272px;
+  }
+  .window.topright .win-controls { min-width: 0; }
+  .window.topright .win-controls button {
+    min-height: 30px; padding: 5px 10px; font-size: 12px;
+  }
+  .window.topright .win-note { font-size: 11px; line-height: 1.35; }
+  .window.topright .win-body { padding: 10px 12px 12px; }
+  .window.topright .win-head { padding: 9px 12px; font-size: 13px; }
+  .win-head {
+    display: flex; align-items: center; gap: 10px; padding: 12px 15px;
+    border-bottom: 1px solid rgba(255,255,255,0.14); font-size: 15px;
+  }
+  .win-head b { flex: 1; }
+  .win-close {
+    min-height: 0; width: 28px; height: 26px; padding: 0; border: 0;
+    border-radius: 6px; background: rgba(255,255,255,0.14); color: #fff;
+    cursor: pointer; font-size: 18px; line-height: 1;
+  }
+  .win-note { padding: 10px 15px 0; font-size: 12px; color: var(--dim); }
+  .win-body { display: flex; gap: 20px; padding: 14px 15px 16px; align-items: flex-start; justify-content: center; }
+  .win-body:has(.airframe) .win-controls { display: none; }
+  .win-controls { display: flex; flex-direction: column; gap: 8px; min-width: 210px; flex: 1; }
+  .win-control { display: flex; flex-direction: column; gap: 3px; }
+  .win-controls button {
+    min-height: 34px; padding: 7px 12px; border: 0; border-radius: 8px;
+    background: var(--btn); color: var(--ink); cursor: pointer; font-size: 13px;
+    display: flex; align-items: center; gap: 9px; text-align: left;
+  }
+  .win-controls button.warning { background: rgba(123,26,45,0.95); color: #ffc3cd; }
+  .win-controls button.warning.on { background: var(--bad); color: #fff; font-weight: 600; }
+  .win-controls .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: rgba(255,255,255,0.28); }
+  .win-controls .dot.on { background: #ffffff; box-shadow: 0 0 7px rgba(255,255,255,0.95); }
+  .win-controls .field { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--dim); }
+  .win-controls .field input, .win-controls .field select {
+    flex: 1; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 6px; color: var(--ink); padding: 4px 7px; font-size: 12px;
+  }
+  /* the aircraft, seen from above */
+  /* The window is sized by the aircraft, not the other way round: with
+     the button list gone there is nothing else in it to fill the space. */
+  #win-motors { width: 372px; }
+  #win-motors .win-body { padding: 6px 10px 12px; }
+  .airframe { width: 352px; height: 344px; flex: none; margin: 0 auto; }
+  .airframe .body { fill: #39404d; }
+  .airframe .wing { fill: #2c323d; }
+  .airframe .disc { fill: rgba(90,160,220,0.18); stroke: rgba(255,255,255,0.45); stroke-width: 1.5; }
+  .airframe .arrow { fill: none; stroke: #ffc94d; stroke-width: 2; stroke-linecap: round; }
+  .airframe .num { fill: #fff; font: 700 15px 'IBM Plex Mono', monospace; text-anchor: middle; }
+  .airframe .spin { fill: #9fb0c4; font: 600 9px 'IBM Plex Sans', sans-serif; text-anchor: middle; letter-spacing: 1px; }
+  .airframe .role { fill: #7f8c9e; font: 600 9px 'IBM Plex Sans', sans-serif; text-anchor: middle; letter-spacing: 1px; }
+  .airframe .nose { fill: #7f8c9e; font: 600 10px 'IBM Plex Sans', sans-serif; text-anchor: middle; letter-spacing: 2px; }
+  /* the rotor under the pointer, and the one being tested, light up */
+  .airframe .rotor { cursor: pointer; }
+  .airframe .rotor:hover .disc, .airframe .rotor.lit .disc {
+    fill: rgba(255,201,77,0.33); stroke: #ffc94d;
+  }
+
   /* ---------- bottom band ---------- */
   #bottom { position: absolute; left: 0; right: 0; bottom: 0; height: 104px; z-index: 30; display: flex; flex-direction: column; }
   #params { height: 62px; display: flex; align-items: center; padding: 0 16px; }
@@ -386,24 +498,25 @@ TEMPLATE = """<!DOCTYPE html>
 <div id="topbar">
   <div class="badge">Instructor</div>
   <div id="t-mode">-</div>
-  <div style="flex-grow: 1; display: flex; justify-content: center; gap: 20px; align-items: center">
+  <div class="tools" style="flex: 1 1 auto; justify-content: center; gap: 14px">
     <div class="seg" id="viewtabs">
       <button data-view="chase">Chase</button>
       <button data-view="nose">Nose</button>
       <button data-view="map">Map</button>
     </div>
     <div style="display: flex; align-items: center; gap: 7px">
-      <span style="font-size: 11px; color: var(--dim)">Layout</span>
-      <div class="seg" id="layouttabs">
+      <div class="seg" id="layouttabs" title="Pilot floats the controls over the picture; Station insets it so nothing covers it">
         <button data-layout="pilot">Pilot</button>
         <button data-layout="station">Station</button>
       </div>
     </div>
-    <button id="resettiles" style="height: 26px; padding: 0 12px; border: 0; border-radius: 6px; cursor: pointer; font-size: 12px; background: rgba(0,0,0,0.5); color: #fff">Reset panels</button>
+    <button class="topbtn" id="resettiles" title="Put every panel back to its default place and size">Reset</button>
     <label class="topswitch" title="The flight display drawn over the camera views"><input type="checkbox" id="hud-on" checked> Gauge</label>
     <label class="topswitch" title="The low-altitude warning tone"><input type="checkbox" id="alarm-on" checked> Alarm</label>
     <label class="topswitch" title="Call out each command and each change of state"><input type="checkbox" id="voice-on"> Voice</label>
-    <button id="pf-open" style="height: 26px; padding: 0 12px; border: 0; border-radius: 6px; cursor: pointer; font-size: 12px; background: rgba(0,0,0,0.5); color: #fff">Checklist</button>
+    <button class="topbtn" id="pf-open">Checklist</button>
+    <button class="topbtn" data-open-win="motors">Motors</button>
+    <button class="topbtn danger" data-open-win="failures">Failures</button>
   </div>
   <div class="icons">
     <span class="item" id="t-armcheck-wrap" title="Whether PX4 will accept ARM or TAKEOFF right now">
@@ -411,29 +524,29 @@ TEMPLATE = """<!DOCTYPE html>
     </span>
     <span class="item" id="t-armed-wrap"><span id="t-armed" style="font-weight: 600">-</span></span>
     <span class="item" title="GPS satellites">
-      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
         <path d="M5 15 L13 7"></path>
         <rect x="2.5" y="12.5" width="5" height="5" rx="1" transform="rotate(-45 5 15)"></rect>
         <rect x="10.5" y="4.5" width="5" height="5" rx="1" transform="rotate(-45 13 7)"></rect>
         <path d="M14 16a4 4 0 0 0-4-4"></path>
         <path d="M18 18a8 8 0 0 0-8-8"></path>
       </svg>
-      <span class="mono" id="t-gps">-</span>
+      <span class="mono num" id="t-gps">-</span>
     </span>
     <span class="item" title="Battery remaining">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
         <rect x="2" y="8" width="17" height="9" rx="2"></rect>
         <path d="M21.5 11.5v2"></path>
         <rect id="batt-fill" x="4" y="10" width="13" height="5" rx="1" fill="#57cc7f" stroke="none"></rect>
       </svg>
-      <span class="mono" id="t-batt">-</span>
+      <span class="mono num" id="t-batt">-</span>
     </span>
     <span class="item" title="Telemetry age and camera frame rate">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <rect x="2" y="7" width="13" height="11" rx="2"></rect>
         <path d="M15 11.5 L21.5 8v9L15 13.5z"></path>
       </svg>
-      <span class="mono v" id="t-health">-</span>
+      <span class="mono num v" id="t-health">-</span>
     </span>
   </div>
 </div>
@@ -517,6 +630,10 @@ TEMPLATE = """<!DOCTYPE html>
   </div>
 </div>
 
+<!-- Function test and Failure injection, as windows rather than as more
+     entries in a column. Rendered by the station from the same plugins. -->
+__WINDOWS__
+
 <div id="dragmask"></div>
 
 <div id="bottom">
@@ -558,7 +675,7 @@ SCRIPT = """
 <script>
 (function () {
   var SAVED = __SAVED__;
-  var BAND = 104, TOPBAR = 44;
+  var BAND = 104, TOPBAR = 52;
   var MIN_W = 150, MIN_H = 96, MAX_W = 520, MAX_H = 300;
 
   var state = {
@@ -577,10 +694,20 @@ SCRIPT = """
   var views = { chase: el('view-chase'), nose: el('view-nose'), map: el('view-map') };
 
   // ---------- messages ----------
+  // The last reply from the station. An ordinary one fades after a few
+  // seconds - it was staying on screen for the rest of the flight. An
+  // alert does not fade, because an alert is a thing that went wrong and
+  // the instructor may be looking at the aircraft when it appears.
+  var sayTimer = null;
   function say(text, alert) {
     var s = el('status');
     s.innerText = text;
     s.className = alert ? 'alert' : '';
+    s.style.opacity = '1';
+    if (sayTimer) { clearTimeout(sayTimer); sayTimer = null; }
+    if (!alert) {
+      sayTimer = setTimeout(function () { s.style.opacity = '0'; }, 6000);
+    }
   }
 
   // ---------- layout geometry ----------
@@ -589,7 +716,9 @@ SCRIPT = """
   // reason these are one console and not two.
   function applyLayout() {
     var pilot = state.layout === 'pilot';
-    var railW = pilot ? 118 : 148;
+    // Wider since the scrollbar got a gutter of its own: at the old width
+    // the labels started wrapping to three lines.
+    var railW = pilot ? 132 : 162;
 
     document.documentElement.style.setProperty('--btn', pilot ? 'rgba(0,0,0,0.58)' : '#1e2430');
     el('topbar').style.background = pilot ? 'rgba(0,0,0,0.62)' : 'var(--panel)';
@@ -645,8 +774,14 @@ SCRIPT = """
 
   function home(side) {
     var pilot = state.layout === 'pilot';
-    var w = 212, h = 120;
-    var edge = pilot ? 128 : 160;
+    // 400x250, the size the instructor settled on by dragging them there.
+    // The old 212x120 was small enough that the map and the chase camera
+    // had to be swapped into the main screen to be read at all, which
+    // defeats the point of having them in the corner. Shrunk on a narrow
+    // screen so the two never meet in the middle.
+    var w = Math.min(400, Math.max(212, (window.innerWidth - 420) / 2));
+    var h = Math.round(w * 0.625);
+    var edge = pilot ? 142 : 172;
     return {
       x: side === 'left' ? edge : window.innerWidth - edge - w,
       y: window.innerHeight - BAND - 14 - h,
@@ -1046,7 +1181,10 @@ SCRIPT = """
     gyroFit();
     var S = GY, c = S / 2, R = c - 13;
     var roll = telem.roll_deg || 0, pitch = telem.pitch_deg || 0;
-    var pxPerDeg = R / 26;
+    // +-30 degrees across the glass, which is the span a real attitude
+    // indicator shows. It was +-26, chosen to make the numbers fit rather
+    // than to match anything.
+    var pxPerDeg = R / 30;
     gctx.clearRect(0, 0, S, S);
 
     // --- the glass: sky over ground, rolling and pitching -------------
@@ -1068,18 +1206,26 @@ SCRIPT = """
     gctx.strokeStyle = '#ffffff'; gctx.lineWidth = 2.5;
     gctx.beginPath(); gctx.moveTo(-S, 0); gctx.lineTo(S, 0); gctx.stroke();
 
-    gctx.font = '600 10px "IBM Plex Mono", monospace';
+    // A real pitch ladder is read by its numbers, not by counting rungs.
+    // This one had none: five identical white bars either side of the
+    // horizon told the instructor the aircraft was pitched, but not how
+    // far, which is the one thing it exists to say.
+    gctx.font = '700 11px "IBM Plex Mono", monospace';
     gctx.textAlign = 'center'; gctx.textBaseline = 'middle';
-    for (var d = -20; d <= 20; d += 5) {
+    for (var d = -30; d <= 30; d += 5) {
       if (d === 0) { continue; }
-      var y = -d * pxPerDeg, ten = (d % 10 === 0), half = ten ? 30 : 15;
-      gctx.lineWidth = ten ? 2 : 1.4;
+      var y = -d * pxPerDeg, ten = (d % 10 === 0), half = ten ? 26 : 13;
+      gctx.lineWidth = ten ? 2.2 : 1.5;
       gctx.strokeStyle = 'rgba(255,255,255,0.95)';
       gctx.beginPath(); gctx.moveTo(-half, y); gctx.lineTo(half, y); gctx.stroke();
       if (ten) {
+        gctx.lineJoin = 'round';
+        gctx.strokeStyle = 'rgba(0,0,0,0.8)'; gctx.lineWidth = 3;
+        gctx.strokeText(Math.abs(d), -half - 12, y);
+        gctx.strokeText(Math.abs(d), half + 12, y);
         gctx.fillStyle = '#ffffff';
-        gctx.fillText(Math.abs(d), -half - 11, y);
-        gctx.fillText(Math.abs(d), half + 11, y);
+        gctx.fillText(Math.abs(d), -half - 12, y);
+        gctx.fillText(Math.abs(d), half + 12, y);
       }
     }
     gctx.restore();
@@ -1101,6 +1247,9 @@ SCRIPT = """
     gctx.lineWidth = 1.5; gctx.strokeStyle = 'rgba(0,0,0,0.85)';
     gctx.beginPath(); gctx.arc(c, c, R + 0.75, 0, 7); gctx.stroke();
 
+    // The marks a real bank scale carries: 10, 20 and 30 close in, then 45
+    // and 60. 20 was being drawn the same length as 45, which is not what
+    // the eye is trained on.
     gctx.strokeStyle = '#ffffff'; gctx.lineCap = 'butt';
     [-60, -45, -30, -20, -10, 10, 20, 30, 45, 60].forEach(function (a) {
       var ar = (a - 90) * Math.PI / 180;
@@ -1140,6 +1289,18 @@ SCRIPT = """
     gctx.fillStyle = '#ffc94d';
     gctx.beginPath(); gctx.arc(c, c, 3, 0, 7); gctx.fill();
 
+    // --- bank in figures, beside the heading ---------------------------
+    var bankTxt = Math.abs(roll) < 1 ? '0\u00b0'
+                : Math.abs(Math.round(roll)) + '\u00b0 '
+                  + (roll > 0 ? 'R' : 'L');
+    gctx.font = '700 12px "IBM Plex Mono", monospace';
+    gctx.textAlign = 'center'; gctx.textBaseline = 'middle';
+    gctx.lineJoin = 'round';
+    gctx.strokeStyle = 'rgba(0,0,0,0.85)'; gctx.lineWidth = 3.5;
+    gctx.strokeText(bankTxt, c, c - R * 0.52);
+    gctx.fillStyle = Math.abs(roll) > 45 ? '#ffb02e' : '#ffffff';
+    gctx.fillText(bankTxt, c, c - R * 0.52);
+
     // --- heading window, in the half that sits on the black band ------
     var hw = 58, hh = 22, hx = c - hw / 2, hy = c + R * 0.40;
     gctx.fillStyle = 'rgba(6,9,13,0.92)';
@@ -1154,6 +1315,55 @@ SCRIPT = """
     gctx.fillStyle = 'rgba(255,255,255,0.65)';
     gctx.fillText('HDG', c, hy - 6);
   }
+
+  // ---------- windows ----------
+  // One open at a time, closed by its X or by Escape. Opening one closes
+  // the checklist and the other, because two panels over the picture is
+  // the clutter these were built to remove.
+  function closeWindows() {
+    document.querySelectorAll('.window').forEach(function (w) {
+      w.classList.remove('open');
+    });
+  }
+  function openWindow(id) {
+    var win = el('win-' + id);
+    if (!win) { return; }
+    closeWindows();
+    el('preflight').classList.remove('open');
+    win.classList.add('open');
+  }
+  document.addEventListener('click', function (e) {
+    var open = e.target.closest ? e.target.closest('[data-open-win]') : null;
+    if (open) { openWindow(open.dataset.openWin); return; }
+    var close = e.target.closest ? e.target.closest('.win-close') : null;
+    if (close) { closeWindows(); }
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { closeWindows(); el('preflight').classList.remove('open'); }
+  });
+
+  // The aircraft diagram is the control: clicking a rotor runs that
+  // rotor's test, which is the gesture a ground check actually wants -
+  // point at the propeller you are watching.
+  document.querySelectorAll('.airframe .rotor').forEach(function (rotor) {
+    rotor.addEventListener('click', function () {
+      var id = rotor.dataset.motor;
+      if (!id) { return; }
+      send(id);
+      rotor.classList.add('lit');
+      setTimeout(function () { rotor.classList.remove('lit'); }, 3200);
+    });
+  });
+  // Hovering a button lights the propeller it belongs to, so there is no
+  // guessing which one "Motor 3" is.
+  document.querySelectorAll('.win-controls button[data-motor]').forEach(function (b) {
+    function light(on) {
+      var rotor = document.querySelector('.airframe .rotor[data-motor="' + b.dataset.motor + '"]');
+      if (rotor) { rotor.classList.toggle('lit', on); }
+    }
+    b.addEventListener('mouseenter', function () { light(true); });
+    b.addEventListener('mouseleave', function () { light(false); });
+  });
 
   // ---------- pre-flight checklist ----------
   var pf = el('preflight');

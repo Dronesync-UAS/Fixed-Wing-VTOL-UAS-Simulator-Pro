@@ -322,6 +322,20 @@ SCRIPT = """
   // Speaking is driven off the banner rather than off each button, so the
   // aircraft's own state is what is called out: pressing ARM when PX4
   // refuses says nothing, and PX4 disarming itself ten seconds later does.
+  // How long a message stays on screen. A warning or a danger holds until
+  // the condition clears - that is the point of it. ARMED does not: it is
+  // news for a moment and furniture after that.
+  var BANNER_HOLD_MS = 6000;
+  var bannerShown = { text: null, at: 0 };
+
+  function bannerVisible(msg) {
+    if (msg.level !== 'ok') { return true; }
+    if (msg.text !== bannerShown.text) {
+      bannerShown = { text: msg.text, at: Date.now() };
+    }
+    return Date.now() - bannerShown.at < BANNER_HOLD_MS;
+  }
+
   var spokenBanner = null;
   function speakBanner(msg) {
     if (msg.text === spokenBanner) { return; }
@@ -471,7 +485,10 @@ SCRIPT = """
 
   // ---------- the heading tape ----------
   function headingTape(ctx, cx, y, w, heading) {
-    var h = 26, left = cx - w / 2, pxPerDeg = w / 70;
+    // Same height and type size as the speed and altitude tapes. It was
+    // 26px against their 30px readouts, with 12px type against 17px, which
+    // made the one number a pilot checks most the hardest to read.
+    var h = 34, left = cx - w / 2, pxPerDeg = w / 70;
     ctx.save();
     ctx.beginPath(); ctx.rect(left, y, w, h); ctx.clip();
     ctx.fillStyle = 'rgba(0,0,0,0.42)';
@@ -483,12 +500,12 @@ SCRIPT = """
       var big = (d % 15 === 0) || name;
       cased(ctx, function () {
         ctx.beginPath();
-        ctx.moveTo(x, y + h); ctx.lineTo(x, y + h - (big ? 9 : 5));
+        ctx.moveTo(x, y + h); ctx.lineTo(x, y + h - (big ? 11 : 6));
         ctx.stroke();
-      }, INK, big ? 2 : 1.4);
+      }, INK, big ? 2.2 : 1.5);
       if (big) {
         var txt = name || String(((d % 360) + 360) % 360);
-        label(ctx, txt, x, y + 9, '600 12px "IBM Plex Mono", monospace', INK);
+        label(ctx, txt, x, y + 12, '600 15px "IBM Plex Mono", monospace', INK);
       }
     }
     ctx.restore();
@@ -499,9 +516,9 @@ SCRIPT = """
     ctx.beginPath();
     ctx.moveTo(cx, y + h + 1); ctx.lineTo(cx - 7, y + h + 11);
     ctx.lineTo(cx + 7, y + h + 11); ctx.closePath(); ctx.fill();
-    plate(ctx, cx - 30, y + h + 11, 60, 24);
+    plate(ctx, cx - 36, y + h + 11, 72, 30);
     label(ctx, String(Math.round(((heading % 360) + 360) % 360)).padStart(3, '0') + '°',
-          cx, y + h + 23, '700 15px "IBM Plex Mono", monospace', INK);
+          cx, y + h + 26, '700 17px "IBM Plex Mono", monospace', INK);
   }
 
   // ---------- the home point, seen through the camera ----------
@@ -710,37 +727,54 @@ SCRIPT = """
     ctx.closePath(); ctx.fill(); ctx.stroke();
 
     // --- the tapes ---
-    var tapeW = 60, tapeH = Math.min((sB - sT) * 0.56, 300);
+    // Pulled in towards the middle. Sitting them against the safe-area
+    // edge put them right up against the control columns, which is not
+    // where a real panel has them - speed and height belong either side of
+    // the attitude display, close enough to read in the same glance.
+    var tapeW = 64, tapeH = Math.min((sB - sT) * 0.56, 300);
+    var usable = sR - sL;
+    var inset = Math.max(26, Math.min(usable * 0.17, 230));
+    var speedX = Math.max(sL, cx - inset - tapeW);
+    var altX = Math.min(sR - tapeW, cx + inset);
+
     var speed = (t.airspeed_ms != null && t.airspeed_ms > 0.2)
               ? t.airspeed_ms : (t.groundspeed_ms || 0);
-    tape(ctx, sL, cy - tapeH / 2, tapeW, tapeH, speed, 24, 5, 1, -1, null);
-    tapeReadout(ctx, sL, cy, tapeW, speed.toFixed(1));
-    label(ctx, 'm/s', sL + tapeW / 2, cy - tapeH / 2 - 11,
-          '600 11px -apple-system, sans-serif', INK);
+    tape(ctx, speedX, cy - tapeH / 2, tapeW, tapeH, speed, 24, 5, 1, -1, null);
+    tapeReadout(ctx, speedX, cy, tapeW, speed.toFixed(1));
+    label(ctx, 'm/s', speedX + tapeW / 2, cy - tapeH / 2 - 12,
+          '600 13px -apple-system, sans-serif', INK);
 
     var alt = (t.altitude_m != null) ? t.altitude_m : 0;
     var ceiling = (window.GCS_LIMITS && window.GCS_LIMITS.ceiling_m) || null;
-    tape(ctx, sR - tapeW, cy - tapeH / 2, tapeW, tapeH, alt, 60, 20, 5, 1, ceiling);
-    tapeReadout(ctx, sR - tapeW, cy, tapeW, alt.toFixed(1));
-    label(ctx, 'm AGL', sR - tapeW / 2, cy - tapeH / 2 - 11,
-          '600 11px -apple-system, sans-serif', INK);
+    tape(ctx, altX, cy - tapeH / 2, tapeW, tapeH, alt, 60, 20, 5, 1, ceiling);
+    tapeReadout(ctx, altX, cy, tapeW, alt.toFixed(1));
+    label(ctx, 'm AGL', altX + tapeW / 2, cy - tapeH / 2 - 12,
+          '600 13px -apple-system, sans-serif', INK);
 
     // --- the heading tape ---
-    headingTape(ctx, cx, sT, Math.min((sR - sL) * 0.46, 420), t.heading_deg || 0);
+    headingTape(ctx, cx, sT, Math.min((sR - sL) * 0.46, 440), t.heading_deg || 0);
 
     // --- the message, colour coded ---
     var msg = banner();
+    var showMessage = bannerVisible(msg);
     var colour = levelColour(msg.level);
     var flash = (msg.level === 'danger') && (Math.floor(Date.now() / 450) % 2 === 0);
     var font = '800 30px -apple-system, sans-serif';
     ctx.font = font;
     var mw = ctx.measureText(msg.text).width + 34;
-    var my = Math.max(sT + 92, cy - Math.min(h * 0.26, 150));
-    ctx.fillStyle = flash ? 'rgba(120,0,0,0.75)' : 'rgba(0,0,0,0.6)';
-    ctx.fillRect(cx - mw / 2, my - 23, mw, 46);
-    ctx.strokeStyle = colour; ctx.lineWidth = 2.5;
-    ctx.strokeRect(cx - mw / 2, my - 23, mw, 46);
-    label(ctx, msg.text, cx, my, font, colour);
+    if (!showMessage) { mw = 0; }
+    // BELOW the aircraft symbol, not above it. Up there it printed across
+    // the roll arc and the pitch ladder - the part of the gauge being read
+    // while the message is still on screen. Down here it is clear of the
+    // arc above and of the attitude indicator at the bottom centre.
+    var my = Math.min(cy + Math.min(h * 0.17, 115), sB - 120);
+    if (showMessage) {
+      ctx.fillStyle = flash ? 'rgba(120,0,0,0.75)' : 'rgba(0,0,0,0.6)';
+      ctx.fillRect(cx - mw / 2, my - 23, mw, 46);
+      ctx.strokeStyle = colour; ctx.lineWidth = 2.5;
+      ctx.strokeRect(cx - mw / 2, my - 23, mw, 46);
+      label(ctx, msg.text, cx, my, font, colour);
+    }
 
     // --- the home point, where the camera would see it ---
     if (cv.closest && !cv.closest('#view-map')) {
@@ -774,8 +808,10 @@ SCRIPT = """
     var ty = sT + 10;
     label(ctx, 'BANK ' + roll.toFixed(0) + '°  PITCH ' + pitch.toFixed(0) + '°',
           sL, ty, '600 12px -apple-system, sans-serif', INK, 'left');
-    label(ctx, 'AS ' + (t.airspeed_ms != null ? t.airspeed_ms.toFixed(1) : '--'), sL, ty + 22, mono, INK, 'left');
-    label(ctx, 'GS ' + (t.groundspeed_ms != null ? t.groundspeed_ms.toFixed(1) : '--'), sL, ty + 42, mono, INK, 'left');
+    // Airspeed and ground speed used to be printed here as well. They are
+    // on the speed tape and again on the parameter band, and three copies
+    // of one number is exactly the clutter an instructor was asking to be
+    // rid of. The tape keeps them.
 
     var bat = (t.battery_pct != null) ? t.battery_pct + '%' : '--';
     var sats = (t.satellites != null) ? t.satellites : '--';
