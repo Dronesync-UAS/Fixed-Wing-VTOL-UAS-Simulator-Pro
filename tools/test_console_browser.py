@@ -388,6 +388,34 @@ def main():
         page.click('#viewtabs button[data-view="map"]')
         page.wait_for_timeout(250)
 
+        print("4b5. the tapes clear the corner views")
+        # The corner views are 400px wide now, and at that size the left
+        # one reached straight across the speed tape.
+        page.click('#viewtabs button[data-view="nose"]')
+        page.wait_for_timeout(500)
+        tapes = page.evaluate("() => window.gcsTapes('#hero canvas.hud')")
+        boxes = page.evaluate(
+            """() => { const c = document.querySelector('#hero canvas.hud');
+               const b = c.getBoundingClientRect();
+               return [...document.querySelectorAll('.tile')].map(t => {
+                 const r = t.getBoundingClientRect();
+                 return {left: r.left - b.left, right: r.right - b.left,
+                         top: r.top - b.top, bottom: r.bottom - b.top}; }); }""")
+        check("the gauge reported where it put them", tapes is not None)
+        if tapes:
+            for name in ("speed", "alt"):
+                tape = tapes[name]
+                clash = [t for t in boxes
+                         if tape["right"] > t["left"] and tape["left"] < t["right"]
+                         and tape["bottom"] > t["top"] and tape["top"] < t["bottom"]]
+                check("the %s tape clears both corner views (%s)"
+                      % (name, "clear" if not clash else clash), not clash)
+            check("and they are still either side of the middle (%s | %s)"
+                  % (round(tapes["speed"]["right"]), round(tapes["alt"]["left"])),
+                  tapes["speed"]["right"] < tapes["alt"]["left"])
+        page.click('#viewtabs button[data-view="map"]')
+        page.wait_for_timeout(300)
+
         print("4c. rail sections collapse")
         head = page.locator("#rail-right .group .head").first
         group = page.locator("#rail-right .group").first

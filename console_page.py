@@ -379,6 +379,18 @@ TEMPLATE = """<!DOCTYPE html>
     cursor: pointer; background: rgba(0,0,0,0.5); color: #fff; font-weight: 500;
   }
   .topbtn.danger { background: rgba(123,26,45,0.95); color: #ffc3cd; }
+  .topsel {
+    height: 30px; padding: 0 8px; border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 7px; background: rgba(0,0,0,0.5); color: #fff; cursor: pointer;
+  }
+  /* A standing reminder, for as long as a rendered view is on: nothing in
+     the simulation knows anything about temperature. */
+  #irnote {
+    position: absolute; left: 50%; transform: translateX(-50%); bottom: 112px;
+    z-index: 46; display: none; padding: 4px 12px; border-radius: 6px;
+    background: rgba(90,60,0,0.9); color: #ffe6a8; font-size: 12px;
+  }
+  #irnote.on { display: block; }
 
   /* ---------- windows ---------- */
   /* A window, not another column entry: these are things an instructor
@@ -520,6 +532,12 @@ TEMPLATE = """<!DOCTYPE html>
     <button class="topbtn" id="pf-open">Checklist</button>
     <button class="topbtn" data-open-win="motors">Motors</button>
     <button class="topbtn danger" data-open-win="failures">Failures</button>
+    <select id="viewmode" class="topsel" title="How the camera pictures are rendered. The infrared views are renderings of the colour camera, not a thermal sensor.">
+      <option value="normal">Daylight</option>
+      <option value="night_vision">Night vision</option>
+      <option value="white_hot">IR white hot</option>
+      <option value="black_hot">IR black hot</option>
+    </select>
   </div>
   <div class="icons">
     <span class="item" id="t-armcheck-wrap" title="Whether PX4 will accept ARM or TAKEOFF right now">
@@ -555,6 +573,7 @@ TEMPLATE = """<!DOCTYPE html>
 </div>
 
 <div id="status">Console ready.</div>
+<div id="irnote">Simulated infrared - a rendering of the colour camera, not a thermal sensor.</div>
 <div id="limit-banner" class="limit-banner"></div>
 
 <div id="hero"></div>
@@ -1318,6 +1337,19 @@ SCRIPT = """
     gctx.fillStyle = 'rgba(255,255,255,0.65)';
     gctx.fillText('HDG', c, hy - 6);
   }
+
+  // ---------- how the camera pictures are rendered ----------
+  el('viewmode').addEventListener('change', function () {
+    var mode = el('viewmode').value;
+    fetch('/view_mode?mode=' + mode).then(function (r) { return r.json(); })
+      .then(function (d) {
+        el('irnote').classList.toggle('on', mode !== 'normal');
+        say('Camera view: ' + el('viewmode').selectedOptions[0].text
+            + (mode === 'normal' ? '.'
+               : '. This is a rendering of the colour camera, not a '
+                 + 'thermal sensor - it has no temperature information.'));
+      }).catch(function () { say('The station did not answer.', true); });
+  });
 
   // ---------- windows ----------
   // One open at a time, closed by its X or by Escape. Opening one closes

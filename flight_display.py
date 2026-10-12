@@ -405,6 +405,19 @@ SCRIPT = """
     return area;
   }
 
+  // Where the corner views sit, in this canvas's own coordinates.
+  function tiles(cv) {
+    var box = cv.getBoundingClientRect();
+    var out = [];
+    document.querySelectorAll('.tile').forEach(function (t) {
+      var r = t.getBoundingClientRect();
+      if (!r.width || !r.height) { return; }
+      out.push({ left: r.left - box.left, right: r.right - box.left,
+                 top: r.top - box.top, bottom: r.bottom - box.top });
+    });
+    return out;
+  }
+
   function cased(ctx, draw, colour, width) {
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     ctx.strokeStyle = 'rgba(0,0,0,0.78)'; ctx.lineWidth = width + 3.5;
@@ -737,6 +750,28 @@ SCRIPT = """
     var speedX = Math.max(sL, cx - inset - tapeW);
     var altX = Math.min(sR - tapeW, cx + inset);
 
+    // The two corner views are 400px wide now, and at that size the left
+    // one reached across the speed tape. Rather than pick an inset that
+    // happens to clear them today - the instructor can drag them to any
+    // size - measure where they actually are and step the tapes inboard
+    // of them, stopping well short of the middle so they never collide
+    // with the attitude display.
+    var tapeTop = cy - tapeH / 2, tapeBottom = cy + tapeH / 2;
+    tiles(cv).forEach(function (r) {
+      if (r.bottom <= tapeTop || r.top >= tapeBottom) { return; }
+      if (r.right > speedX && r.left < speedX + tapeW) {
+        speedX = Math.min(r.right + 10, cx - 96 - tapeW);
+      }
+      if (r.left < altX + tapeW && r.right > altX) {
+        altX = Math.max(r.left - tapeW - 10, cx + 96);
+      }
+    });
+
+    cv.tapeRects = {
+      speed: { left: speedX, right: speedX + tapeW, top: tapeTop, bottom: tapeBottom },
+      alt: { left: altX, right: altX + tapeW, top: tapeTop, bottom: tapeBottom }
+    };
+
     var speed = (t.airspeed_ms != null && t.airspeed_ms > 0.2)
               ? t.airspeed_ms : (t.groundspeed_ms || 0);
     tape(ctx, speedX, cy - tapeH / 2, tapeW, tapeH, speed, 24, 5, 1, -1, null);
@@ -857,6 +892,11 @@ SCRIPT = """
   // for a given canvas, so the test can check them against where the
   // controls actually are instead of hunting for stray pixels - the
   // horizon and pitch ladder run the full width on purpose.
+  window.gcsTapes = function (selector) {
+    var cv = document.querySelector(selector);
+    return cv ? (cv.tapeRects || null) : null;
+  };
+
   window.gcsHudSafe = function (selector) {
     var cv = document.querySelector(selector);
     if (!cv) { return null; }

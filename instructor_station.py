@@ -298,7 +298,8 @@ RAIL_ORDER = {
     # NEW SESSION first: it is the one an instructor reaches for between
     # students, and alphabetical order buried it under the environment
     # selector.
-    "Simulation Control": ["new_session", "environment", "freeze_resume",
+    "Simulation Control": ["new_session", "environment", "time_of_day",
+                           "aircraft_lights", "freeze_resume",
                            "reset_scenario", "reset_spawn", "set_home"],
 }
 
@@ -321,6 +322,8 @@ WINDOW_LABELS = {
 RAIL_LABELS = {
     "rtl": "Return to launch",
     "climb_to": "Climb / descend",
+    "time_of_day": "Lighting",
+    "aircraft_lights": "Aircraft lights",
     "set_home": "Set home here",
     "hover_flight": "Hover (MC)",
     "forward_flight": "Forward (FW)",
@@ -1665,6 +1668,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-type", "application/json; charset=utf-8")
             self.end_headers()
             self.wfile.write(json.dumps(connection_status).encode("utf-8"))
+        elif self.path.startswith("/view_mode"):
+            query = parse_qs(urlparse(self.path).query)
+            mode = (query.get("mode") or ["normal"])[0]
+            ok = mode in video_feed.VIEW_MODES
+            if ok:
+                for feed in FEEDS.values():
+                    feed.view_mode = mode
+                event_logger.log_event("camera_view_mode", f"mode={mode}")
+            self.send_response(200 if ok else 400)
+            self.send_header("Content-type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps(
+                {"mode": mode if ok else None,
+                 "modes": list(video_feed.VIEW_MODES)}).encode("utf-8"))
         elif self.path == "/preflight":
             self.send_response(200)
             self.send_header("Content-type", "application/json; charset=utf-8")

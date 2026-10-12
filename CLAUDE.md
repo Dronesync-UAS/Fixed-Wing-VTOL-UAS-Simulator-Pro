@@ -58,6 +58,13 @@ the low-altitude warning sounds:
 python3 tools/test_flight_display.py
 ```
 
+After changing the night-operations pieces - the infrared views, the
+lighting control or the aircraft's own lights - run:
+
+```
+python3 tools/test_night_ops.py
+```
+
 After changing ARM or NEW SESSION, run the recovery check - these two
 controls are the ones that bite hardest when they are wrong:
 

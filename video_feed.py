@@ -40,7 +40,7 @@ try:
     from gz.msgs10.camera_info_pb2 import CameraInfo as GzCameraInfo
 except ImportError:                                        # pragma: no cover
     GzCameraInfo = None
-from PIL import Image
+from PIL import Image, ImageOps
 
 import sim_target
 
@@ -50,6 +50,56 @@ import sim_target
 # publishing on yet. Rather than rely on gz-transport picking it up when the
 # publisher appears, check and re-subscribe.
 STALE_AFTER_S = 8.0
+
+
+# ---------------------------------------------------------------------
+# NIGHT AND INFRARED VIEWS
+#
+# Added 12 Oct 2026 for night operations training.
+#
+# BE CLEAR ABOUT WHAT THIS IS. These are renderings of the ordinary colour
+# camera, not the output of an infrared sensor. Nothing in the simulation
+# knows anything about temperature: a warm body and a cold rock of the same
+# brightness come out the same here, and on a real thermal camera they
+# would not. Gazebo can carry a genuine thermal_camera sensor, but it only
+# says anything useful once every object in the world has been given a
+# temperature, and nothing in these worlds has.
+#
+# So this trains the HALF of night flying that is about reading a
+# monochrome picture and flying from it - framing, orientation, judging
+# height and closure with no colour and little contrast. It does not train
+# interpreting a heat signature, and the console says so on screen rather
+# than letting a student believe otherwise.
+#
+# WHITE HOT and BLACK HOT are the two polarities every thermal camera
+# offers, and switching between them is a real habit worth building.
+# NIGHT VISION is the green of an image intensifier.
+
+def _luminance(image):
+    """Perceived brightness, which is what every one of these starts from."""
+    return image.convert("L")
+
+
+def _white_hot(image):
+    return _luminance(image).convert("RGB")
+
+
+def _black_hot(image):
+    return ImageOps.invert(_luminance(image)).convert("RGB")
+
+
+def _night_vision(image):
+    """Green, and lifted out of the shadows, like an intensifier."""
+    grey = ImageOps.autocontrast(_luminance(image), cutoff=1)
+    return ImageOps.colorize(grey, black=(2, 14, 4), white=(176, 255, 176)).convert("RGB")
+
+
+VIEW_MODES = {
+    "normal": None,
+    "white_hot": _white_hot,
+    "black_hot": _black_hot,
+    "night_vision": _night_vision,
+}
 
 
 class CameraFeed:
@@ -76,6 +126,9 @@ class CameraFeed:
         self._watchdog_on = False
         # Horizontal field of view in radians, once Gazebo has told us.
         self._fov_rad = None
+        # How the picture is rendered: see VIEW_MODES above.
+        self.view_mode = "normal"
+
 
     # -- incoming frames ------------------------------------------------
     def _on_image(self, msg):
@@ -90,6 +143,14 @@ class CameraFeed:
             # Wrong-sized buffer: drop the frame rather than take down the
             # subscriber thread for every later frame too.
             return
+        render = VIEW_MODES.get(self.view_mode)
+        if render is not None:
+            try:
+                image = render(image)
+            except (ValueError, OSError):
+                # A rendering that fails must not stop the feed: show the
+                # picture as it came rather than dropping the frame.
+                pass
         buffer = io.BytesIO()
         image.save(buffer, format="JPEG", quality=self.quality)
         with self._lock:
