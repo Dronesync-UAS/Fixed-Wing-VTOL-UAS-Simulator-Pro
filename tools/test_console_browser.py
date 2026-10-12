@@ -646,6 +646,33 @@ def main():
               page.evaluate("""() => [...document.querySelectorAll('.railbody')]
                   .every(b => getComputedStyle(b).overflowY === 'hidden')"""))
 
+        print("7a1b. the Mission tab in settings")
+        page.click("#settings-open")
+        page.wait_for_timeout(300)
+        has_tab = page.evaluate(
+            """() => !!document.querySelector('#set-tabs [data-tab="mission"]')""")
+        check("there is a Mission tab", has_tab)
+        if has_tab:
+            page.click('#set-tabs [data-tab="mission"]')
+            page.wait_for_timeout(250)
+            check("it opens its own pane",
+                  page.evaluate("""() => document
+                      .querySelector('[data-pane="mission"]')
+                      .classList.contains('on')"""))
+            for sel, what in (('#in-mission_plan-pattern', "the pattern chooser"),
+                              ('#in-mission_plan-altitude_m', "the height"),
+                              ('#in-mission_plan-size_m', "the area size"),
+                              ('#in-mission_plan-action', "plan/upload/start")):
+                check("%s is there" % what,
+                      page.evaluate("(s) => !!document.querySelector(s)", sel))
+        # Put the window back as it was found: Display showing, window
+        # closed. A later section clicks the layout switch, which lives
+        # on the Display pane, and leaving Mission open hid it.
+        page.click('#set-tabs [data-tab="display"]')
+        page.wait_for_timeout(150)
+        page.click('.win-close[data-win="settings"]')
+        page.wait_for_timeout(250)
+
         print("7a2a. the gimbal camera and ALL its controls")
         # Asked for three times: "I still dont see gimbals camera view
         # window with all commands". The controls only exist while the

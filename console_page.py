@@ -1052,6 +1052,7 @@ __WINDOWS__
       <button data-tab="sound">Warnings &amp; sound</button>
       <button data-tab="environment">Environment</button>
       <button data-tab="aircraft">Aircraft</button>
+      <button data-tab="mission">Mission</button>
       <button data-tab="session">Session</button>
     </div>
     <div class="set-panes">
@@ -1115,6 +1116,10 @@ __WINDOWS__
 
       <div class="set-pane" data-pane="environment">__SETTINGS_ENVIRONMENT__</div>
       <div class="set-pane" data-pane="aircraft">__SETTINGS_AIRCRAFT__</div>
+      <!-- Mission planning has its own tab: it is a job, not a setting,
+           and it is the one panel an instructor needs room to read
+           before anything flies. -->
+      <div class="set-pane" data-pane="mission">__SETTINGS_MISSION__</div>
       <div class="set-pane" data-pane="session">__SETTINGS_SESSION__
         __SETTINGS_OTHER__
       </div>

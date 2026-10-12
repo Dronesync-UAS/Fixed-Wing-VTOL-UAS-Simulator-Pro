@@ -105,6 +105,13 @@ the world files' ground extent, or the satellite fetcher's extent, run:
 python3 tools/test_range_profile.py
 ```
 
+After changing mission planning - the patterns, the photogrammetry
+figures or the upload - run:
+
+```
+python3 tools/test_mission.py
+```
+
 After changing a world file, or the launcher, run the install check -
 there are two copies of every world and only one of them flies:
 

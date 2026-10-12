@@ -452,6 +452,10 @@ SETTINGS_GROUPS = [
                      "wind_gust"]),
     ("Aircraft", ["aircraft_lights", "idle_spin", "start_video",
                   "start_stabilizer"]),
+    # Mission gets its own tab: planning is a job of its own, not a
+    # setting, and burying it under Session would hide the one thing an
+    # instructor wants a clear panel for.
+    ("Mission", ["mission_plan"]),
     ("Session", ["operating_envelope", "new_session", "reset_scenario",
                  "reset_spawn", "set_home", "freeze", "external_view"]),
 ]
@@ -498,7 +502,8 @@ RAIL_ORDER = {
     # NEW SESSION first: it is the one an instructor reaches for between
     # students, and alphabetical order buried it under the environment
     # selector.
-    "Simulation Control": ["new_session", "operating_envelope", "environment",
+    "Simulation Control": ["mission_plan", "new_session",
+                           "operating_envelope", "environment",
                            "time_of_day", "aircraft_lights", "freeze_resume",
                            "reset_scenario", "reset_spawn", "set_home"],
 }
@@ -551,6 +556,7 @@ RAIL_LABELS = {
     "weather": "Set weather",
     "wind_gust": "Wind on / off",
     "operating_envelope": "Operating envelope",
+    "mission_plan": "Mission",
 }
 
 # Sections that start collapsed on a console that has never been arranged:

@@ -116,6 +116,9 @@ EXPECTED_FILES = [
     ("tools/chase_angles_apply.py", "puts the chase boom on the aircraft"),
     ("tools/fetch_satellite.py", "downloads the imagery"),
     ("tools/test_range_profile.py", "checks the envelopes"),
+    ("mission.py", "mission planning - surveys, orbits, perimeters"),
+    ("mission_upload.py", "sends a mission to PX4"),
+    ("plugins/mission_plan.py", "the mission control in the console"),
 ]
 missing = [name for name, _ in EXPECTED_FILES
            if not os.path.isfile(os.path.join(REPO, name))]
@@ -353,7 +356,8 @@ heading("6. The offline checks")
 CHECKS = ["offline_render_check", "test_console_browser", "test_flight_display",
           "test_night_ops", "test_sound_and_gear", "test_payload",
           "test_flight_log", "test_scenery", "test_terrain_fetch",
-          "test_recovery", "test_range_profile", "test_install_worlds"]
+          "test_recovery", "test_range_profile", "test_install_worlds",
+          "test_mission"]
 
 for name in CHECKS:
     path = os.path.join(REPO, "tools", name + ".py")
