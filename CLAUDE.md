@@ -146,6 +146,26 @@ python3 tools/install_worlds.py
 it could not install everything. A running Gazebo holds the world file as
 it was when it started, so a change needs PX4 and Gazebo restarting.
 
+## Showing it to somebody
+
+A scripted demonstration, recorded to a file. Prints the running order
+first so it can be rehearsed:
+
+```
+python3 tools/demo_record.py --list short
+```
+
+Then, with PX4, Gazebo, the station and the browser all up:
+
+```
+python3 tools/demo_record.py short
+```
+
+It drives the flying over the station's own interface and PRINTS cues
+for the few things that need a click, because the station cannot reach
+into the browser. `short` is 60 s and expects the aircraft already
+hovering; `full` is 150 s from disarmed.
+
 ## Checking a machine is set up
 
 These two are for a machine, not for a commit. Neither changes anything.
