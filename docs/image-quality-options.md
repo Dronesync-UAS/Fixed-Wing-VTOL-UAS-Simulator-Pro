@@ -78,6 +78,83 @@ Items 1 to 3 are days of work and would change the look of every
 training area. Items 4 to 6 are weeks and are where "professional"
 lives.
 
+## What PX4 itself supports - checked in its own documentation
+
+Read from the PX4 user guide's source on 12 Oct 2026, not from a search
+summary.
+
+**Supported by the PX4 core development team** - two entries, both
+Gazebo:
+
+| Simulator | PX4's own words on vehicles |
+|---|---|
+| **Gazebo** (what we use) | "Quad, VTOL (Standard, Tailsitter, Tiltroter), Plane, Rovers" |
+| Gazebo Classic | "Quad, Hex, Generic Standard VTOL (QuadPlane), Tailsitter, Plane, Rover, Submarine" |
+
+**Community supported**, under PX4's own warning that they "are not
+maintained, tested, or supported, by the core development team" and "may
+or may not work with current versions of PX4":
+
+| Simulator | Vehicles, per PX4 | Flies our aircraft? |
+|---|---|---|
+| FlightGear | Plane, Autogyro, Rover | **no** |
+| JSBSim | Plane, Quad, Hex | **no** |
+| JMAVSim | Quad | **no** |
+| AirSim | "Iris (MultiRotor model and a configuration for PX4 QuadRotor in the X configuration)" | **no** |
+| Simulation-In-Hardware (SIH) | Plane, Quad, Tailsitter, **Standard VTOL** | yes, but it has no rendering at all |
+
+### The conclusion that follows
+
+**Gazebo is the only PX4 simulator with visuals that officially flies a
+standard VTOL.** That is why it is still used in 2026 - not inertia.
+
+And AirSim is multirotor only by PX4's own list, which answers the
+Colosseum question too: Colosseum is a fork of AirSim, so its PX4
+integration inherits that.
+
+### Two claims I could not confirm
+
+A search suggested PteroSim (Unreal Engine 5, PX4 SITL, VTOL on a paid
+tier) and an X-Plane bridge (Plane, Multicopter, VTOL) are on PX4's
+community list. **They are not in PX4's current user guide** - both
+`sim_pterosim` and `sim_xplane` return 404 from its source repository.
+PteroSim does appear to exist, discussed on PX4's own forum, described
+there as proprietary with fixed wing and VTOL behind a paid tier and
+only a quadcopter in the free build. Treat all of that as unverified
+until somebody reads the vendor's own page.
+
+If a photoreal UE5 simulator that genuinely flies a standard VTOL does
+exist commercially, PteroSim is the lead worth chasing. One afternoon on
+their site would settle it.
+
+## The architecture that gets both, without betting the project
+
+PX4's documentation has one line that matters more than the whole table
+above:
+
+> "All simulators except for Gazebo communicate with PX4 using the
+> Simulator MAVLink API."
+> "PX4 directly uses the Gazebo API to interface with Gazebo and MAVLink
+> is not required."
+
+So Gazebo is the tightly-coupled special case, and every other renderer
+in the world is reachable over a documented MAVLink interface. Which
+means the move does not have to be a move at all:
+
+**Keep PX4 and Gazebo for the flight model and the physics. Add a second
+process that renders the view from the same vehicle state.** The
+instructor station already reads its camera pictures from a topic; it
+would read them from the new renderer instead, and nothing else in it
+would change.
+
+This is not theoretical - `hakoniwa-px4sim` does exactly this, with the
+physics side streaming to Unity, and a plugin for Unreal Engine added in
+its v1.1.0. Parrot's own Sphinx pairs a Gazebo-style physics client with
+a separate Unreal renderer.
+
+It is the only option on this page that improves the picture **without
+giving up the one simulator that officially flies our aircraft**.
+
 ## If you want photorealism, the honest state of the art
 
 Searched today. **Nothing open source gives photorealistic rendering,
@@ -138,5 +215,9 @@ option and it cannot fly a fixed-wing VTOL today.
 - PX4 simulation docs: https://docs.px4.io/main/en/simulation/
 - FlightForge: https://arxiv.org/html/2502.05038v1
 - Gazebo PBR API: https://gazebosim.org/api/rendering/9/classgz_1_1rendering_1_1Material.html and https://gazebosim.org/api/common/5/classgz_1_1common_1_1Pbr.html
+- PX4's supported simulators: https://github.com/PX4/PX4-user_guide/blob/main/en/simulation/index.md
+- PX4's community simulators: https://github.com/PX4/PX4-user_guide/blob/main/en/simulation/community_supported_simulators.md
+- hakoniwa-px4sim: https://github.com/toppers/hakoniwa-px4sim
+- Parrot Sphinx Gazebo client: https://developer.parrot.com/docs/sphinx/gazebo_HMI.html
 - The texture measurements above are from this repository's own
   `sim/worlds/media/` and can be reproduced with Pillow.
