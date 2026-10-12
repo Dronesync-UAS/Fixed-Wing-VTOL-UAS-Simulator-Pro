@@ -73,11 +73,23 @@ def worlds():
 
 
 def ground_kind(text):
-    """"plane", "heightmap", or "neither" - what the world stands on."""
-    if "<heightmap>" in text:
-        return "heightmap"
+    """"plane", "heightmap", or "neither" - what the world STANDS on.
+
+    THE PLANE IS CHECKED FIRST, and the order matters. On 12 Oct 2026
+    tools/plane_ground_texture.py added a flat heightmap over the plane
+    worlds as a VISUAL, so that a texture could tile. After that every
+    world contained a <heightmap> somewhere, and this function - which
+    tested for that first - reported all twelve as heightmap worlds. The
+    widening then refused to touch any of them and the range-profile
+    check failed on both counts.
+
+    What a world stands on is its ground PLANE if it has one. The
+    heightmap over the top is decoration.
+    """
     if PLANE_SIZE.search(text):
         return "plane"
+    if "<heightmap>" in text:
+        return "heightmap"
     return "neither"
 
 

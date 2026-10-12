@@ -54,12 +54,20 @@ def worlds():
 
 def state(text):
     """What this world's ground is, and whether it still has the flat
-    normal map."""
-    if "<heightmap>" not in text:
-        return "plane" if "<plane>" in text else "neither"
+    normal map.
+
+    The FLAT NORMAL MAP is looked for first, and the plane check comes
+    after. Since 12 Oct 2026 the plane worlds also carry a flat
+    heightmap, added as a visual so a texture could tile, so "has a
+    heightmap" no longer means "is a heightmap world" - and what this
+    script actually cares about is whether flat_normal.png is still
+    being pointed at anywhere.
+    """
     if OLD_NORMAL in text:
         return "flat-normal"
-    if NEW_NORMAL in text:
+    if "<heightmap>" not in text:
+        return "plane" if "<plane>" in text else "neither"
+    if NEW_NORMAL in text or "grass_normal.png" in text:
         return "done"
     return "other-normal"
 

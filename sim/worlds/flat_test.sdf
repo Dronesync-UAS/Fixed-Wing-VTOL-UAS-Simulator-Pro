@@ -283,5 +283,41 @@
         </particle_emitter>
       </link>
     </model>
-  </world>
+      <!-- GROUND WITHIN THE TRAINING AREA, added 12 Oct 2026 by
+         tools/plane_ground_texture.py.
+    
+         This is a HEIGHTMAP and it is dead flat on purpose. The reason is
+         not the shape - it is that a heightmap can TILE a texture, with
+         <texture><size>, and a plane visual cannot. This world used to
+         stand on an untextured plane: one flat colour across the largest
+         surface in every camera view.
+    
+         VISUAL ONLY. The 220 km collision box in ground_plane still
+         carries every landing; a second collision here would be two
+         surfaces arguing over the same contact.
+    
+         Eight kilometres covers the 500 m student envelope many times
+         over. Beyond it the far plane takes over, which at that distance
+         is what haze does anyway. -->
+    <model name="ground_near">
+      <static>true</static>
+      <pose>0 0 0.02 0 0 0</pose>
+      <link name="ground_near_link">
+        <visual name="ground_near_visual">
+          <geometry>
+            <heightmap>
+              <texture>
+                <diffuse>file://media/ground_fine.png</diffuse>
+                <normal>file://media/ground_normal.png</normal>
+                <size>16</size>
+              </texture>
+              <uri>file://media/flat_ground_heightmap.png</uri>
+              <size>8000 8000 0.001</size>
+              <pos>0 0 0</pos>
+            </heightmap>
+          </geometry>
+        </visual>
+      </link>
+    </model>
+</world>
 </sdf>

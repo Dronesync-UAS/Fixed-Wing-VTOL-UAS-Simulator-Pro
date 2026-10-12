@@ -584,5 +584,41 @@
       <pose>181.173 -676.148 0 0 0 6.54498</pose>
       <link name="l"><visual name="p0"><pose>0 0 1.6 0 0 0</pose><geometry><box><size>0.3 6 3.2</size></box></geometry><material><ambient>0.5225 0.5225 0.5225 1</ambient><diffuse>0.95 0.95 0.95 1</diffuse><specular>0.04 0.04 0.04 1</specular></material></visual><collision name="p0_c"><pose>0 0 1.6 0 0 0</pose><geometry><box><size>0.3 6 3.2</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision><visual name="p1"><pose>0.2 -2 0.8 0 0 0</pose><geometry><box><size>0.05 2 1.6</size></box></geometry><material><ambient>0.0275 0.0275 0.0275 1</ambient><diffuse>0.05 0.05 0.05 1</diffuse><specular>0.04 0.04 0.04 1</specular></material></visual><visual name="p2"><pose>0.2 0 2.4 0 0 0</pose><geometry><box><size>0.05 2 1.6</size></box></geometry><material><ambient>0.0275 0.0275 0.0275 1</ambient><diffuse>0.05 0.05 0.05 1</diffuse><specular>0.04 0.04 0.04 1</specular></material></visual><visual name="p3"><pose>0.2 2 0.8 0 0 0</pose><geometry><box><size>0.05 2 1.6</size></box></geometry><material><ambient>0.0275 0.0275 0.0275 1</ambient><diffuse>0.05 0.05 0.05 1</diffuse><specular>0.04 0.04 0.04 1</specular></material></visual><visual name="p4"><pose>0 0 0.3 0 0 0</pose><geometry><cylinder><radius>0.3</radius><length>0.6</length></cylinder></geometry><material><ambient>0.5225 0.231 0.0275 1</ambient><diffuse>0.95 0.42 0.05 1</diffuse><specular>0.04 0.04 0.04 1</specular></material></visual><visual name="p5"><pose>0.25 -1 3.5 0 0 0</pose><geometry><box><size>0.1 0.5 0.5</size></box></geometry><material><ambient>0.5225 0.231 0.0275 1</ambient><diffuse>0.95 0.42 0.05 1</diffuse><specular>0.04 0.04 0.04 1</specular></material></visual><visual name="p6"><pose>0.25 0 3.5 0 0 0</pose><geometry><box><size>0.1 0.5 0.5</size></box></geometry><material><ambient>0.5225 0.231 0.0275 1</ambient><diffuse>0.95 0.42 0.05 1</diffuse><specular>0.04 0.04 0.04 1</specular></material></visual><visual name="p7"><pose>0.25 1 3.5 0 0 0</pose><geometry><box><size>0.1 0.5 0.5</size></box></geometry><material><ambient>0.5225 0.231 0.0275 1</ambient><diffuse>0.95 0.42 0.05 1</diffuse><specular>0.04 0.04 0.04 1</specular></material></visual></link>
     </model>
+    <!-- GROUND WITHIN THE TRAINING AREA, added 12 Oct 2026 by
+         tools/plane_ground_texture.py.
+    
+         This is a HEIGHTMAP and it is dead flat on purpose. The reason is
+         not the shape - it is that a heightmap can TILE a texture, with
+         <texture><size>, and a plane visual cannot. This world used to
+         stand on an untextured plane: one flat colour across the largest
+         surface in every camera view.
+    
+         VISUAL ONLY. The 220 km collision box in ground_plane still
+         carries every landing; a second collision here would be two
+         surfaces arguing over the same contact.
+    
+         Eight kilometres covers the 500 m student envelope many times
+         over. Beyond it the far plane takes over, which at that distance
+         is what haze does anyway. -->
+    <model name="ground_near">
+      <static>true</static>
+      <pose>0 0 0.02 0 0 0</pose>
+      <link name="ground_near_link">
+        <visual name="ground_near_visual">
+          <geometry>
+            <heightmap>
+              <texture>
+                <diffuse>file://media/grass_fine.png</diffuse>
+                <normal>file://media/grass_normal.png</normal>
+                <size>16</size>
+              </texture>
+              <uri>file://media/flat_ground_heightmap.png</uri>
+              <size>8000 8000 0.001</size>
+              <pos>0 0 0</pos>
+            </heightmap>
+          </geometry>
+        </visual>
+      </link>
+    </model>
 </world>
 </sdf>

@@ -108,15 +108,23 @@ for path in sorted(glob.glob(os.path.join(WORLDS, "*.sdf"))):
 check("no world uses flat_normal.png (%s)"
       % (", ".join(pointing_flat) or "none do"), not pointing_flat)
 
+# A world with a heightmap must point at ONE OF the real normal maps.
+# Not ground_normal.png specifically: the plane worlds got grass, and
+# requiring the dry-ground map failed six of them the moment they were
+# textured.
+REAL_NORMALS = ("ground_normal.png", "grass_normal.png")
 using_real = []
 for path in sorted(glob.glob(os.path.join(WORLDS, "*.sdf"))):
     with open(path) as handle:
         text = handle.read()
     if "<heightmap>" in text:
         using_real.append((os.path.basename(path),
-                           "ground_normal.png" in text))
-check("every heightmap world has a real normal map (%d of %d)"
-      % (sum(1 for _, ok in using_real if ok), len(using_real)),
+                           any(n in text for n in REAL_NORMALS)))
+missing_normal = [n for n, ok in using_real if not ok]
+check("every world with a heightmap has a real normal map (%d of %d%s)"
+      % (sum(1 for _, ok in using_real if ok), len(using_real),
+         "" if not missing_normal else "; missing: "
+         + ", ".join(missing_normal)),
       using_real and all(ok for _, ok in using_real))
 
 print("\n4. the diffuse and roughness maps")
@@ -143,6 +151,47 @@ for name in ("ground_rough.png", "grass_rough.png"):
     check("%s stays in the rough half of the range (%.0f to %.0f)"
           % (name, grey.min(), grey.max()),
           grey.min() > 150 and grey.max() <= 255)
+
+print("\n5. every world has a textured ground")
+
+untextured = []
+for path in sorted(glob.glob(os.path.join(WORLDS, "*.sdf"))):
+    with open(path) as handle:
+        text = handle.read()
+    # A world is textured if its own ground is a heightmap with a
+    # texture, or if the flat ground_near heightmap was added over its
+    # plane. A bare <plane> with a flat colour is the thing being fixed.
+    if "<heightmap>" in text and "<texture>" in text:
+        continue
+    untextured.append(os.path.basename(path))
+check("no world is left with untextured ground (%s)"
+      % (", ".join(untextured) or "all textured"), not untextured)
+
+# The flat heightmap the plane worlds use must exist and be uniform -
+# the point of it is that it is FLAT, and a stray pixel would be a spike
+# in the middle of the training area.
+flat_ground = os.path.join(MEDIA, "flat_ground_heightmap.png")
+if os.path.isfile(flat_ground):
+    grey = np.asarray(Image.open(flat_ground).convert("L"), dtype=np.int16)
+    check("the plane worlds' heightmap is perfectly flat (range %d)"
+          % int(grey.max() - grey.min()), int(grey.max() - grey.min()) == 0)
+    check("and is 2^n+1 across, which is the shape terrain code wants "
+          "(%d)" % grey.shape[0], grey.shape[0] in (65, 129, 257, 513))
+else:
+    check("flat_ground_heightmap.png exists", False)
+
+# Visual only: a second collision would fight the 220 km box underneath.
+for path in sorted(glob.glob(os.path.join(WORLDS, "*.sdf"))):
+    with open(path) as handle:
+        text = handle.read()
+    if "ground_near" not in text:
+        continue
+    start = text.index("ground_near")
+    chunk = text[start:text.index("</model>", start)]
+    if "<collision" in chunk:
+        check("%s ground_near is visual only" % os.path.basename(path), False)
+check("the added ground is visual only, so nothing fights the collision "
+      "box", True)
 
 print()
 if fails:
