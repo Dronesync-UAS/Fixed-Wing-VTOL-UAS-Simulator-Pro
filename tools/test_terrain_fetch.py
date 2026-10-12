@@ -170,6 +170,43 @@ check("without a token it refuses rather than failing mid-download", code == 1)
 check("and says where to get one", "account.mapbox.com" in message)
 check("and offers the keyless alternative", "--provider esri" in message)
 
+# The token must not end up on screen either. Found by testing the
+# failure path with a fake token: a download that failed printed the
+# whole URL, and the whole URL carries ?access_token=pk... - so the one
+# place the token was certain to appear was the one place somebody would
+# copy and paste to ask for help.
+check("a printed URL has the token taken out of it",
+      "pk.SECRET" not in fs.safe_url(
+          "https://api.mapbox.com/v4/mapbox.satellite/15/1/1@2x.jpg90"
+          "?access_token=pk.SECRET123"))
+check("and says that it did",
+      "<token hidden>" in fs.safe_url("https://x/?access_token=pk.SECRET123"))
+check("a URL with no token is left alone",
+      fs.safe_url("https://basemap.nationalmap.gov/a/b/c")
+      == "https://basemap.nationalmap.gov/a/b/c")
+
+# A token in a file, which is the way it is meant to be kept.
+import tempfile                                             # noqa: E402
+
+holder = tempfile.mkdtemp()
+fs.TOKEN_FILE = os.path.join(holder, ".mapbox_token")
+check("no file means no token", fs.read_token_file() is None)
+with open(fs.TOKEN_FILE, "w") as handle:
+    handle.write("pk.FROM_A_FILE\n")
+os.chmod(fs.TOKEN_FILE, 0o644)
+check("a file is read, and stripped", fs.read_token_file() == "pk.FROM_A_FILE")
+check("and tightened to owner-only (%s)"
+      % oct(os.stat(fs.TOKEN_FILE).st_mode & 0o777),
+      (os.stat(fs.TOKEN_FILE).st_mode & 0o077) == 0)
+with open(fs.TOKEN_FILE, "w") as handle:
+    handle.write("\n")
+check("an empty file is not a token", fs.read_token_file() is None)
+check("the token file is outside the repository, so it cannot be committed",
+      not os.path.abspath(
+          os.path.expanduser("~/.mapbox_token")).startswith(REPO + os.sep))
+import shutil as _sh                                        # noqa: E402
+_sh.rmtree(holder, ignore_errors=True)
+
 # The token must not end up in the file that gets copied between machines.
 source = open(os.path.join(REPO, "tools", "fetch_satellite.py")).read()
 sidecar = source[source.index('"provider": args.provider'):]

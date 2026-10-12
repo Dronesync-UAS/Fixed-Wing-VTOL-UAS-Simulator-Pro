@@ -91,7 +91,8 @@ After changing what is in the training areas, run:
 python3 tools/test_scenery.py
 ```
 
-After changing the real-terrain fetcher, run:
+After changing the real-terrain fetcher or the satellite imagery
+fetcher, run:
 
 ```
 python3 tools/test_terrain_fetch.py

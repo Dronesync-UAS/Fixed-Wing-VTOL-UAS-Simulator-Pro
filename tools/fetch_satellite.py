@@ -42,10 +42,25 @@ PROVIDERS
 Nothing is downloaded until you ask for a specific world, and the provider is
 always named in the output so it is clear what was used and under what terms.
 
-THE TOKEN IS NEVER WRITTEN DOWN. It is read from the command line or the
-environment and used in the request; it does not go into the cached
-image's sidecar file. A token in a file that gets copied between machines
-is a token that leaks.
+WHERE THE MAPBOX TOKEN COMES FROM, in this order:
+
+  1. --token on the command line
+  2. MAPBOX_TOKEN in the environment
+  3. ~/.mapbox_token - a file holding nothing but the token
+
+The file is the one to use. Put the token in it once and every command
+after that is the same command with no token in it, which matters here:
+a token pasted into a terminal ends up in the shell history, and a
+command with a placeholder in it has been pasted literally more than
+once on this project.
+
+The file's permissions are tightened to owner-only when it is read, and
+it is NOT inside this repository, so it cannot be committed by accident.
+
+THE TOKEN IS NEVER WRITTEN DOWN BY THIS TOOL. It goes into the request
+and nowhere else - not into the cached image's sidecar, not into the
+console's logs. A token in a file that gets copied between machines is a
+token that leaks.
 """
 
 import argparse
@@ -53,6 +68,7 @@ import io
 import json
 import math
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -66,6 +82,10 @@ import sim_target  # noqa: E402
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PX4_WORLDS = os.path.expanduser("~/PX4-Autopilot/Tools/simulation/gz/worlds")
 CACHE_DIR = os.path.join(REPO, "sim", "worlds", "satellite")
+
+# Outside the repository on purpose: a token inside it is a token that
+# gets committed. See the docstring.
+TOKEN_FILE = os.path.expanduser("~/.mapbox_token")
 
 HALF_EXTENT_M = 2000.0     # a 4 km square centred on home
 ZOOM = 16                  # about 1.8 m per pixel at 40 degrees latitude
@@ -139,6 +159,39 @@ def world_latlon(world_file):
         return None
 
 
+def read_token_file():
+    """The token from ~/.mapbox_token, or None.
+
+    Tightens the file to owner-only while it is here, because a token
+    readable by every account on a shared teaching machine is not a
+    secret. Failing to chmod is not fatal - some filesystems cannot.
+    """
+    try:
+        with open(TOKEN_FILE) as handle:
+            token = handle.read().strip()
+    except OSError:
+        return None
+    if not token:
+        return None
+    try:
+        os.chmod(TOKEN_FILE, 0o600)
+    except OSError:
+        pass
+    return token
+
+
+def safe_url(url):
+    """A URL with any access token taken out of it.
+
+    Found on 12 Oct 2026 by testing the failure path with a fake token:
+    a download that failed printed the whole URL, and the whole URL
+    contains ?access_token=pk.... So the one place the token was certain
+    to appear on screen was the one place somebody would copy and paste
+    to ask for help. Every URL this tool prints goes through here.
+    """
+    return re.sub(r"(access_token=)[^&\s]+", r"\1<token hidden>", url)
+
+
 def fetch_tile(url, attempts=3):
     request = urllib.request.Request(url, headers={
         # Tile services reject the default Python agent.
@@ -150,7 +203,7 @@ def fetch_tile(url, attempts=3):
                 return Image.open(io.BytesIO(response.read())).convert("RGB")
         except (urllib.error.URLError, OSError) as exc:
             last = exc
-    raise RuntimeError(f"{url}\n    {last}")
+    raise RuntimeError(f"{safe_url(url)}\n    {last}")
 
 
 def main():
@@ -158,12 +211,36 @@ def main():
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("world", nargs="?", help="environment key, e.g. blackrock")
     parser.add_argument("--provider", default="usgs", choices=sorted(PROVIDERS))
-    parser.add_argument("--token", default=os.environ.get("MAPBOX_TOKEN"),
-                        help="Mapbox access token (or set MAPBOX_TOKEN in the "
-                             "environment). Only needed for the mapbox "
-                             "providers.")
+    parser.add_argument("--token", default=None,
+                        help="Mapbox access token. Only needed for the mapbox "
+                             "providers, and only if it is not already in "
+                             "MAPBOX_TOKEN or ~/.mapbox_token.")
+    parser.add_argument("--all", action="store_true",
+                        help="every environment that has coordinates, one "
+                             "after another - about 36 tiles each")
     parser.add_argument("--list", action="store_true", help="list the environments")
     args = parser.parse_args()
+
+    # The token, from whichever of the three places has one. Resolved
+    # once here rather than in three places later.
+    args.token = (args.token or os.environ.get("MAPBOX_TOKEN")
+                  or read_token_file())
+
+    if args.all:
+        worlds = [env["key"] for env in sim_target.ENVIRONMENTS
+                  if world_latlon(env["world"])]
+        print("Fetching %d environments from %s.\n" % (len(worlds), args.provider))
+        failed = []
+        for key in worlds:
+            args.world = key
+            if fetch_one(args) != 0:
+                failed.append(key)
+            print()
+        if failed:
+            print("Finished, but these did not work: %s" % ", ".join(failed))
+            return 1
+        print("All %d done." % len(worlds))
+        return 0
 
     if args.list or not args.world:
         print("Environments:")
@@ -174,10 +251,17 @@ def main():
             print(f"  {env['key']:11} {where:22} {'cached' if cached else ''}")
         print("\nProviders:")
         for name, provider in sorted(PROVIDERS.items()):
-            mark = " (needs --token)" if provider.get("needs_token") else ""
+            mark = (" (needs a token in ~/.mapbox_token)"
+                    if provider.get("needs_token") else "")
             print(f"  {name:16} {provider['credit']}{mark}")
         return 0
 
+    return fetch_one(args)
+
+
+def fetch_one(args):
+    """Fetch one world. Split out of main() on 12 Oct 2026 so --all can
+    call it in a loop rather than main() calling itself."""
     env = sim_target.BY_KEY.get(args.world)
     if env is None:
         print(f"Unknown environment: {args.world}")
@@ -195,16 +279,15 @@ def main():
         return 1
 
     if provider.get("needs_token") and not args.token:
-        print(f"{args.provider} needs an access token.")
+        print(f"{args.provider} needs an access token, and there is none in")
+        print(f"{TOKEN_FILE}, in MAPBOX_TOKEN, or on the command line.")
         print()
-        print("Make a free account at https://account.mapbox.com/ and copy the")
-        print("default public token from the account page, then either pass it:")
+        print("Make a free account at https://account.mapbox.com/, copy the")
+        print("default public token from your account page, and put it in that")
+        print("file - one line, nothing else in it. Then this command works")
+        print("with no token in it, every time.")
         print()
-        print(f"    python3 tools/fetch_satellite.py {args.world} "
-              f"--provider {args.provider} --token YOUR_TOKEN")
-        print()
-        print("or put it in your environment once so you do not have to type it")
-        print("again. Or use a provider that needs no token:")
+        print("Or use a provider that needs no token at all:")
         print()
         print(f"    python3 tools/fetch_satellite.py {args.world} --provider esri")
         return 1
