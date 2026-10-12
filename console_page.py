@@ -542,9 +542,8 @@ TEMPLATE = """<!DOCTYPE html>
     <button class="topbtn" data-open-win="motors">Motors</button>
     <button class="topbtn danger" data-open-win="failures">Failures</button>
     <button class="topbtn icon" id="settings-open" title="Settings" aria-label="Settings">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <circle cx="12" cy="12" r="3.2"></circle>
-        <path d="M12 2.6v2.3M12 19.1v2.3M21.4 12h-2.3M4.9 12H2.6M18.6 5.4l-1.6 1.6M7 17l-1.6 1.6M18.6 18.6 17 17M7 7 5.4 5.4"></path>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" aria-hidden="true">
+        <path d="M4 7h16M4 12h16M4 17h16"></path>
       </svg>
     </button>
   </div>
