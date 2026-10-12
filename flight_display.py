@@ -141,6 +141,11 @@ SCRIPT = """
   }
   document.addEventListener('mousedown', function () { audioContext(); });
 
+  // Shared, because a browser allows only a handful of audio contexts per
+  // page and the motor sound (motor_sound.py) needs the same one. It also
+  // means one click unlocks both the alarm and the motors.
+  window.gcsAudio = audioContext;
+
   function tone(hz, seconds, volume) {
     var ctx = audio;
     if (!ctx || ctx.state !== 'running') { return; }

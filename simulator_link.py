@@ -102,6 +102,15 @@ telemetry = {
     # drive the FPV camera's artificial-horizon / gyro overlay.
     "roll_deg": 0.0, "pitch_deg": 0.0, "yaw_deg": 0.0,
     "airspeed_ms": 0.0,
+    # How hard the motors are working, 0-100. Added 12 Oct 2026 to drive the
+    # console's motor sound: a rotor note that does not follow the throttle
+    # is a drone, not an aircraft. It is PX4's own operator-feedback figure
+    # out of VFR_HUD - streams/VFR_HUD.hpp lines 92-110 fill it with
+    # 100 * max(|thrust_setpoint_0|, |thrust_setpoint_1|) while armed and
+    # 0.0 while disarmed, and PX4's own comment there says a VTOL has no
+    # single throttle during a transition so this is a heuristic. Good
+    # enough to drive a sound; not a figure to teach from.
+    "throttle_pct": 0.0,
     # Straight-line distance from the home/launch point, metres. Added
     # 6 Sep 2026 for the operational-limit checks (CAP722B 5.3(c)).
     "range_from_home_m": 0.0,
@@ -726,6 +735,8 @@ def _read_one_message():
             telemetry["groundspeed_ms"] = round(msg.groundspeed, 1) if math.isfinite(msg.groundspeed) else 0.0
             telemetry["airspeed_ms"] = round(msg.airspeed, 1) if math.isfinite(msg.airspeed) else 0.0
             telemetry["heading_deg"] = msg.heading
+            telemetry["throttle_pct"] = (
+                round(float(msg.throttle), 1) if math.isfinite(msg.throttle) else 0.0)
         elif t == "GPS_RAW_INT":
             telemetry["satellites"] = msg.satellites_visible
         elif t == "BATTERY_STATUS":

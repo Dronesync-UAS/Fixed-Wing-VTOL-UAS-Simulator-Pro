@@ -36,6 +36,7 @@ import console_page
 import event_logger
 import aircraft_lights
 import flight_display
+import motor_sound
 import preflight
 import terrain_backdrop
 
@@ -688,7 +689,8 @@ def render_console():
     page = page.replace("__EXTRA_STYLE__", EXTRA_STYLE)
     page = page.replace("__EXTRA_SCRIPT__", EXTRA_SCRIPT
                         + _limits_script()
-                        + flight_display.STYLE + flight_display.script())
+                        + flight_display.STYLE + flight_display.script()
+                        + motor_sound.STYLE + motor_sound.script())
     return page
 
 
@@ -1674,6 +1676,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             elif self.path == "/classic":
                 # The panel grid, kept while the rebuilt console earns its
                 # place in a lesson. Nothing in the rebuild removed it.
+                # No motor sound here: its switch lives in the rebuilt
+                # console's settings window, and a sound with no way to
+                # turn it off is worse than no sound.
                 page = PAGE_TEMPLATE.format(buttons=render_buttons())
                 page = page.replace("<!--EXTRA_PANELS-->", EXTRA_PANELS)
                 page = page.replace("</body>", EXTRA_STYLE + EXTRA_SCRIPT

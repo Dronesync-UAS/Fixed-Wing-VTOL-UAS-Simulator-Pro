@@ -65,6 +65,13 @@ lighting control or the aircraft's own lights - run:
 python3 tools/test_night_ops.py
 ```
 
+After changing the motor sound, the motor-sound or navigation-light
+switches, or the landing gear and gimbal, run:
+
+```
+python3 tools/test_sound_and_gear.py
+```
+
 After changing ARM or NEW SESSION, run the recovery check - these two
 controls are the ones that bite hardest when they are wrong:
 

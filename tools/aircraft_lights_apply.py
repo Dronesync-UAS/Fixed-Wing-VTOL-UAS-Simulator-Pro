@@ -41,9 +41,12 @@ They are Gazebo lights attached to the aircraft's base_link, so they move
 with it. The console switches them through Gazebo's own light_config
 service - see plugins/aircraft_lights.py - rather than by restarting.
 
-The strobes do not flash. Gazebo has no flashing light; a flash would have
-to be a plugin toggling the light on and off, and that is a running
-process per light. They are steady, and the console says so.
+The strobes DO flash. Gazebo has no flashing light of its own, so the
+flashing is done by aircraft_lights.py switching them on and off on the
+world's light_config topic from one thread - one publisher for all of
+them, which is why it is affordable. (An earlier version of this file
+said they were steady. That was true when it was written and has not been
+true since the flash driver was added on 12 Oct 2026.)
 
 WHY IT EDITS PX4'S MODEL
 ------------------------

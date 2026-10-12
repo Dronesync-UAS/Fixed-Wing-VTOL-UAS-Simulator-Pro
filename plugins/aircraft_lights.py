@@ -16,8 +16,14 @@ from simulator_link import log_instructor_action
 state = {"active": False}
 
 
-def toggle_lights():
-    wanted = not state["active"]
+def toggle_lights(on=None):
+    """Switch the lights. No argument means toggle, which is what the rail
+    button does; the settings switch sends on=1 or on=0 so that a checkbox
+    and the lights cannot disagree about which way round they are."""
+    if on is None:
+        wanted = not state["active"]
+    else:
+        wanted = str(on).lower() in ("1", "true", "on", "yes")
     problem = aircraft_lights.set_on(wanted)
     if problem and wanted:
         return (f"Lights not switched on - {problem}. Have they been added "

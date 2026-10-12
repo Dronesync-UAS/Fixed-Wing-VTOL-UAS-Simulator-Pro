@@ -381,11 +381,14 @@ TEMPLATE = """<!DOCTYPE html>
   .topbtn.danger { background: rgba(123,26,45,0.95); color: #ffc3cd; }
   .topbtn.icon { padding: 0 9px; display: flex; align-items: center; }
   .topbtn.icon svg { width: 20px; height: 20px; display: block; }
-  #win-settings { width: 380px; }
+  #win-settings { width: 404px; }
   .win-body.settings { flex-direction: column; gap: 14px; align-items: stretch; }
   .set-row { display: flex; align-items: center; gap: 12px; }
   .set-label { width: 112px; flex: none; color: var(--dim); font-size: 12px; }
   .set-stack { display: flex; flex-direction: column; gap: 6px; }
+  .set-inline { display: flex; align-items: center; gap: 10px; }
+  .set-hint { font-size: 11px; color: var(--dim); max-width: 232px; line-height: 1.35; }
+  #motor-volume { width: 104px; }
   .topsel {
     height: 30px; padding: 0 8px; border: 1px solid rgba(255,255,255,0.18);
     border-radius: 7px; background: rgba(0,0,0,0.5); color: #fff; cursor: pointer;
@@ -695,6 +698,27 @@ __WINDOWS__
       <div class="set-stack">
         <label class="topswitch"><input type="checkbox" id="alarm-on" checked> Alarm tone</label>
         <label class="topswitch"><input type="checkbox" id="voice-on"> Spoken callouts</label>
+      </div>
+    </div>
+    <div class="set-row">
+      <span class="set-label">Motor sound</span>
+      <div class="set-stack">
+        <div class="set-inline">
+          <label class="topswitch"><input type="checkbox" id="motor-sound-on" checked> On</label>
+          <input type="range" id="motor-volume" min="0" max="100" value="60"
+                 title="How loud the motors are">
+        </div>
+        <span class="set-hint">Synthesised, and driven by the throttle. A
+          browser stays silent until the page has been clicked.</span>
+      </div>
+    </div>
+    <div class="set-row">
+      <span class="set-label">Lights</span>
+      <div class="set-stack">
+        <label class="topswitch"><input type="checkbox" id="lights-on"> Navigation lights</label>
+        <span class="set-hint">Red to port, green to starboard, white at the
+          tail, all steady. White strobes double-flash; the red beacon
+          flashes while armed.</span>
       </div>
     </div>
     <div class="set-row">
@@ -1399,6 +1423,28 @@ SCRIPT = """
                : '. This is a rendering of the colour camera, not a '
                  + 'thermal sensor - it has no temperature information.'));
       }).catch(function () { say('The station did not answer.', true); });
+  });
+
+  // ---------- the aircraft's lights ----------
+  // The same plugin the rail button uses, but told which way to go rather
+  // than asked to toggle - a checkbox that only ever says "flip it" ends
+  // up showing the opposite of the truth the first time anything else
+  // touches the lights.
+  el('lights-on').addEventListener('change', function () {
+    var want = el('lights-on').checked;
+    fetch('/action/aircraft_lights?on=' + (want ? '1' : '0'))
+      .then(function (r) { return r.text(); })
+      .then(function (text) {
+        say(text, text.indexOf('not switched on') !== -1);
+        // The station refuses if the lights are not in the model. Put the
+        // switch back rather than leave it claiming they are on.
+        if (text.indexOf('not switched on') !== -1) {
+          el('lights-on').checked = false;
+        }
+      }).catch(function () {
+        el('lights-on').checked = !want;
+        say('The station did not answer.', true);
+      });
   });
 
   // ---------- windows ----------
