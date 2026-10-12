@@ -26,11 +26,24 @@ PX4_DIR="$HOME/PX4-Autopilot"
 PX4_WORLDS="$PX4_DIR/Tools/simulation/gz/worlds"
 
 # key | world file | spawn Z | relief within 500 m | description
+#
+# The seven below the first five were added 12 Oct 2026. They had been in
+# sim/worlds/ since the day before but were missing from this table AND
+# from PX4's own worlds folder, so there was no way to launch them - found
+# by tools/verify_live.py. Spawn heights and relief come from
+# sim_target.py, which measured them from each world's own ground.
 WORLDS="
 blackrock|training_area_blackrock|1.3|0.6 m|Black Rock playa, Nevada - flattest, best for handling practice
 nullarbor|training_area_nullarbor|11.3|7.9 m|Nullarbor Plain, Australia - very gently undulating
 uyuni|training_area_uyuni|8.3|9.5 m|Salar de Uyuni, Bolivia - very gently undulating
 hoggar|training_area|605.1|0 m|Hoggar Mountains, Algeria - flat to 600 m, mountains beyond
+lowlands|training_area_lowlands|0.3|0 m|Cambridgeshire fens, England - flat, farmed, hedged
+coast|training_area_coast|0.3|0 m|North Norfolk coast - shoreline, harbour, pine belt
+airfield|training_area_airfield|0.3|0 m|Licensed airfield - runway, markings, circuits
+estate|training_area_estate|0.3|0 m|Industrial estate, Thames estuary - obstacles and clutter
+forest|training_area_forest|0.3|0 m|Thetford Forest - plantation blocks and firebreaks
+valley|training_area_valley|0.3|0 m|Valley, north Wales - flat floor, 200 m ridges either side
+flood|training_area_flood|0.3|0 m|Flooded farmland, Somerset Levels - flood response
 flat|flat_test|0.3|0 m|Plain flat ground, no scenery - for isolating faults
 "
 
@@ -65,9 +78,16 @@ WORLD=$(echo "$LINE" | cut -d'|' -f2)
 SPAWN_Z=$(echo "$LINE" | cut -d'|' -f3)
 DESC=$(echo "$LINE" | cut -d'|' -f5)
 
-# flat_test lives in this repo rather than PX4's tree, so install it first.
-if [ "$WORLD" = "flat_test" ] && [ -f "$REPO/sim/worlds/flat_test.sdf" ]; then
-    cp "$REPO/sim/worlds/flat_test.sdf" "$PX4_WORLDS/flat_test.sdf"
+# EVERY world lives in this repo and has to be copied into PX4's tree
+# before Gazebo can load it. Until 12 Oct 2026 only flat_test was copied
+# here, which is why the six training areas added the day before could
+# not be flown and why the ground widening had reached only flat_test.
+# install_worlds.py does the copying and refuses rather than overwriting
+# anything newer in PX4's tree - so a non-zero exit means stop and read it.
+if ! python3 "$REPO/tools/install_worlds.py"; then
+    echo
+    echo "The worlds were not all installed - see above. Not launching."
+    exit 1
 fi
 
 if [ ! -f "$PX4_WORLDS/$WORLD.sdf" ]; then

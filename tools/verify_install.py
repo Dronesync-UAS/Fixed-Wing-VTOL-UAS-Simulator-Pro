@@ -144,7 +144,7 @@ for line in ("satellite/", "*.sdf.prefarground"):
             "git pull origin claude/pensive-lamport-af8mkq")
 
 # ---------------------------------------------------------------------------
-heading("3. In the repository - the training worlds")
+heading("3. The training worlds - here, and where Gazebo loads them")
 
 PLANE_SIZE = re.compile(
     r"<plane>\s*(?:<normal>[^<]*</normal>\s*)?<size>\s*"
@@ -190,6 +190,62 @@ if narrow:
         "python3 tools/far_ground_apply.py --all")
 else:
     ok("all %d plane worlds reach 110 km from home" % len(plane_worlds))
+
+# THE WORLDS THAT ACTUALLY LOAD are the copies in PX4's tree, not these.
+# Checking only the repository was this script's own blind spot on the day
+# it was written: it reported every world healthy while six of them were
+# not installed at all and could not be flown.
+sys.path.insert(0, os.path.join(REPO, "tools"))
+try:
+    import install_worlds as iw
+except Exception as exc:                  # noqa: BLE001
+    iw = None
+    bad("could not load tools/install_worlds.py (%s)" % exc,
+        "git pull origin claude/pensive-lamport-af8mkq")
+
+if iw is not None:
+    if not os.path.isdir(iw.PX4_WORLDS):
+        bad("PX4's own worlds folder is not there, so no world can load",
+            "check PX4-Autopilot is at ~/PX4-Autopilot")
+    else:
+        not_installed, out_of_date, px4_newer = [], [], []
+        for path in iw.repo_worlds():
+            name = os.path.basename(path)
+            how = iw.state(path, os.path.join(iw.PX4_WORLDS, name))
+            if how == "new":
+                not_installed.append(name)
+            elif how == "older":
+                out_of_date.append(name)
+            elif how == "newer":
+                px4_newer.append(name)
+        if not_installed:
+            bad("%d world(s) are not installed where Gazebo loads them, so "
+                "they cannot be flown: %s"
+                % (len(not_installed), ", ".join(not_installed)),
+                "python3 tools/install_worlds.py")
+        if out_of_date:
+            bad("%d installed world(s) are older than this repository's, so "
+                "today's edits are not in what loads: %s"
+                % (len(out_of_date), ", ".join(out_of_date)),
+                "python3 tools/install_worlds.py")
+        if px4_newer:
+            bad("%d installed world(s) are NEWER than this repository's - "
+                "something edited them in PX4's tree: %s"
+                % (len(px4_newer), ", ".join(px4_newer)),
+                "python3 tools/install_worlds.py --list   (read it before "
+                "overwriting anything)")
+        if not (not_installed or out_of_date or px4_newer):
+            ok("every world is installed where Gazebo loads it, and identical")
+
+        missing_media = [m for m in iw.media_needed()
+                         if not os.path.isfile(os.path.join(iw.PX4_MEDIA, m))]
+        if missing_media:
+            bad("%d heightmap/texture file(s) a world needs are not installed "
+                "- that world loads as an empty void: %s"
+                % (len(missing_media), ", ".join(missing_media)),
+                "python3 tools/install_worlds.py")
+        else:
+            ok("every heightmap and texture the worlds need is installed")
 
 note("%d worlds stand on a heightmap and were left that way on purpose "
      "- long flights need one of the plane worlds" % len(heightmap_worlds),
@@ -283,12 +339,12 @@ else:
     note("no ~/.mapbox_token - only needed to download more imagery")
 
 # ---------------------------------------------------------------------------
-heading("6. The eleven offline checks")
+heading("6. The offline checks")
 
 CHECKS = ["offline_render_check", "test_console_browser", "test_flight_display",
           "test_night_ops", "test_sound_and_gear", "test_payload",
           "test_flight_log", "test_scenery", "test_terrain_fetch",
-          "test_recovery", "test_range_profile"]
+          "test_recovery", "test_range_profile", "test_install_worlds"]
 
 for name in CHECKS:
     path = os.path.join(REPO, "tools", name + ".py")

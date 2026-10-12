@@ -105,6 +105,13 @@ the world files' ground extent, or the satellite fetcher's extent, run:
 python3 tools/test_range_profile.py
 ```
 
+After changing a world file, or the launcher, run the install check -
+there are two copies of every world and only one of them flies:
+
+```
+python3 tools/test_install_worlds.py
+```
+
 After changing ARM or NEW SESSION, run the recovery check - these two
 controls are the ones that bite hardest when they are wrong:
 
@@ -116,12 +123,28 @@ Other tools under `tools/` are self-describing; `--dry-run` and `--revert`
 exist on anything that edits world files, and world edits are always backed
 up and auto-restored if the result does not parse.
 
+## Two copies of every world
+
+The worlds in `sim/worlds/` are tracked by git and are what every tool
+here edits. The ones in `~/PX4-Autopilot/Tools/simulation/gz/worlds/` are
+what PX4 hands to Gazebo, and are the only ones that affect what flies.
+
+So after a `git pull`, and after anything that edits a world file:
+
+```
+python3 tools/install_worlds.py
+```
+
+`tools/start_world.sh` runs it before launching, and refuses to launch if
+it could not install everything. A running Gazebo holds the world file as
+it was when it started, so a change needs PX4 and Gazebo restarting.
+
 ## Checking a machine is set up
 
 These two are for a machine, not for a commit. Neither changes anything.
 
 Nothing running needed - checks the files, the worlds, the aircraft model,
-the imagery, and runs all eleven offline checks:
+the imagery, and runs all the offline checks:
 
 ```
 python3 tools/verify_install.py
