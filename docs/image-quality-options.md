@@ -118,14 +118,19 @@ A search suggested PteroSim (Unreal Engine 5, PX4 SITL, VTOL on a paid
 tier) and an X-Plane bridge (Plane, Multicopter, VTOL) are on PX4's
 community list. **They are not in PX4's current user guide** - both
 `sim_pterosim` and `sim_xplane` return 404 from its source repository.
-PteroSim does appear to exist, discussed on PX4's own forum, described
-there as proprietary with fixed wing and VTOL behind a paid tier and
-only a quadcopter in the free build. Treat all of that as unverified
-until somebody reads the vendor's own page.
+PteroSim does exist, and its own release notes have since been read -
+see docs/pterosim-and-google-3d-tiles.md. **The forum's "VTOL is a paid
+tier" claim is wrong**: v0.3.0 lists standard_vtol among its PX4
+vehicles and says "any aircraft flies on any tier". The free tier meters
+simulation TIME, not airframes.
 
-If a photoreal UE5 simulator that genuinely flies a standard VTOL does
-exist commercially, PteroSim is the lead worth chasing. One afternoon on
-their site would settle it.
+That afternoon has now been spent, and the answer is better than
+expected but not where it was looked for: the valuable thing in PteroSim
+is the DATA SOURCE it plugs into - Google Photorealistic 3D Tiles
+through Cesium ion, with your own token - and that is available to this
+project directly, in the browser the console already is. See
+docs/pterosim-and-google-3d-tiles.md for the terms, which are the part
+that decides whether it is durable.
 
 ## The architecture that gets both, without betting the project
 
