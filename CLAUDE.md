@@ -115,3 +115,26 @@ python3 tools/test_recovery.py
 Other tools under `tools/` are self-describing; `--dry-run` and `--revert`
 exist on anything that edits world files, and world edits are always backed
 up and auto-restored if the result does not parse.
+
+## Checking a machine is set up
+
+These two are for a machine, not for a commit. Neither changes anything.
+
+Nothing running needed - checks the files, the worlds, the aircraft model,
+the imagery, and runs all eleven offline checks:
+
+```
+python3 tools/verify_install.py
+```
+
+With PX4, Gazebo and the station all up - checks the cameras, the
+rangefinder, the gimbal and boom controllers, and the station's own
+endpoints:
+
+```
+python3 tools/verify_live.py
+```
+
+Both print the one command that fixes anything they find, and both end by
+listing what they could NOT check - the things that need eyes. A row of
+OKs from either is not a statement that the simulator looks right.
