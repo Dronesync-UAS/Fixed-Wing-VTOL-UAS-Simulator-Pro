@@ -142,9 +142,24 @@ def apply(dry_run):
         lines = handle.read().splitlines(keepends=True)
     joined = "".join(lines)
 
-    if 'name="%s"' % LIGHTS[0][0] in joined:
-        print("SKIP  the aircraft already has its lights.")
+    # WHICH lights are missing, not whether the FIRST one is there.
+    #
+    # THE BUG THIS FIXES, found 12 Oct 2026 by verify_install.py on the
+    # instructor's machine: this used to test for LIGHTS[0] - nav_port -
+    # and skip if it was present. The beacon was added to the list after
+    # that machine had already run the tool, so every later run said
+    # "already has its lights" and the beacon could never arrive. A tool
+    # that gains a part must be able to add that part to a model it has
+    # already edited.
+    missing = [light for light in LIGHTS
+               if 'name="%s"' % light[0] not in joined]
+    if not missing:
+        print("SKIP  the aircraft already has all %d lights." % len(LIGHTS))
         return 0
+    if len(missing) < len(LIGHTS):
+        print("The aircraft has %d of %d lights. Adding the rest: %s\n"
+              % (len(LIGHTS) - len(missing), len(LIGHTS),
+                 ", ".join(light[0] for light in missing)))
 
     close, problem = find_link_end(lines)
     if close is None:
@@ -157,7 +172,7 @@ def apply(dry_run):
              + indent + "     tools/aircraft_lights_apply.py. Red to port, green to\n"
              + indent + "     starboard, white at the tail, white strobes above and\n"
              + indent + "     below. Switched from the console. -->\n")
-    for name, (r, g, b), (x, y, z), _ in LIGHTS:
+    for name, (r, g, b), (x, y, z), _ in missing:
         block += LIGHT_BLOCK.format(i=indent, name=name, r=r, g=g, b=b,
                                     x=x, y=y, z=z)
 
@@ -165,7 +180,7 @@ def apply(dry_run):
         print("WOULD EDIT %s" % MODEL)
         print("  insert %d lines before line %d (the end of <link name=\"%s\">)"
               % (block.count("\n"), close + 1, LINK))
-        for name, _, where, what in LIGHTS:
+        for name, _, where, what in missing:
             print("    %-16s %-22s %s" % (name, str(where), what))
         print("\nDry run - nothing written.")
         return 0

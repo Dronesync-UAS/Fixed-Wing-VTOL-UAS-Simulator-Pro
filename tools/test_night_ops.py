@@ -14,6 +14,7 @@ Three things worth proving before anyone flies at night with them:
 """
 import importlib.util
 import os
+import xml.etree.ElementTree as ET
 import sys
 import types
 
@@ -263,6 +264,60 @@ check("the elevons are DARKER than the 0.175 fuselage (%s)" % (elevon,),
 check("and still lighter than the propellers (%s vs %s)" % (elevon, rotor),
       max(elevon) > max(rotor))
 
+# 12 Oct 2026: the lights tool used to test for the FIRST light only, so
+# once the beacon was added to its list it could never reach a model the
+# tool had already edited. Found by verify_install.py on the
+# instructor's machine, which had five of the six.
+import importlib.util as _ilu                              # noqa: E402
+import tempfile as _tf                                     # noqa: E402
+
+_spec = _ilu.spec_from_file_location(
+    "aircraft_lights_apply",
+    os.path.join(REPO, "tools", "aircraft_lights_apply.py"))
+_al = _ilu.module_from_spec(_spec)
+_spec.loader.exec_module(_al)
+
+print("\nThe lights tool adds what is missing, not all or nothing")
+
+_holder = _tf.mkdtemp()
+_model = os.path.join(_holder, "model.sdf")
+
+
+def _write_model(how_many):
+    body = ""
+    for name, (r, g, b), (x, y, z), _ in _al.LIGHTS[:how_many]:
+        body += _al.LIGHT_BLOCK.format(i="      ", name=name, r=r, g=g, b=b,
+                                       x=x, y=y, z=z)
+    with open(_model, "w") as handle:
+        handle.write('<sdf version="1.9">\n  <model name="standard_vtol">\n'
+                     '    <link name="%s">\n%s    </link>\n'
+                     '  </model>\n</sdf>\n' % (_al.LINK, body))
+
+
+_al.MODEL = _model
+_write_model(len(_al.LIGHTS) - 1)       # every light but the last
+_al.main([])
+_text = open(_model).read()
+check("a model missing one light gets that one added",
+      all('name="%s"' % n in _text for n, _, _, _ in _al.LIGHTS))
+check("and no light is added twice",
+      all(_text.count('name="%s"' % n) == 1 for n, _, _, _ in _al.LIGHTS))
+try:
+    ET.parse(_model)
+    check("and the model still parses", True)
+except Exception as _exc:               # noqa: BLE001
+    check("and the model still parses (%s)" % _exc, False)
+
+_write_model(0)                          # bare model, nothing applied
+_al.main([])
+_text = open(_model).read()
+check("a bare model gets all %d" % len(_al.LIGHTS),
+      all('name="%s"' % n in _text for n, _, _, _ in _al.LIGHTS))
+
+import shutil as _sh                                        # noqa: E402
+_sh.rmtree(_holder, ignore_errors=True)
+
 print()
 print("FAILED: %s" % fails if fails else "all checks passed")
 sys.exit(1 if fails else 0)
+
