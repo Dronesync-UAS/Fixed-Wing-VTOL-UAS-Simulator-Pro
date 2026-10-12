@@ -128,7 +128,77 @@ def main():
         check("stays quiet after disarm until it has climbed again",
               not s["lowActive"])
 
-        print("4. the sound can be silenced")
+        print("4. the home point, seen through the camera")
+        # 500 m due north of home, flying north, 100 m up, wings level: home
+        # is behind and below. Flown north-ish so the arithmetic is checkable
+        # by hand rather than only by running it.
+        HOME_LAT, HOME_LON = 40.8750, -119.0849
+
+        def at(north_m, east_m, alt, yaw, roll=0, pitch=0, fov=1.5708):
+            page.evaluate(
+                "s => { window.gcsTelemetry = s; }",
+                {"armed": True, "mode": "Hold", "altitude_m": alt,
+                 "home_lat": HOME_LAT, "home_lon": HOME_LON,
+                 "latitude": HOME_LAT + north_m / 110540.0,
+                 "longitude": HOME_LON + east_m / (111320.0 * 0.7566),
+                 "yaw_deg": yaw, "heading_deg": yaw, "roll_deg": roll,
+                 "pitch_deg": pitch, "airspeed_ms": 18, "groundspeed_ms": 18,
+                 "camera_fov": {"nose": fov, "chase": fov}})
+            return page.evaluate("() => window.gcsHomePoint('#hero canvas.hud')")
+
+        page.click('#viewtabs button[data-view="nose"]')
+        page.wait_for_timeout(400)
+        box = page.locator("#hero canvas.hud").bounding_box()
+        mid = box["width"] / 2
+
+        h = at(-400, 0, 100, 0)       # home 400 m straight ahead, 100 m below
+        check("straight ahead: drawn in the picture, not as an arrow (%s)"
+              % (h and h["arrow"]), h and not h["arrow"])
+        check("straight ahead: centred left to right (%s vs %s)"
+              % (h and round(h["x"]), round(mid)), h and abs(h["x"] - mid) < 12)
+        check("straight ahead: below the horizon (%s vs %s)"
+              % (h and round(h["y"]), round(box["height"] / 2)),
+              h and h["y"] > box["height"] / 2)
+        check("straight ahead: reports the slant distance (%s m)" % (h and h["dist"]),
+              h and 400 < h["dist"] < 440)
+
+        h = at(-400, 0, 100, 90)      # same place, but flying east
+        check("home off the left wing when flying east (%s vs %s)"
+              % (h and round(h["x"]), round(mid)), h and h["x"] < mid)
+
+        h = at(400, 0, 100, 0)        # home behind: an arrow, not a marker
+        check("behind the aircraft: an arrow instead (%s)" % (h and h["arrow"]),
+              h and h["arrow"])
+        check("the arrow points backwards (%s rad)"
+              % (h and round(h["bearing"], 2)),
+              h and abs(abs(h["bearing"]) - 3.1416) < 0.2)
+
+        # Bank right and the ground below swings to the right of the
+        # windscreen, which is what the horizon tilting away from you means.
+        h = at(-400, 0, 100, 0, roll=30)
+        check("banked right: the ground below swings right (%s vs %s)"
+              % (h and round(h["x"]), round(mid)), h and h["x"] > mid + 20)
+        h = at(-400, 0, 100, 0, roll=-30)
+        check("banked left: and left the other way (%s vs %s)"
+              % (h and round(h["x"]), round(mid)), h and h["x"] < mid - 20)
+
+        # A narrower lens magnifies: the same point sits further from the
+        # middle. Both angles have to keep it inside the picture, or the
+        # comparison is between a marker and an edge arrow.
+        wide = at(-400, 60, 100, 0, fov=1.5708)
+        narrow = at(-400, 60, 100, 0, fov=1.1)
+        check("both lenses still show the marker itself",
+              wide and narrow and not wide["arrow"] and not narrow["arrow"])
+        check("a narrower lens pushes the same point further out (%s -> %s)"
+              % (wide and round(wide["x"]), narrow and round(narrow["x"])),
+              wide and narrow and abs(narrow["x"] - mid) > abs(wide["x"] - mid))
+
+        # The whole point of reading the angle from Gazebo: no angle, no marker.
+        page.evaluate("() => { window.gcsTelemetry.camera_fov = {}; }")
+        check("no marker when the camera's field of view is unknown",
+              page.evaluate("() => window.gcsHomePoint('#hero canvas.hud')") is None)
+
+        print("5. the sound can be silenced")
         check("there is an alarm switch", page.locator("#alarm-on").count() == 1)
         page.uncheck("#alarm-on")
         state(armed=True, mode="Hold", altitude_m=60.0)

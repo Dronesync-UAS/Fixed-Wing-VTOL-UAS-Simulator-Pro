@@ -9,14 +9,37 @@ test that day showed there was previously no way to recover the
 aircraft from this failure without fully restarting PX4/Gazebo.
 
 Numeric codes corrected earlier the same day - see motor_failure.py.
+
+FIXED 12 Oct 2026 - THE UNIT NUMBER WAS NOT A REAL ONE. This sent 10 as
+MAV_CMD_INJECT_FAILURE's failure unit. The MAVLink FAILURE_UNIT enum, and
+PX4 v1.15.4's own copy of it in msg/VehicleCommand.msg lines 130-144, do
+not define 10 at all - the system units start at 100:
+
+    uint8 FAILURE_UNIT_SYSTEM_BATTERY = 100
+    uint8 FAILURE_UNIT_SYSTEM_MOTOR = 101
+    uint8 FAILURE_UNIT_SYSTEM_SERVO = 102
+    uint8 FAILURE_UNIT_SYSTEM_AVOIDANCE = 103
+    uint8 FAILURE_UNIT_SYSTEM_RC_SIGNAL = 104
+    uint8 FAILURE_UNIT_SYSTEM_MAVLINK_SIGNAL = 105
+
+A comment in this file claimed the numbers had been "cross-checked against
+MAVLink's own enum definitions". They had not. The correct number is now
+used, from simulator_link rather than copied into each plugin again.
+
+The injection is also gated behind PX4's SYS_FAILURE_EN parameter, which
+is 0 by default - failure.cpp lines 163-171 refuses outright when it is
+not 1. That is now checked and said out loud, instead of the button
+appearing to work and nothing happening.
+
+NOT YET CONFIRMED IN FLIGHT with the corrected number.
 """
 
-from simulator_link import send_command_and_wait, mark_failure_injected, mark_failure_cleared
+from simulator_link import (FAILURE_TYPE_OFF, FAILURE_TYPE_OK,
+                            MAV_CMD_INJECT_FAILURE, FAILURE_UNIT_SYSTEM_MOTOR,
+                            failure_injection_blocked,
+                            mark_failure_cleared, mark_failure_injected,
+                            send_command_and_wait)
 
-MAV_CMD_INJECT_FAILURE = 420
-FAILURE_UNIT_SYSTEM_MOTOR = 10
-FAILURE_TYPE_OFF = 1
-FAILURE_TYPE_OK = 0
 PUSHER_MOTOR_INDEX = 4  # the forward pusher/puller motor, not a hover rotor
 
 state = {"active": False}
@@ -32,6 +55,11 @@ state = {"active": False}
 
 def _send(failure_type):
     """Returns a message describing what PX4 said."""
+    # PX4 ignores every injection while SYS_FAILURE_EN is 0, which is its
+    # default - the button would otherwise look like it had worked.
+    blocked = failure_injection_blocked()
+    if blocked:
+        return blocked
     result, text = send_command_and_wait(
         MAV_CMD_INJECT_FAILURE, FAILURE_UNIT_SYSTEM_MOTOR, failure_type, PUSHER_MOTOR_INDEX, 0, 0, 0, 0)
     if result == 0:  # MAV_RESULT_ACCEPTED

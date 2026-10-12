@@ -25,6 +25,17 @@ THE COLOUR CODE, as asked for:
     amber   warning     takeoff, landing, return to launch, not ready to arm
     green   normal      armed and flying, ready to arm
 
+THE BATTERY WARNING flashes the percentage and raises a message at 20%
+and again at 10%, the two figures the instructor asked for. PX4 has its
+own low-battery thresholds and those are what make the AIRCRAFT act; these
+only decide when the CONSOLE says something.
+
+THE WARNINGS ARE TRAINING AIDS, NOT A CERTIFIED GPWS. There are two:
+LOW ALTITUDE, which is about where the aircraft is, and PULL UP, which is
+about where it is going - it sounds and repeats when the current rate of
+descent would put the aircraft on the ground within a few seconds. Both
+sets of figures were chosen for this simulator.
+
 THE LOW-ALTITUDE WARNING is a training aid, not a certified GPWS. The
 threshold is a number chosen for this simulator (see LOW_ALT_M below), not
 one taken from any standard, and it is deliberately armed only after the
@@ -47,6 +58,29 @@ LOW_ALT_M = 15.0
 # threshold, so it stays quiet on the ground and through the climb out.
 LOW_ALT_ARM_M = 40.0
 
+# SINK RATE / PULL UP. A real GPWS works the descent rate against the
+# height remaining: the faster the ground is coming up, the higher it
+# starts shouting. This is the same shape of rule, with figures chosen for
+# this simulator - they are NOT from any published GPWS envelope, and the
+# module says so out loud rather than implying a certification it has not
+# got.
+#
+# PULL UP sounds when the aircraft would reach the ground in less than
+# PULL_UP_SECONDS at its current rate of descent, and it is below
+# SINK_WATCH_M. That one rule covers both cases asked for: a fault that
+# drops the aircraft, and a student diving at the desert.
+SINK_WATCH_M = 100.0        # below this height the sink rate is watched
+PULL_UP_SECONDS = 8.0       # ground this close in time and it shouts
+SINK_RATE_MIN_MS = 2.0      # ignore the drift of an ordinary descent
+
+# BATTERY. The two figures an instructor asked for. PX4 has its own
+# thresholds (COM_LOW_BAT_ACT and the BAT_*_THR parameters) and they are
+# what actually make the aircraft do something; these only decide when the
+# console starts shouting, so they are kept separate and named here rather
+# than implied to be PX4's.
+BATTERY_LOW_PCT = 20
+BATTERY_CRITICAL_PCT = 10
+
 STYLE = """
 <style>
   .hud-toggle, .alarm-toggle {
@@ -56,6 +90,8 @@ STYLE = """
   }
   .hud-toggle { left: 10px; }
   .alarm-toggle { left: 136px; }
+  /* Speaking is off until someone asks for it: a classroom where the
+     console talks over the instructor is worse than one that does not. */
   .tile .alarm-toggle { display: none; }
 </style>
 """
@@ -67,6 +103,11 @@ SCRIPT = """
 
   var LOW_ALT_M = __LOW_ALT_M__;
   var LOW_ALT_ARM_M = __LOW_ALT_ARM_M__;
+  var SINK_WATCH_M = __SINK_WATCH_M__;
+  var PULL_UP_SECONDS = __PULL_UP_SECONDS__;
+  var SINK_RATE_MIN_MS = __SINK_RATE_MIN_MS__;
+  var BATTERY_LOW_PCT = __BATTERY_LOW_PCT__;
+  var BATTERY_CRITICAL_PCT = __BATTERY_CRITICAL_PCT__;
 
   var AMBER = '#ffc400', RED = '#ff4b4b', GREEN = '#4ade80', INK = '#ffffff';
 
@@ -114,9 +155,90 @@ SCRIPT = """
     osc.stop(ctx.currentTime + seconds + 0.02);
   }
 
+  // ---------- the voice ----------
+  // Spoken by the browser itself, so there is no sound file to ship and no
+  // voice to install - every machine that runs a browser has one. It is
+  // deliberately terse: an instructor watching a student does not want a
+  // sentence read out, just the word for what happened.
+  var lastSpoken = { text: null, at: 0 };
+
+  function voiceAllowed() {
+    var box = document.getElementById('voice-on');
+    return box ? box.checked : false;
+  }
+
+  window.gcsSpeak = function (text, force) {
+    if (!text || !voiceAllowed() || !window.speechSynthesis) { return; }
+    var now = Date.now();
+    // The same word twice inside three seconds is a repeat, not news.
+    if (!force && text === lastSpoken.text && now - lastSpoken.at < 3000) { return; }
+    lastSpoken = { text: text, at: now };
+    try {
+      var said = new SpeechSynthesisUtterance(text);
+      said.rate = 1.05;
+      said.volume = 0.9;
+      window.speechSynthesis.speak(said);
+    } catch (err) { /* a browser without a voice is not a fault */ }
+  };
+
   function alarmAllowed() {
     var box = document.getElementById('alarm-on');
     return !box || box.checked;
+  }
+
+  // ---------- sink rate ----------
+  // The feed carries no climb rate, so it is differentiated from the
+  // altitude, the same way the parameter band does it. Smoothed, because
+  // a raw difference between two 0.1 m readings is mostly noise and this
+  // one decides whether the console starts shouting.
+  var IMPLAUSIBLE_RATE_MS = 40;   // a step this big is data, not a descent
+  var SINK_HOLD_MS = 1000;        // and it has to hold this long to count
+  var sink = { lastAlt: null, lastT: 0, rate: 0, active: false,
+               lastSay: 0, lastBeep: 0, heldSince: 0 };
+
+  function updateSink() {
+    var t = telemetry(), alt = t.altitude_m, now = Date.now();
+    if (alt == null || !t.armed || t.in_air === false) {
+      sink.lastAlt = null; sink.rate = 0; sink.active = false;
+      sink.heldSince = 0;
+      return;
+    }
+    if (sink.lastAlt !== null && now > sink.lastT) {
+      var per = (sink.lastAlt - alt) / ((now - sink.lastT) / 1000);
+      // A step of tens of metres between two readings is the altitude
+      // being re-based - a reposition, a GPS glitch, the home point
+      // moving - not the aircraft falling. Taking it at face value had the
+      // console shouting PULL UP at an aircraft climbing away normally.
+      if (Math.abs(per) > IMPLAUSIBLE_RATE_MS) {
+        sink.rate = 0; sink.heldSince = 0;
+      } else {
+        sink.rate = sink.rate * 0.7 + per * 0.3;    // metres per second DOWN
+      }
+    }
+    sink.lastAlt = alt; sink.lastT = now;
+
+    var mode = (t.mode || '').toLowerCase();
+    var commanded = mode.indexOf('land') !== -1;
+    var seconds = sink.rate > SINK_RATE_MIN_MS ? alt / sink.rate : Infinity;
+    var meets = !commanded && alt < SINK_WATCH_M
+                && sink.rate > SINK_RATE_MIN_MS && seconds < PULL_UP_SECONDS;
+    // Held for a moment before it counts, so one noisy sample cannot start
+    // the console shouting.
+    if (!meets) { sink.heldSince = 0; }
+    else if (!sink.heldSince) { sink.heldSince = now; }
+    sink.active = meets && (now - sink.heldSince) >= SINK_HOLD_MS;
+    sink.seconds = seconds;
+
+    if (!sink.active) { return; }
+    if (alarmAllowed() && now - sink.lastBeep > 300) {
+      sink.lastBeep = now;
+      tone(1500, 0.18, 0.28);
+    }
+    // Said on repeat for as long as it holds, which is the point of it.
+    if (now - sink.lastSay > 2200) {
+      sink.lastSay = now;
+      window.gcsSpeak('Pull up. Pull up.', true);
+    }
   }
 
   // ---------- the low-altitude warning ----------
@@ -125,7 +247,7 @@ SCRIPT = """
   function updateLowAlt() {
     var t = telemetry();
     var alt = t.altitude_m, mode = (t.mode || '').toLowerCase();
-    if (!t.armed || alt == null) {
+    if (!t.armed || alt == null || t.in_air === false) {
       low.armed = false; low.active = false; low.high = false;
       return;
     }
@@ -157,9 +279,24 @@ SCRIPT = """
   };
 
   var wasArmed = null;
+  function batteryLevel() {
+    var pct = telemetry().battery_pct;
+    if (pct == null) { return null; }
+    if (pct <= BATTERY_CRITICAL_PCT) { return 'critical'; }
+    if (pct <= BATTERY_LOW_PCT) { return 'low'; }
+    return null;
+  }
+
   function banner() {
     var t = telemetry();
+    // In the order they have to be dealt with. Sinking onto the ground
+    // outranks being near it - one is a thing that is happening, the other
+    // a thing that is true - and a battery about to quit outranks both.
+    if (sink.active) { return { text: 'PULL UP', level: 'danger' }; }
+    var bat = batteryLevel();
+    if (bat === 'critical') { return { text: 'BATTERY CRITICAL', level: 'danger' }; }
     if (low.active) { return { text: 'LOW ALTITUDE', level: 'danger' }; }
+    if (bat === 'low' && t.armed) { return { text: 'BATTERY LOW', level: 'warn' }; }
     if (wasArmed !== null && t.armed !== wasArmed && t.armed !== undefined) {
       window.gcsAnnounce(t.armed ? 'ARMED' : 'DISARMED',
                          t.armed ? 'ok' : 'danger', 4);
@@ -181,6 +318,32 @@ SCRIPT = """
     if (mode.indexOf('termin') !== -1) { return { text: 'FLIGHT TERMINATED', level: 'danger' }; }
     return { text: 'ARMED', level: 'ok' };
   }
+
+  // Speaking is driven off the banner rather than off each button, so the
+  // aircraft's own state is what is called out: pressing ARM when PX4
+  // refuses says nothing, and PX4 disarming itself ten seconds later does.
+  var spokenBanner = null;
+  function speakBanner(msg) {
+    if (msg.text === spokenBanner) { return; }
+    spokenBanner = msg.text;
+    // A null here means something else says it - PULL UP repeats on its
+    // own timer, and saying it once more on the change would double it.
+    if (SPOKEN_AS[msg.text] === null) { return; }
+    window.gcsSpeak(SPOKEN_AS[msg.text] || msg.text);
+  }
+
+  // How each message is said aloud. Left out of this list, a message is
+  // read as it is written, which is why they are short words to begin with.
+  var SPOKEN_AS = {
+    'PULL UP': null,
+    'BATTERY LOW': 'Battery low',
+    'BATTERY CRITICAL': 'Battery critical. Land now.',
+    'TAKE-OFF': 'Take off',
+    'LOW ALTITUDE': 'Low altitude. Low altitude.',
+    'NOT READY TO ARM': 'Not ready to arm',
+    'RETURN TO LAUNCH': 'Returning to launch',
+    'FLIGHT TERMINATED': 'Flight terminated'
+  };
 
   function levelColour(level) {
     return level === 'danger' ? RED : level === 'warn' ? AMBER : GREEN;
@@ -341,6 +504,117 @@ SCRIPT = """
           cx, y + h + 23, '700 15px "IBM Plex Mono", monospace', INK);
   }
 
+  // ---------- the home point, seen through the camera ----------
+  // DJI's displays keep a marker on the home point wherever the camera is
+  // looking, so a student always knows where back is. The same thing here:
+  // work out where home is relative to the aircraft, turn that into the
+  // camera's own frame using the attitude PX4 reports, and project it.
+  //
+  // The field of view is NOT written down here. It lives in the world file
+  // on the simulator's machine, and a marker projected with the wrong angle
+  // is worse than no marker - it points confidently at the wrong patch of
+  // desert. The station reads each camera's real angle from the camera_info
+  // Gazebo publishes beside the picture, and if that is not available the
+  // marker is simply not drawn.
+  //
+  // The camera's offset from the aircraft (the chase camera sits nine
+  // metres back) is ignored: home is hundreds of metres away, so nine
+  // metres moves the marker by a fraction of a degree.
+  var CAMERA_PITCH_DOWN = { chase: 0.24, nose: 0 };   // radians, from the world file
+
+  function homePoint(cv, w, h, t, safe) {
+    var fovs = t.camera_fov || {};
+    var which = (cv.closest && cv.closest('#view-chase')) ? 'chase' : 'nose';
+    var fov = fovs[which];
+    if (!fov || t.home_lat == null || t.latitude == null) { return null; }
+    if (t.altitude_m == null) { return null; }
+
+    var latR = t.latitude * Math.PI / 180;
+    var north = (t.home_lat - t.latitude) * 110540;
+    var east = (t.home_lon - t.longitude) * 111320 * Math.cos(latR);
+    var down = t.altitude_m;            // home is on the ground below us
+    var ground = Math.sqrt(north * north + east * east);
+    if (ground < 3 && down < 3) { return null; }
+
+    // World (north, east, down) into the aircraft's own axes.
+    var yaw = (t.yaw_deg != null ? t.yaw_deg : t.heading_deg || 0) * Math.PI / 180;
+    var pitch = (t.pitch_deg || 0) * Math.PI / 180;
+    var roll = (t.roll_deg || 0) * Math.PI / 180;
+    var cy = Math.cos(yaw), sy = Math.sin(yaw);
+    var x1 = north * cy + east * sy;        // forward, before pitch and roll
+    var y1 = -north * sy + east * cy;       // right
+    var z1 = down;
+    var cp = Math.cos(pitch), sp = Math.sin(pitch);
+    var x2 = x1 * cp - z1 * sp;
+    var z2 = x1 * sp + z1 * cp;
+    var cr = Math.cos(roll), sr = Math.sin(roll);
+    var y3 = y1 * cr + z2 * sr;
+    var z3 = -y1 * sr + z2 * cr;
+    // The camera's own downward tilt on the airframe.
+    var tilt = CAMERA_PITCH_DOWN[which] || 0;
+    var ct = Math.cos(tilt), st = Math.sin(tilt);
+    var xc = x2 * ct + z3 * st;
+    var zc = -x2 * st + z3 * ct;
+
+    var half = Math.tan(fov / 2);
+    var vhalf = half * (h / w);
+    var inFront = xc > 1;
+    var px, py, offscreen = false;
+    if (inFront) {
+      px = cx(w) + (y3 / xc) / half * (w / 2);
+      py = h / 2 + (zc / xc) / vhalf * (h / 2);
+      offscreen = px < safe.left || px > w - safe.right
+               || py < safe.top || py > h - safe.bottom;
+    }
+
+    var dist = Math.round(Math.sqrt(ground * ground + down * down));
+    if (!inFront || offscreen) {
+      // Behind, or outside the picture: an arrow on the edge pointing the
+      // way home, which is the part a pilot actually needs.
+      var bearing = Math.atan2(y3, xc);
+      var r = Math.min(w, h) * 0.30;
+      px = cx(w) + Math.sin(bearing) * r;
+      py = h / 2 - Math.cos(bearing) * r * 0.55;
+      return { x: px, y: py, dist: dist, bearing: bearing, arrow: true };
+    }
+    return { x: px, y: py, dist: dist, bearing: 0, arrow: false };
+  }
+
+  function cx(w) { return w / 2; }
+
+  function drawHomeGlyph(ctx, x, y, dist, bearing, isArrow) {
+    ctx.save();
+    if (isArrow) {
+      ctx.translate(x, y);
+      ctx.rotate(bearing);
+      ctx.beginPath();
+      ctx.moveTo(0, -14); ctx.lineTo(10, 10); ctx.lineTo(0, 4); ctx.lineTo(-10, 10);
+      ctx.closePath();
+      ctx.strokeStyle = 'rgba(0,0,0,0.8)'; ctx.lineWidth = 4; ctx.stroke();
+      ctx.fillStyle = GREEN; ctx.fill();
+      ctx.restore();
+      label(ctx, 'HOME ' + dist + ' m', x, y + 26,
+            '700 12px -apple-system, sans-serif', GREEN);
+      return;
+    }
+    // A house on a stake, so it reads as a point on the ground.
+    ctx.translate(x, y);
+    ctx.beginPath();
+    ctx.moveTo(0, 0); ctx.lineTo(0, -16);
+    ctx.strokeStyle = 'rgba(0,0,0,0.8)'; ctx.lineWidth = 5; ctx.stroke();
+    ctx.strokeStyle = GREEN; ctx.lineWidth = 2.5; ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(-9, -16); ctx.lineTo(0, -26); ctx.lineTo(9, -16); ctx.closePath();
+    ctx.moveTo(-6, -16); ctx.lineTo(-6, -8); ctx.lineTo(6, -8); ctx.lineTo(6, -16);
+    ctx.strokeStyle = 'rgba(0,0,0,0.8)'; ctx.lineWidth = 5; ctx.stroke();
+    ctx.strokeStyle = GREEN; ctx.lineWidth = 2.5; ctx.stroke();
+    ctx.beginPath(); ctx.arc(0, 0, 3.5, 0, 7);
+    ctx.fillStyle = GREEN; ctx.fill();
+    ctx.restore();
+    label(ctx, 'HOME ' + dist + ' m', x, y + 16,
+          '700 12px -apple-system, sans-serif', GREEN);
+  }
+
   // ---------- the whole display ----------
   function draw(cv) {
     var ctx = cv.getContext('2d');
@@ -468,6 +742,29 @@ SCRIPT = """
     ctx.strokeRect(cx - mw / 2, my - 23, mw, 46);
     label(ctx, msg.text, cx, my, font, colour);
 
+    // --- the home point, where the camera would see it ---
+    if (cv.closest && !cv.closest('#view-map')) {
+      var home = homePoint(cv, w, h, t, safe);
+      if (home) {
+        drawHomeGlyph(ctx, home.x, home.y, home.dist, home.bearing, home.arrow);
+      }
+    }
+
+    // --- what a multi-step manoeuvre is doing, under the message ---
+    // FORWARD FLIGHT is a climb, then a transition, then another climb,
+    // and it can take a minute. Without this the console says one sentence
+    // and then looks idle while the aircraft is still working through it.
+    if (t.sequence) {
+      ctx.font = '600 15px -apple-system, sans-serif';
+      var sw = ctx.measureText(t.sequence).width + 24;
+      ctx.fillStyle = 'rgba(0,0,0,0.62)';
+      ctx.fillRect(cx - sw / 2, my + 27, sw, 28);
+      ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 1.5;
+      ctx.strokeRect(cx - sw / 2, my + 27, sw, 28);
+      label(ctx, t.sequence, cx, my + 41,
+            '600 15px -apple-system, sans-serif', AMBER);
+    }
+
     // --- the system strip ---
     // Mission Planner runs this along the bottom of the picture. Here the
     // bottom of the picture is taken: the two corner tiles sit in it and the
@@ -487,9 +784,23 @@ SCRIPT = """
     var armCol = t.arm_ready === true ? GREEN : t.arm_ready === false ? AMBER : INK;
     label(ctx, (t.mode || '-').toUpperCase(), sR, ty,
           '700 14px -apple-system, sans-serif', INK, 'right');
-    label(ctx, 'BAT ' + bat, sR, ty + 22, mono, INK, 'right');
-    label(ctx, 'SATS ' + sats, sR, ty + 42, mono, INK, 'right');
-    label(ctx, armTxt, sR, ty + 62, mono, armCol, 'right');
+    if (t.vtol_state) {
+      label(ctx, t.vtol_state.toUpperCase(), sR, ty + 20,
+            '600 11px -apple-system, sans-serif',
+            t.vtol_state.indexOf('ransition') !== -1 ? AMBER : INK, 'right');
+    }
+    var batState = batteryLevel();
+    var batCol = INK;
+    if (batState) {
+      // Flashed rather than merely coloured: a number that changes twice a
+      // second is seen out of the corner of an eye, a coloured one is not.
+      var on = Math.floor(Date.now() / (batState === 'critical' ? 350 : 600)) % 2 === 0;
+      batCol = batState === 'critical'
+             ? (on ? RED : '#ffd7d7') : (on ? AMBER : '#fff0c2');
+    }
+    label(ctx, 'BAT ' + bat, sR, ty + 42, mono, batCol, 'right');
+    label(ctx, 'SATS ' + sats, sR, ty + 62, mono, INK, 'right');
+    label(ctx, armTxt, sR, ty + 82, mono, armCol, 'right');
   }
 
   function fit(cv) {
@@ -519,15 +830,30 @@ SCRIPT = """
              top: box.top + a.top, bottom: box.bottom - a.bottom };
   };
 
+  // For tools/test_flight_display.py: where the home marker lands for a
+  // given aircraft state. Reading it off a canvas would prove nothing;
+  // whether it points at the right patch of ground is the whole question.
+  window.gcsHomePoint = function (selector) {
+    var cv = document.querySelector(selector);
+    if (!cv) { return null; }
+    var w = cv.cssW || cv.clientWidth, h = cv.cssH || cv.clientHeight;
+    return homePoint(cv, w, h, telemetry(), safeArea(cv));
+  };
+
   window.gcsHudState = function () {
     updateLowAlt();
+    updateSink();
     var b = banner();
     return { text: b.text, level: b.level, colour: levelColour(b.level),
-             lowArmed: low.armed, lowActive: low.active };
+             lowArmed: low.armed, lowActive: low.active,
+             sinkActive: sink.active, sinkRate: Math.round(sink.rate * 10) / 10,
+             battery: batteryLevel() };
   };
 
   window.gcsDrawHud = function () {
     updateLowAlt();
+    updateSink();
+    speakBanner(banner());
     var list = canvases();
     for (var i = 0; i < list.length; i++) {
       if (fit(list[i])) { draw(list[i]); }
@@ -545,4 +871,9 @@ def script():
     """The display's JavaScript, with the warning thresholds filled in."""
     return (SCRIPT
             .replace("__LOW_ALT_M__", repr(LOW_ALT_M))
-            .replace("__LOW_ALT_ARM_M__", repr(LOW_ALT_ARM_M)))
+            .replace("__LOW_ALT_ARM_M__", repr(LOW_ALT_ARM_M))
+            .replace("__SINK_WATCH_M__", repr(SINK_WATCH_M))
+            .replace("__PULL_UP_SECONDS__", repr(PULL_UP_SECONDS))
+            .replace("__SINK_RATE_MIN_MS__", repr(SINK_RATE_MIN_MS))
+            .replace("__BATTERY_LOW_PCT__", repr(BATTERY_LOW_PCT))
+            .replace("__BATTERY_CRITICAL_PCT__", repr(BATTERY_CRITICAL_PCT)))

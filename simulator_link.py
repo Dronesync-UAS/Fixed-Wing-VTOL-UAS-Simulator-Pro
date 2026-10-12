@@ -69,7 +69,21 @@ telemetry = {
     "arm_ready": None,                  # True / False / None (no heartbeat yet)
     "arm_state": "Waiting for PX4",     # short label for the console
     "arm_blocker": None,                # PX4's own words, out of STATUSTEXT
+    # Where the aircraft is. Added 12 Oct 2026: LOITER has to hand PX4 a
+    # centre for its orbit, and that centre is worked out from the
+    # aircraft's own position - see plugins/loiter_orbit.py for why NaN
+    # (meaning "here") sends it off in a straight line instead.
+    "latitude": None, "longitude": None,
+    # MAV_VTOL_STATE and MAV_LANDED_STATE out of EXTENDED_SYS_STATE: which
+    # half of the VTOL is flying, and whether it is flying at all.
+    "vtol_state": None,                 # "Hover", "Fixed wing", "Transitioning..."
+    "in_air": None,                     # True / False / None (not reported yet)
+    # What a multi-step manoeuvre is doing right now, for the console.
+    "sequence": None,
 }
+
+VTOL_STATES = {0: None, 1: "Transitioning to fixed wing",
+               2: "Transitioning to hover", 3: "Hover", 4: "Fixed wing"}
 
 # HEARTBEAT.system_status (the MAVLink MAV_STATE enum), as PX4 v1.15.4 fills
 # it in - src/modules/mavlink/streams/HEARTBEAT.hpp lines 107-127:
@@ -314,6 +328,167 @@ def send_command_and_wait(command, *params, timeout=2.0):
     return None, "no acknowledgement from PX4"
 
 
+# MAV_CMD_INJECT_FAILURE's unit numbers, taken from PX4 v1.15.4's own
+# msg/VehicleCommand.msg lines 130-144 (identical to MAVLink's FAILURE_UNIT
+# enum). They are NOT a dense 0..n list, which is how the station came to be
+# sending 10, 13 and 14 - none of which is a defined value.
+FAILURE_UNIT_SYSTEM_MOTOR = 101
+FAILURE_UNIT_SYSTEM_SERVO = 102
+FAILURE_UNIT_SYSTEM_RC_SIGNAL = 104
+FAILURE_UNIT_SYSTEM_MAVLINK_SIGNAL = 105
+FAILURE_TYPE_OK = 0
+FAILURE_TYPE_OFF = 1
+
+MAV_CMD_INJECT_FAILURE = 420
+
+# PX4 refuses every injection unless this parameter is 1 - see its own
+# failure command, src/systemcmds/failure/failure.cpp lines 163-171:
+#     if (param != 1) { PX4_ERR("Failure injection disabled by
+#                               SYS_FAILURE_EN param."); return 1; }
+# Without the check here, a failure button is simply inert and says nothing.
+FAILURE_ENABLE_PARAM = "SYS_FAILURE_EN"
+
+_param_values = {}
+
+
+def read_param(name, timeout=2.0):
+    """Ask PX4 for one parameter and wait briefly for its value.
+
+    Returns a float, or None if PX4 did not answer. The telemetry thread is
+    the only reader of the socket, so this asks and then polls what that
+    thread stored, the same way send_command_and_wait does."""
+    _param_values.pop(name, None)
+    try:
+        master.mav.param_request_read_send(
+            master.target_system, master.target_component,
+            name.encode("ascii"), -1)
+    except Exception:                                      # noqa: BLE001
+        return None
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if name in _param_values:
+            return _param_values[name]
+        time.sleep(0.05)
+    return None
+
+
+def failure_injection_blocked():
+    """A sentence explaining why injection will not work, or None.
+
+    Checked once and remembered: the answer cannot change without someone
+    setting the parameter, and asking on every button press would add a
+    two-second wait to every failure."""
+    if _failure_enable.get("checked"):
+        return _failure_enable["reason"]
+    value = read_param(FAILURE_ENABLE_PARAM)
+    _failure_enable["checked"] = True
+    if value is None:
+        _failure_enable["reason"] = None       # could not ask; do not block
+    elif int(value) != 1:
+        _failure_enable["reason"] = (
+            f"{FAILURE_ENABLE_PARAM} is {int(value)}, so PX4 ignores every "
+            "failure injection. In the PX4 window, at its pxh> prompt, type: "
+            f"param set {FAILURE_ENABLE_PARAM} 1")
+    else:
+        _failure_enable["reason"] = None
+    return _failure_enable["reason"]
+
+
+_failure_enable = {"checked": False, "reason": None}
+
+
+def home_amsl():
+    """Height of the home point above sea level, metres, or None.
+
+    PX4 reports both an absolute height and a height relative to home in the
+    same message, so the difference is exact rather than a guess - and every
+    altitude command PX4 takes is absolute, while every altitude an
+    instructor thinks in is above the ground they are standing on."""
+    amsl = telemetry.get("altitude_amsl_m")
+    rel = telemetry.get("altitude_m")
+    if amsl is None or rel is None:
+        return None
+    return amsl - rel
+
+
+def offset_latlon(lat, lon, bearing_deg, distance_m):
+    """A point `distance_m` away on a given compass bearing.
+
+    Equirectangular, like _range_from_home - exact enough over the few
+    hundred metres these controls work in, and it inverts that function so
+    the two agree."""
+    bearing = math.radians(bearing_deg)
+    north = distance_m * math.cos(bearing)
+    east = distance_m * math.sin(bearing)
+    return (lat + north / 110540.0,
+            lon + east / (111320.0 * math.cos(math.radians(lat))))
+
+
+# ---- multi-step manoeuvres -------------------------------------------
+# A VTOL departure is three commands with waits between them: climb, then
+# transition once high enough, then climb away. A button handler has to
+# return a sentence straight away, so the steps run on their own thread and
+# report where they are through telemetry["sequence"], which the console
+# already polls.
+_sequence_lock = threading.Lock()
+_sequence = {"thread": None, "cancel": False}
+
+
+def sequence_running():
+    thread = _sequence["thread"]
+    return thread is not None and thread.is_alive()
+
+
+def cancel_sequence():
+    _sequence["cancel"] = True
+
+
+def say_step(text):
+    telemetry["sequence"] = text
+
+
+def wait_until(predicate, timeout, poll=0.25):
+    """True once the predicate holds, False on timeout or cancellation."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if _sequence["cancel"]:
+            return False
+        if predicate():
+            return True
+        time.sleep(poll)
+    return False
+
+
+def start_sequence(name, steps):
+    """Run `steps` - a list of no-argument callables - on a background
+    thread. A step returning a string ends the sequence with that message
+    (a failure); returning None carries on. Only one runs at a time."""
+    with _sequence_lock:
+        if sequence_running():
+            return False
+        _sequence["cancel"] = False
+
+        def run():
+            try:
+                for step in steps:
+                    if _sequence["cancel"]:
+                        say_step(f"{name}: stopped.")
+                        return
+                    problem = step()
+                    if problem:
+                        say_step(problem)
+                        log_instructor_action(name, f"stopped: {problem}")
+                        return
+                say_step(None)
+            except Exception as exc:                       # noqa: BLE001
+                say_step(f"{name} failed: {exc}")
+                log_instructor_action(name, f"exception: {exc!r}")
+
+        _sequence["thread"] = threading.Thread(target=run, daemon=True)
+        _sequence["thread"].start()
+        return True
+
+
 def status_since(since_t, contains=()):
     """PX4's STATUSTEXT lines since a given time.monotonic() stamp.
 
@@ -439,10 +614,16 @@ def _read_one_message():
             new_mode = _decode_mode(msg.custom_mode)
             _check_failure_response(new_mode)
             telemetry["mode"] = new_mode
+        elif t == "EXTENDED_SYS_STATE":
+            telemetry["vtol_state"] = VTOL_STATES.get(msg.vtol_state)
+            # MAV_LANDED_STATE: 1 on ground, 2 in air, 3 taking off, 4 landing
+            telemetry["in_air"] = (msg.landed_state in (2, 3, 4)
+                                   if msg.landed_state else None)
         elif t == "GLOBAL_POSITION_INT":
             telemetry["altitude_m"] = round(msg.relative_alt / 1000.0, 1)
             telemetry["altitude_amsl_m"] = round(msg.alt / 1000.0, 1)
             lat, lon = msg.lat / 1e7, msg.lon / 1e7
+            telemetry["latitude"], telemetry["longitude"] = lat, lon
             if lat or lon:
                 if home_latlon["lat"] is None:
                     home_latlon["lat"], home_latlon["lon"] = lat, lon
@@ -480,6 +661,11 @@ def _read_one_message():
             if text.lower().startswith(_ARM_BLOCKER_PREFIXES):
                 _arm_blocker["text"] = text
                 _arm_blocker["t"] = time.monotonic()
+        elif t == "PARAM_VALUE":
+            name = msg.param_id
+            if isinstance(name, bytes):
+                name = name.decode("ascii", "replace")
+            _param_values[name.rstrip("\x00")] = msg.param_value
         elif t == "COMMAND_ACK":
             command_acks[msg.command] = {"result": msg.result, "t": time.monotonic()}
 

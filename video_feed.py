@@ -24,11 +24,22 @@ shows its "no signal" message, costing nothing.
 """
 
 import io
+import math
 import time
 import threading
 from collections import deque
 from gz.transport13 import Node
 from gz.msgs10.image_pb2 import Image as GzImage
+
+# The camera's own field of view, read from Gazebo rather than written down
+# here. The home-point marker drawn over these pictures is only in the right
+# place if the angle used to project it is the angle the camera actually has,
+# and that lives in the world file on the simulator's machine - not in this
+# repository. Gazebo publishes it on <image topic>/camera_info.
+try:
+    from gz.msgs10.camera_info_pb2 import CameraInfo as GzCameraInfo
+except ImportError:                                        # pragma: no cover
+    GzCameraInfo = None
 from PIL import Image
 
 import sim_target
@@ -63,6 +74,8 @@ class CameraFeed:
         self._node = None
         self._topic = None
         self._watchdog_on = False
+        # Horizontal field of view in radians, once Gazebo has told us.
+        self._fov_rad = None
 
     # -- incoming frames ------------------------------------------------
     def _on_image(self, msg):
@@ -82,6 +95,26 @@ class CameraFeed:
         with self._lock:
             self._latest = buffer.getvalue()
             self._frame_times.append(time.monotonic())
+
+    def _on_camera_info(self, msg):
+        """Work the horizontal field of view out of the camera intrinsics.
+
+        For a pinhole camera fx is the focal length in pixels, so half the
+        sensor width subtends atan(width / 2fx). Gazebo fills both the
+        intrinsic and the projection matrix; either will do, and a camera
+        that reports neither is left alone rather than given a made-up angle.
+        """
+        try:
+            width = msg.width
+            fx = msg.intrinsics.k[0] or msg.projection.p[0]
+        except (AttributeError, IndexError):
+            return
+        if not width or not fx:
+            return
+        self._fov_rad = 2.0 * math.atan(width / (2.0 * fx))
+
+    def fov_rad(self):
+        return self._fov_rad
 
     # -- status ----------------------------------------------------------
     def fps(self):
@@ -110,6 +143,15 @@ class CameraFeed:
         topic = self._topic_source()
         node = Node()
         node.subscribe(GzImage, topic, self._on_image)
+        if GzCameraInfo is not None:
+            # Best effort: an older gz-msgs without this type, or a camera
+            # that does not publish it, simply leaves the field of view
+            # unknown and the marker is not drawn.
+            try:
+                node.subscribe(GzCameraInfo, topic + "/camera_info",
+                               self._on_camera_info)
+            except Exception:                              # noqa: BLE001
+                pass
         self._node = node
         self._topic = topic
         with self._lock:

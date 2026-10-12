@@ -3,7 +3,8 @@
 wing to multicopter (hover). Added 3 Sep 2026 alongside FORWARD FLIGHT so
 there is an obvious way back to hover during training.
 """
-from simulator_link import send_command_and_wait, log_instructor_action
+from simulator_link import (cancel_sequence, log_instructor_action,
+                            say_step, send_command_and_wait)
 from pymavlink import mavutil
 
 MAV_VTOL_STATE_MC = 3  # MAV_VTOL_STATE enum
@@ -14,6 +15,10 @@ MAV_VTOL_STATE_MC = 3  # MAV_VTOL_STATE enum
 
 
 def hover_flight():
+    # A FORWARD FLIGHT still part-way through its climb would otherwise go
+    # on commanding the aircraft away after this brought it back to hover.
+    cancel_sequence()
+    say_step(None)
     result, text = send_command_and_wait(
         mavutil.mavlink.MAV_CMD_DO_VTOL_TRANSITION,
         MAV_VTOL_STATE_MC,   # param1: target VTOL state

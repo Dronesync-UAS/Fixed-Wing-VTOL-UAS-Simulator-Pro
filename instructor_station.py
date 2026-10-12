@@ -29,6 +29,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from simulator_link import telemetry, connection_status, flight_path, home_latlon, link_health
 from plugin_loader import load_plugins
+import video_feed
 from video_feed import start_video_capture, mjpeg_generator, camera_fps, FEEDS
 import console_page
 import event_logger
@@ -261,7 +262,8 @@ RIGHT_CATEGORIES = ["Failure Injection", "Simulation Control", "Camera",
 # rails by what a pilot reaches for, not by what the files are called;
 # anything not listed keeps its loaded order, after the ones that are.
 RAIL_ORDER = {
-    "Flight Ops": ["arm", "disarm", "takeoff", "land", "rtl", "hold", "set_home"],
+    "Flight Ops": ["arm", "disarm", "takeoff", "climb_to", "land", "rtl",
+                   "hold", "set_home"],
     "Flight Mode": ["hover_flight", "forward_flight", "loiter", "mode_position",
                     "mode_manual"],
     "Failure Injection": ["gps_failure", "data_link_loss", "rc_signal_loss",
@@ -279,6 +281,7 @@ RAIL_ORDER = {
 # listed, and the classic page is untouched.
 RAIL_LABELS = {
     "rtl": "Return to launch",
+    "climb_to": "Climb / descend",
     "set_home": "Set home here",
     "hover_flight": "Hover (MC)",
     "forward_flight": "Forward (FW)",
@@ -880,7 +883,8 @@ EXTRA_PANELS = """
     <span><b id="fp-dist">-</b> from home</span>
     <span><b id="fp-alt">-</b> altitude</span>
     <span><b id="fp-points">0</b> track points</span>
-    <span style="color:#ffd24a">&#9650;</span> aircraft
+    <span>map: <b id="fp-backdrop">-</b></span>
+    <span style="color:#ff3b30">&#9650;</span> aircraft
     <span style="color:#4caf50">&#9679;</span> home
   </div>
 </div>
@@ -959,13 +963,27 @@ EXTRA_SCRIPT = """
   // a world with no heightmap (flat_test) reports available:false and the
   // plan view stays as it was.
   var terrainInfo = null, terrainImg = null;
+  // Say which backdrop is under the track. "Is the satellite view working?"
+  // was being answered by squinting at a pale square of playa, which looks
+  // the same whether the imagery loaded or not.
+  function showBackdrop(text) {
+    var out = document.getElementById('fp-backdrop');
+    if (out) { out.innerText = text; }
+  }
+  showBackdrop('loading...');
   fetch('/terrain_info').then(function (r) { return r.json(); }).then(function (d) {
     terrainInfo = d;
-    if (!d.available) return;
+    if (!d.available) { showBackdrop('none for this world'); return; }
     var img = new Image();
-    img.onload = function () { terrainImg = img; };
+    img.onload = function () {
+      terrainImg = img;
+      showBackdrop(d.source === 'satellite'
+                   ? (d.credit || 'satellite imagery')
+                   : 'shaded relief');
+    };
+    img.onerror = function () { showBackdrop('failed to load'); };
     img.src = '/terrain.png';
-  }).catch(function () {});
+  }).catch(function () { showBackdrop('unavailable'); });
   function niceStep(x) {
     if (x <= 0) return 100;
     var p = Math.pow(10, Math.floor(Math.log(x) / Math.LN10));
@@ -1046,8 +1064,8 @@ EXTRA_SCRIPT = """
         var X = ox + mx[j] * scale, Y = oy - my[j] * scale;
         if (j) fctx.lineTo(X, Y); else fctx.moveTo(X, Y);
       }
-      fctx.strokeStyle = 'rgba(0,0,0,0.55)'; fctx.lineWidth = 5; fctx.stroke();
-      fctx.strokeStyle = '#4ad0ff'; fctx.lineWidth = 2.5; fctx.stroke();
+      fctx.strokeStyle = 'rgba(0,0,0,0.65)'; fctx.lineWidth = 5.5; fctx.stroke();
+      fctx.strokeStyle = '#ffffff'; fctx.lineWidth = 2.5; fctx.stroke();
 
       var last = pts.length - 1;
       var hx = ox + mx[last] * scale, hy = oy - my[last] * scale;
@@ -1086,7 +1104,7 @@ EXTRA_SCRIPT = """
       fctx.moveTo(0, -19); fctx.lineTo(13, 15); fctx.lineTo(0, 7); fctx.lineTo(-13, 15);
       fctx.closePath();
       fctx.strokeStyle = 'rgba(0,0,0,0.8)'; fctx.lineWidth = 4; fctx.stroke();
-      fctx.fillStyle = '#ffd24a'; fctx.fill();
+      fctx.fillStyle = '#ff3b30'; fctx.fill();
       fctx.restore();
 
       var dist = Math.sqrt(mx[last] * mx[last] + my[last] * my[last]);
@@ -1492,6 +1510,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             # the browser, taking the whole telemetry panel down with them.
             safe = {k: (None if isinstance(v, float) and not math.isfinite(v) else v)
                     for k, v in telemetry.items()}
+            # Home, and the cameras' own fields of view, so the gauge can
+            # draw the home point where the camera would actually see it.
+            safe["home_lat"] = home_latlon.get("lat")
+            safe["home_lon"] = home_latlon.get("lon")
+            safe["camera_fov"] = {name: feed.fov_rad()
+                                  for name, feed in video_feed.FEEDS.items()}
             self.wfile.write(json.dumps(safe).encode("utf-8"))
         elif self.path == "/failure_status":
             self.send_response(200)

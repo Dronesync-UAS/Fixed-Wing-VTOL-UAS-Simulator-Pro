@@ -45,6 +45,23 @@ sl.command_acks = {}
 sl.MAV_RESULT_NAMES = {0: "accepted"}
 sl.send_command_and_wait = lambda *a, **k: (0, "accepted")
 sl.status_log = []
+sl.home_amsl = lambda: 1200.0
+sl.failure_injection_blocked = lambda: None
+sl.read_param = lambda *a, **k: 1.0
+sl.FAILURE_UNIT_SYSTEM_MOTOR = 101
+sl.FAILURE_UNIT_SYSTEM_SERVO = 102
+sl.FAILURE_UNIT_SYSTEM_RC_SIGNAL = 104
+sl.FAILURE_UNIT_SYSTEM_MAVLINK_SIGNAL = 105
+sl.FAILURE_TYPE_OK = 0
+sl.FAILURE_TYPE_OFF = 1
+sl.MAV_CMD_INJECT_FAILURE = 420
+sl.offset_latlon = lambda lat, lon, bearing, dist: (lat, lon)
+sl.say_step = lambda *a, **k: None
+sl.cancel_sequence = lambda: None
+sl.sequence_running = lambda: False
+sl.start_sequence = lambda *a, **k: True
+sl.wait_until = lambda *a, **k: True
+sl.VTOL_STATES = {3: "Hover", 4: "Fixed wing"}
 sl.status_since = lambda *a, **k: []
 sl.wait_for_armed = lambda *a, **k: True
 sl.set_mode = lambda m, s=0, name=None: f"{name or 'mode'}: accepted by PX4."
@@ -62,6 +79,7 @@ vf.start_video_capture = lambda: None
 vf.mjpeg_generator = lambda: iter(())
 vf.camera_fps = lambda: 0.0
 class _Feed:
+    def fov_rad(self): return 1.5708
     def mjpeg_generator(self): return iter(())
     def fps(self): return 0.0
     def current_topic(self): return None

@@ -25,14 +25,32 @@ What it does, in this order, and why the order matters:
   6. Forgets the old flight: the track on the plan view, the home point,
      and the stale command acknowledgements.
 
-WHAT IT CANNOT DO. It does not restart PX4. If the EKF has given up - the
-arming readout stays red with the aircraft sitting level and still on the
-pad, with satellites back to a sensible number - PX4 itself has to be
-restarted, and no button here can do that.
+HARD, added 12 Oct 2026 because the standard reset was not enough to get a
+new session started after a crash. On top of everything above it asks
+Gazebo to reset its models, which puts every model back to the pose the
+world file gave it AND clears the velocities that set_pose leaves behind -
+an aircraft left tumbling or sliding is the thing that most often stops
+the next session starting.
 
-It also cannot cancel the aircraft's momentum: Gazebo's set_pose moves the
-model, it does not stop it. A model that was tumbling hard may need a
-second press once it has settled.
+It is a model-only reset on purpose. Gazebo will also reset simulation
+TIME, and PX4 is attached to that clock: winding it back to zero under a
+running autopilot is not something to do to recover a lesson.
+
+WHAT IT STILL CANNOT DO. It does not restart PX4. PX4 can be asked to
+reboot over MAVLink, and this does ask - but in SITL that almost certainly
+comes back refused: v1.15.4 Commander.cpp lines 1217-1226 puts the reboot
+behind
+
+        #if defined(CONFIG_BOARDCTL_RESET)
+
+which is a board feature a POSIX build does not have, and the else branch
+answers DENIED. The attempt is made and the answer reported rather than
+quietly skipped, so the instructor learns whether this build can or not.
+When it cannot, and PX4 is still refusing to arm a level aircraft sitting
+on the pad, PX4 itself has to be restarted from its own window - and the
+reply says so.
+
+NOT YET RUN AGAINST GAZEBO.
 """
 import subprocess
 
@@ -49,6 +67,9 @@ PX4_SUB_MODE_AUTO_LOITER = 3
 
 # PX4's force flag for ARM_DISARM param2 - see the note above.
 PX4_FORCE = 21196.0
+
+# MAV_CMD_PREFLIGHT_REBOOT_SHUTDOWN, param1 = 1 ("reboot autopilot").
+MAV_CMD_PREFLIGHT_REBOOT_SHUTDOWN = 246
 
 
 def _clear_failures():
@@ -69,7 +90,21 @@ def _clear_failures():
     return cleared
 
 
-def new_session():
+def _gazebo_reset_models():
+    """Ask Gazebo to put every model back where the world file put it.
+
+    gz.msgs.WorldControl carries a WorldReset with `all`, `time_only` and
+    `model_only`. Only the models are reset: `all` would also wind
+    simulation time back to zero, and PX4 is running off that clock."""
+    subprocess.run(
+        ["gz", "service", "-s", service("control"),
+         "--reqtype", "gz.msgs.WorldControl", "--reptype", "gz.msgs.Boolean",
+         "--timeout", "3000", "--req", "reset: {model_only: true}"],
+        check=False, timeout=10)
+
+
+def new_session(reset="hard"):
+    hard = str(reset).lower().startswith("hard")
     steps = []
 
     cleared = _clear_failures()
@@ -109,10 +144,27 @@ def new_session():
         except (OSError, subprocess.SubprocessError) as exc:
             steps.append(f"could NOT reposition ({exc})")
 
+    if hard:
+        try:
+            _gazebo_reset_models()
+            steps.append("Gazebo models reset, velocities cleared")
+        except (OSError, subprocess.SubprocessError) as exc:
+            steps.append(f"Gazebo model reset failed ({exc})")
+        # Worth asking even though a POSIX build almost certainly refuses -
+        # see the note at the top of this file.
+        reboot, reboot_text = send_command_and_wait(
+            MAV_CMD_PREFLIGHT_REBOOT_SHUTDOWN, 1)
+        if reboot == mavutil.mavlink.MAV_RESULT_ACCEPTED:
+            steps.append("PX4 is rebooting - give it half a minute")
+        else:
+            steps.append("PX4 would not reboot from here (%s); restart it in "
+                         "its own window if it still refuses to arm"
+                         % (reboot_text or "no answer"))
+
     reset_flight_state()
     steps.append("track and home point cleared")
 
-    log_instructor_action("new_session", "; ".join(steps))
+    log_instructor_action("new_session", f"hard={hard} " + "; ".join(steps))
     return ("New session: " + "; ".join(steps)
             + ". Give PX4 a few seconds to settle, then check the arming "
               "readout before arming.")
@@ -123,5 +175,12 @@ PLUGIN = {
     "label": "NEW SESSION",
     "category": "Simulation Control",
     "style": "highlight",
+    "inputs": [{"name": "reset", "label": "Reset", "type": "select",
+                "default": "hard",
+                "options": [
+                    {"value": "hard",
+                     "label": "Hard - also reset Gazebo"},
+                    {"value": "standard",
+                     "label": "Standard - leave Gazebo alone"}]}],
     "handler": new_session,
 }

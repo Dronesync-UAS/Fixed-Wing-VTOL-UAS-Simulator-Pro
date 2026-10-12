@@ -348,6 +348,7 @@ TEMPLATE = """<!DOCTYPE html>
     <button id="resettiles" style="height: 26px; padding: 0 12px; border: 0; border-radius: 6px; cursor: pointer; font-size: 12px; background: rgba(0,0,0,0.5); color: #fff">Reset panels</button>
     <label class="topswitch" title="The flight display drawn over the camera views"><input type="checkbox" id="hud-on" checked> Gauge</label>
     <label class="topswitch" title="The low-altitude warning tone"><input type="checkbox" id="alarm-on" checked> Alarm</label>
+    <label class="topswitch" title="Call out each command and each change of state"><input type="checkbox" id="voice-on"> Voice</label>
   </div>
   <div class="icons">
     <span class="item" id="t-armcheck-wrap" title="Whether PX4 will accept ARM or TAKEOFF right now">
@@ -406,6 +407,7 @@ TEMPLATE = """<!DOCTYPE html>
       <span><b id="fp-dist">-</b> from home</span>
       <span><b id="fp-alt">-</b> altitude</span>
       <span><b id="fp-points">0</b> points</span>
+      <span>map: <b id="fp-backdrop">-</b></span>
       <span class="mapzoom">
         <button data-mapzoom="out" title="Zoom out">&minus;</button>
         <b id="fp-zoom">1x</b>
@@ -795,8 +797,33 @@ SCRIPT = """
   window.addEventListener('resize', function () { applyLayout(); });
 
   // ---------- plugin buttons ----------
+  // What each control is called out as, when the Voice switch is on. The
+  // button's own label is used for anything not listed - these are the ones
+  // whose label reads badly aloud ("FORWARD FLIGHT (FW)").
+  var SPOKEN_CONTROL = {
+    arm: 'Arm', disarm: 'Disarm', takeoff: 'Take off', land: 'Land',
+    rtl: 'Return to launch', hold: 'Hold', loiter: 'Loiter',
+    climb_to: 'Changing altitude', forward_flight: 'Forward flight',
+    hover_flight: 'Hover', mode_position: 'Position mode',
+    mode_manual: 'Manual mode', set_home: 'Home set',
+    new_session: 'New session', reset_scenario: 'Scenario reset',
+    reset_spawn: 'Back to spawn', freeze: 'Freeze',
+    flight_termination: 'Flight termination',
+    gps_failure: 'G P S failure', data_link_loss: 'Data link failure',
+    rc_signal_loss: 'R C signal failure', engine_failure: 'Engine failure',
+    motor_failure: 'Motor failure'
+  };
+
   window.send = function (id) {
     say('Sending...');
+    if (window.gcsSpeak) {
+      // By id, not by the onclick attribute: this file's JavaScript is a
+      // plain Python string, so a backslash written here never reaches the
+      // browser - the escaped quotes came out bare and broke the page.
+      var button = document.getElementById('btn-' + id);
+      window.gcsSpeak(SPOKEN_CONTROL[id]
+                      || (button ? button.innerText.trim() : id), true);
+    }
     var params = new URLSearchParams();
     document.querySelectorAll('.param-input[data-plugin="' + id + '"]').forEach(function (e) {
       params.append(e.dataset.param, e.value);
