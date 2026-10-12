@@ -269,10 +269,64 @@ check("asked for a transition to fixed wing (%s)" % (transition,),
       len(transition) == 1 and transition[0][0] == 4)
 check("flew a climbing run, not a climb on the spot (%s legs)" % len(reposition),
       len(reposition) >= 1)
-# One waypoint and a wait is what made the aircraft loiter at it instead
-# of climbing straight, so the leg has to be re-aimed while it climbs.
-check("kept re-aiming the leg so the climb stays straight (%s legs)"
-      % len(reposition), len(reposition) >= 2)
+# REWRITTEN 12 Oct 2026. This used to require the leg to be re-aimed
+# REPEATEDLY while climbing, which is what put the aircraft into a
+# spiral: every DO_REPOSITION sets a loiter point, and re-aiming it on
+# the aircraft's own heading once a second closes a feedback loop
+# through the airframe. One leg, held, is now the correct answer.
+check("sent ONE climb-out leg, not one a second (%s legs)" % len(reposition),
+      len(reposition) == 1)
+
+# The leg must be re-extended only when the aircraft has nearly reached
+# it - and along the bearing it started on, NOT wherever the nose is
+# pointing by then. This is the check that would have caught the spiral.
+# Within ONE run, swing the nose right round while the aircraft climbs
+# and stays close to the point it was sent to. Every leg it commands must
+# be the SAME point: the bearing is taken once and held. If the targets
+# start walking round with the heading, the feedback loop is back and
+# the aircraft will spiral.
+sl.telemetry.update({"altitude_m": 45.0, "range_from_home_m": 100.0,
+                     "heading_deg": 0.0,
+                     "latitude": 40.8750, "longitude": -119.0849})
+swing = {"n": 0}
+
+
+def _swing_the_nose(predicate, timeout, poll=0.25):
+    swing["n"] += 1
+    # The nose wanders 40 degrees further round on every pass.
+    sl.telemetry["heading_deg"] = (swing["n"] * 40.0) % 360.0
+    # And the aircraft is always nearly on top of its target, so the
+    # loop always has a reason to extend the leg.
+    if fwd._leg_target["lat"] is not None:
+        sl.telemetry["latitude"] = fwd._leg_target["lat"] - 50.0 / 110540.0
+        sl.telemetry["longitude"] = fwd._leg_target["lon"]
+    if swing["n"] >= 5:
+        sl.telemetry["altitude_m"] = 100.0
+    return predicate()
+
+
+fwd.wait_until = _swing_the_nose
+sent.clear()
+steps_held[-1]()
+extended = [p for c, p in sent if c == mavutil.mavlink.MAV_CMD_DO_REPOSITION]
+check("re-extended the leg as the aircraft ate into it (%s legs)"
+      % len(extended), len(extended) >= 2)
+if len(extended) >= 2:
+    # The aircraft moves up the track between legs, so comparing each
+    # target against one position says nothing. What does: the bearing
+    # was due north at the start, so every target must sit on the same
+    # meridian and each must be further north than the last. A target
+    # that drifts east or west is a bearing following the nose.
+    lons = [leg[5] for leg in extended]
+    drift_m = ((max(lons) - min(lons)) * 111320.0
+               * math.cos(math.radians(40.8750)))
+    check("and held one bearing while the nose swung 200 degrees "
+          "(%.1f m of sideways drift)" % drift_m, abs(drift_m) < 1.0)
+    lats = [leg[4] for leg in extended]
+    check("each leg reaching further along that same bearing",
+          all(b > a for a, b in zip(lats, lats[1:])))
+fwd.wait_until = _climb
+
 # Far from home the leg must stop being extended, rather than walking the
 # aircraft out through the station's range limit.
 climbing["n"] = 0

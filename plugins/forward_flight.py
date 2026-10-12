@@ -41,13 +41,18 @@ stops being extended and PX4 settles into its own fixed-wing loiter -
 which is what a fixed wing does when it runs out of waypoints, and is the
 point at which the instructor takes over.
 
-NOT YET FLOWN. Every step is read off the PX4 source; none of it has been
-watched in Gazebo.
+FLOWN ONCE, 12 Oct 2026, AND IT WAS WRONG. The departure worked as far
+as the transition, then the aircraft wound up into a steep spiral and
+ended up inverted. The cause is written out above step_climb_to_cruise:
+the climb-out leg was re-aimed on the aircraft's own heading once a
+second, which closes a feedback loop through the airframe. That is
+fixed. The fix itself has NOT been flown.
 """
 from simulator_link import (home_amsl, log_instructor_action, offset_latlon,
                             send_command_and_wait, say_step, sequence_running,
                             set_mode, start_sequence, telemetry, wait_until)
 from pymavlink import mavutil
+import math
 import time
 
 PX4_MAIN_MODE_AUTO = 4
@@ -75,15 +80,46 @@ MAX_RUN_RANGE_M = 380.0
 
 REPOSITION_CHANGE_MODE = 1     # param2 bit 0: "change mode to guided"
 
+# Re-extend the climb-out leg only once the aircraft is within this far
+# of the point it was sent to. A fixed wing cruises at about 16 m/s, so
+# a 420 m leg lasts around 26 seconds; re-sending it before then just
+# re-tasks the navigator for nothing.
+EXTEND_WITHIN_M = 150.0
 
-def _reposition(distance_m, target_agl, ground):
-    """Aim at a point `distance_m` ahead on the current heading, at
-    `target_agl` above home. Returns a problem string, or None."""
+# Where the current leg was aimed, so the loop can tell how much of it is
+# left without re-deriving it from a heading that has since changed.
+_leg_target = {"lat": None, "lon": None}
+
+
+def _distance_to_target(bearing):
+    """Metres from the aircraft to the point the current leg was aimed
+    at. Returns a large number if either position is unknown, which makes
+    the caller leave PX4 alone - the safe way round."""
+    lat, lon = telemetry.get("latitude"), telemetry.get("longitude")
+    if lat is None or lon is None or _leg_target["lat"] is None:
+        return float("inf")
+    # Flat-earth, which is good to a few parts in a thousand over the
+    # hundreds of metres this is ever used for.
+    north = (_leg_target["lat"] - lat) * 110540.0
+    east = ((_leg_target["lon"] - lon) * 111320.0
+            * math.cos(math.radians(lat)))
+    return math.hypot(north, east)
+
+
+def _reposition(distance_m, target_agl, ground, bearing=None):
+    """Aim at a point `distance_m` away at `target_agl` above home.
+
+    `bearing` is the direction to aim in. Leaving it None uses the
+    aircraft's CURRENT heading, which is right for the first leg of a
+    departure and WRONG for anything repeated - see the note on
+    step_climb_to_cruise below.
+    """
     lat, lon = telemetry.get("latitude"), telemetry.get("longitude")
     if lat is None or lon is None:
         return "Forward flight stopped - lost the aircraft's position."
-    heading = telemetry.get("heading_deg") or 0
+    heading = telemetry.get("heading_deg") or 0 if bearing is None else bearing
     to_lat, to_lon = offset_latlon(lat, lon, heading, distance_m)
+    _leg_target["lat"], _leg_target["lon"] = to_lat, to_lon
     result, text = send_command_and_wait(
         mavutil.mavlink.MAV_CMD_DO_REPOSITION,
         -1,                        # param1: ground speed, -1 = PX4's default
@@ -162,45 +198,84 @@ def forward_flight(transition_m=DEFAULT_TRANSITION_M, cruise_m=DEFAULT_CRUISE_M)
         return None
 
     def step_climb_to_cruise():
-        # FIXED 12 Oct 2026: this sent ONE waypoint and waited. A fixed
-        # wing cannot stop, so on reaching it PX4 did the only thing it
-        # can - loitered there, in a circle of NAV_LOITER_RAD (80 m by
-        # default, which is the "less than 100 m" circle that was seen) -
-        # and the climb to cruise height happened going round and round
-        # instead of in the straight line that was asked for.
+        # REWRITTEN 12 Oct 2026, after the instructor reported the
+        # aircraft "went crazy" on departure and ended up inverted.
         #
-        # The leg is now re-aimed ahead of the aircraft every few seconds
-        # while it climbs, so the waypoint stays in front of it and the
-        # climb stays straight. It stops extending before the station's
-        # range limit, and only then lets PX4 settle into its loiter.
-        say_step(f"Forward flight: climbing away to {cruise_alt:g} m")
+        # THE FAULT. This loop re-sent MAV_CMD_DO_REPOSITION about once a
+        # second for up to three minutes, aiming 420 m ahead on the
+        # CURRENT heading each time. Every DO_REPOSITION sets a LOITER
+        # setpoint at the target - navigator_main.cpp v1.15.4 line 291:
+        #
+        #     rep->current.type = position_setpoint_s::SETPOINT_TYPE_LOITER;
+        #
+        # So the loiter centre was being moved to wherever the nose
+        # happened to point, once a second. Any small bank turned the
+        # nose, which swung the target further round, which commanded
+        # more bank. That is a positive feedback loop, and on a fixed
+        # wing it winds up into a steeply banked spiral - which is what
+        # was seen.
+        #
+        # THE FIX. Take the bearing ONCE, at the start of the leg, and
+        # hold it. The target is then a fixed direction in the world, not
+        # a direction relative to the aircraft, so there is no loop to
+        # close. The leg is only re-extended when the aircraft has
+        # actually eaten into it, and always along that same fixed
+        # bearing.
+        # Already near the range limit when this step starts: commanding
+        # an outbound leg at all would walk the aircraft through the
+        # station's envelope. Found by tools/test_recovery.py, which
+        # checked the loop for this and not the first command.
+        range_m = telemetry.get("range_from_home_m") or 0
+        if range_m > MAX_RUN_RANGE_M:
+            say_step(f"Forward flight: holding - {int(range_m)} m from "
+                     "home, already near the range limit")
+            return None
+
+        bearing = telemetry.get("heading_deg") or 0
+        say_step(f"Forward flight: climbing away to {cruise_alt:g} m "
+                 f"on {bearing:.0f} degrees")
+
+        problem = _reposition(CRUISE_RUN_M, cruise_alt, ground, bearing)
+        if problem:
+            return problem
+
         deadline = time.monotonic() + 180
+        # A hard cap as well as the deadline: if anything below starts
+        # re-commanding faster than intended, this stops it being
+        # hundreds of navigator re-taskings.
+        extensions_left = 8
+
         while time.monotonic() < deadline:
+            # One slow pass. Nothing is commanded inside this wait, so
+            # PX4 is left alone to fly the leg it was given.
+            wait_until(
+                lambda: (telemetry.get("altitude_m") or 0) >= cruise_alt - 3,
+                5)
+
             alt = telemetry.get("altitude_m") or 0
             if alt >= cruise_alt - 3:
                 break
+
             range_m = telemetry.get("range_from_home_m") or 0
             if range_m > MAX_RUN_RANGE_M:
                 say_step(f"Forward flight: holding {int(alt)} m - "
                          f"{int(range_m)} m from home, near the range limit")
                 return None
-            problem = _reposition(CRUISE_RUN_M, cruise_alt, ground)
+
+            # Only re-extend when the aircraft is getting close to the
+            # point it was sent to, and only along the SAME bearing.
+            # Re-sending the same command while it is still half a
+            # kilometre away achieves nothing and risks the thrash this
+            # rewrite exists to stop.
+            if extensions_left <= 0:
+                continue
+            if _distance_to_target(bearing) > EXTEND_WITHIN_M:
+                continue
+            extensions_left -= 1
+            problem = _reposition(CRUISE_RUN_M, cruise_alt, ground, bearing)
             if problem:
                 return problem
-            # Re-aimed before it can arrive: the run is 420 m and a VTOL
-            # cruises at about 16 m/s, so eight seconds never reaches it.
-            # The height is re-checked at the top of the loop either way;
-            # branching on this return value turned the loop into a busy
-            # one the moment the wait came back early.
-            started_leg = time.monotonic()
-            wait_until(
-                lambda: (telemetry.get("altitude_m") or 0) >= cruise_alt - 3, 8)
-            # A floor under each pass, so that however the wait behaves
-            # this cannot become a loop re-commanding PX4 thousands of
-            # times a second.
-            slept = time.monotonic() - started_leg
-            if slept < 1.0:
-                time.sleep(1.0 - slept)
+
         say_step(None)
         return None
 
