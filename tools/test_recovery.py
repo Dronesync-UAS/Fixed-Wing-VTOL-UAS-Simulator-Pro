@@ -11,6 +11,7 @@ it sends before it is pressed between two students.
 Runs against stubs - no PX4, no Gazebo.
 """
 import importlib.util
+import tempfile
 import os
 import sys
 import types
@@ -493,6 +494,69 @@ check("pressing it again clears instead of stacking", "cleared" in reply)
 check("and every link is restored",
       not any(t.state["active"] for t in toggles.values()))
 check("the encounter is recorded as ended", not cuas.state["active"])
+
+
+print("8. switching training area")
+# THE FAULT THIS EXISTS FOR, found 12 Oct 2026: six of the twelve
+# training areas were in the drop-down but not in tools/start_world.sh's
+# own table, so choosing one ran "start_world.sh coast", which answered
+# "Unknown world: coast" and exited - into a log file nobody reads,
+# while the station reported that the simulator was restarting. A switch
+# that fails must say so.
+import types as _types                                      # noqa: E402
+
+# video_feed imports the gz bindings at module level, and terrain_backdrop
+# reads world files. Neither is what this section is about, so both are
+# stood in for - the same trick the rest of this file uses.
+for _name, _attrs in (("terrain_backdrop", {"reset": lambda: None}),
+                      ("video_feed", {"resubscribe": lambda: None})):
+    _m = _types.ModuleType(_name)
+    for _k, _v in _attrs.items():
+        setattr(_m, _k, _v)
+    sys.modules[_name] = _m
+
+# The real sim_target, not this file's stub: section 8 is about the
+# environment LIST, and the stub has no list. Section 8 is last, so
+# nothing after it sees the swap.
+_stspec = importlib.util.spec_from_file_location(
+    "sim_target", os.path.join(REPO, "sim_target.py"))
+_st = importlib.util.module_from_spec(_stspec)
+_stspec.loader.exec_module(_st)
+sys.modules["sim_target"] = _st
+sim_target = _st
+
+_envspec = importlib.util.spec_from_file_location(
+    "env_plugin", os.path.join(REPO, "plugins", "environment.py"))
+_env = importlib.util.module_from_spec(_envspec)
+_envspec.loader.exec_module(_env)
+
+_unlaunchable = [e["key"] for e in sim_target.ENVIRONMENTS
+                 if not _env._launcher_knows(e["key"])]
+check("every training area offered is one the launcher can actually "
+      "start (%s)" % (", ".join(_unlaunchable) or "all of them"),
+      not _unlaunchable)
+
+_holder2 = tempfile.mkdtemp()
+_fake = os.path.join(_holder2, "refuser.sh")
+with open(_fake, "w") as _h:
+    _h.write('#!/bin/bash\necho "Unknown world: $1"\nexit 1\n')
+_env.LAUNCHER = _fake
+_env.LAUNCH_LOG = os.path.join(_holder2, "launch.log")
+_env.LAUNCH_CHECK_S = 2.0
+_env._launcher_knows = lambda k: True
+_said = _env.select_environment("coast")
+check("a launcher that refuses is reported (%s)" % _said[:60],
+      "not changed" in _said.lower())
+check("and the reason it gave is passed on", "Unknown world" in _said)
+
+with open(_fake, "w") as _h:
+    _h.write('#!/bin/bash\necho "Usage: start_world.sh <world>"\nexit 0\n')
+_said = _env.select_environment("coast")
+check("a launcher that prints its usage and quits is also reported",
+      "not changed" in _said.lower() and "Usage" in _said)
+
+import shutil as _sh2                                       # noqa: E402
+_sh2.rmtree(_holder2, ignore_errors=True)
 
 print()
 print("FAILED: %s" % fails if fails else "all checks passed")

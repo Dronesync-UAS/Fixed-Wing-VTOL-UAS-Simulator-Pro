@@ -27,6 +27,7 @@ tools/start_world.sh, which this calls.
 
 import os
 import subprocess
+import time
 
 import sim_target
 import terrain_backdrop
@@ -40,21 +41,74 @@ LAUNCH_LOG = os.path.expanduser("~/uas_sim_logs/sim_launch.log")
 DEFAULT_KEY = "blackrock"
 
 
+# How long to wait before deciding the launcher is under way. It takes
+# 15-30 seconds to bring Gazebo and PX4 up, so this cannot wait for
+# success - but anything that is going to REFUSE does so at once: an
+# unknown world, a missing world file, worlds that would not install.
+LAUNCH_CHECK_S = 3.0
+
+
+def _launcher_knows(key):
+    """Whether tools/start_world.sh has this world in its own table.
+
+    IT HAD SEVEN MISSING until 12 Oct 2026, which is the whole reason
+    this check exists: six training areas were in sim/worlds and in this
+    plugin's drop-down but not in the launcher, so choosing one ran
+    "start_world.sh coast", which answered "Unknown world: coast" and
+    exited - into a log file nobody reads, while this plugin cheerfully
+    reported that the simulator was restarting.
+    """
+    try:
+        with open(LAUNCHER) as handle:
+            return ("\n%s|" % key) in handle.read()
+    except OSError:
+        return True          # cannot tell; let the launcher answer
+
+
+def _tail(path, lines=6):
+    try:
+        with open(path) as handle:
+            return " / ".join(handle.read().strip().splitlines()[-lines:])
+    except OSError:
+        return ""
+
+
 def _launch(key):
     """Start the simulator in the chosen world, detached from the station.
 
     Output goes to a log file rather than the station's terminal: the build
     and launch are noisy, and the station's own terminal is where connection
     messages need to stay readable.
+
+    BUT THE EXIT CODE IS CHECKED. This used to fire and forget, so a
+    launcher that refused looked exactly like one that worked - the
+    station said "the simulator restarts" and nothing happened. It now
+    waits a few seconds, which is long enough for a refusal and far too
+    short for a success, and reports what the log says if it died.
     """
     os.makedirs(os.path.dirname(LAUNCH_LOG), exist_ok=True)
     try:
         with open(LAUNCH_LOG, "w") as log:
-            subprocess.Popen(["bash", LAUNCHER, key],
-                             stdout=log, stderr=subprocess.STDOUT,
-                             start_new_session=True)
+            process = subprocess.Popen(["bash", LAUNCHER, key],
+                                       stdout=log, stderr=subprocess.STDOUT,
+                                       start_new_session=True)
     except OSError as exc:
         return f"could not start the launcher ({exc.strerror})"
+
+    deadline = time.monotonic() + LAUNCH_CHECK_S
+    while time.monotonic() < deadline:
+        code = process.poll()
+        if code is None:
+            time.sleep(0.25)
+            continue
+        if code == 0:
+            # Exited cleanly in under three seconds. start_world.sh does
+            # not return until the simulator stops, so this means it
+            # printed its usage and gave up.
+            return ("the launcher stopped straight away. It said: %s"
+                    % (_tail(LAUNCH_LOG) or "nothing"))
+        return ("the launcher refused (exit %d). It said: %s"
+                % (code, _tail(LAUNCH_LOG) or "nothing"))
     return None
 
 
@@ -64,6 +118,10 @@ def select_environment(environment=DEFAULT_KEY):
         return f"Environment not changed - '{environment}' is not a known world."
     if not os.path.isfile(LAUNCHER):
         return f"Environment not changed - {LAUNCHER} is missing."
+    if not _launcher_knows(entry["key"]):
+        return (f"Environment not changed - tools/start_world.sh does not "
+                f"know '{entry['key']}', so it cannot launch it. The world "
+                f"file exists; the launcher's own list is what is missing it.")
 
     error = _launch(entry["key"])
     if error:
