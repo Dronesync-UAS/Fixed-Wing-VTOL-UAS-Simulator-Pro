@@ -372,17 +372,31 @@ TEMPLATE = """<!DOCTYPE html>
   }
   .rail .field > span { flex: 0 0 46px; text-align: right; line-height: 1.05; }
   .rail .field > input, .rail .field > select { flex: 1 1 auto; min-width: 0; }
-  /* The spinner arrows on a number box eat fourteen pixels and then
-     clip the third digit - "100" came out as "10C". Nobody sets a
-     cruise height by clicking an arrow eleven times; the keyboard and
-     the mouse wheel both still work. */
-  .rail .field > input[type=number] {
-    -moz-appearance: textfield; appearance: textfield; text-align: center;
+  /* The box and its arrows are one unit. The NATIVE spinners are off:
+     they sat inside the box and clipped the third digit, so "100" came
+     out as "10C". These are drawn beside it instead, so they cannot
+     overlap the value, and they are twice the size - which matters on
+     a touchscreen and matters more when the alternative is typing. */
+  .rail .field > .num { flex: 1 1 auto; min-width: 0; display: flex; gap: 2px; }
+  .rail .field .num > input { flex: 1 1 auto; min-width: 0; text-align: center; }
+  .rail .field input[type=number] {
+    -moz-appearance: textfield; appearance: textfield;
   }
-  .rail .field > input[type=number]::-webkit-outer-spin-button,
-  .rail .field > input[type=number]::-webkit-inner-spin-button {
+  .rail .field input[type=number]::-webkit-outer-spin-button,
+  .rail .field input[type=number]::-webkit-inner-spin-button {
     -webkit-appearance: none; margin: 0;
   }
+  .rail .field .step {
+    flex: 0 0 18px; display: flex; flex-direction: column; gap: 1px;
+  }
+  .rail .field .step button {
+    flex: 1 1 0; min-height: 0; height: auto; width: 18px; padding: 0;
+    border: 1px solid #2b3442; border-radius: 4px; background: #141b24;
+    color: var(--ink); font-size: 7px; line-height: 1; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .rail .field .step button:hover { background: #22303f; }
+  .rail .field .step button:active { background: #324558; }
   .rail .field.wide { flex-direction: column; align-items: stretch; gap: 1px; }
   .rail .field.wide > span { flex: none; text-align: left; }
   .rail .field input, .rail .field select {
@@ -541,6 +555,19 @@ TEMPLATE = """<!DOCTYPE html>
     position: absolute; inset: 0; width: 100%; height: 100%;
     pointer-events: none; z-index: 2;
   }
+  /* The payload view is the one that is blank until a tool has been
+     run, so its "no signal" message is a short set of instructions
+     rather than a sentence - the instructor should not have to come
+     back and ask what to type. */
+  #view-payload .nosignal {
+    max-width: 440px; display: flex; flex-direction: column; gap: 7px;
+    text-align: left; line-height: 1.4; padding: 14px 16px;
+  }
+  #view-payload .nosignal code {
+    font-family: 'IBM Plex Mono', monospace; font-size: 12px;
+    background: rgba(0,0,0,0.55); padding: 5px 8px; border-radius: 5px;
+    user-select: all;
+  }
   #view-payload img { user-select: none; -webkit-user-drag: none; }
   #view-payload.slewing { cursor: grabbing; }
   #view-payload.picking { cursor: crosshair; }
@@ -588,7 +615,6 @@ TEMPLATE = """<!DOCTYPE html>
   .fl-row.breach { background: rgba(123,26,45,0.4); }
   .fl-foot { font-size: 11px; color: var(--dim); }
 
-  .win-body.settings { flex-direction: column; gap: 14px; align-items: stretch; }
   .set-row { display: flex; align-items: center; gap: 12px; }
   .set-label { width: 112px; flex: none; color: var(--dim); font-size: 12px; }
   .set-stack { display: flex; flex-direction: column; gap: 6px; }
@@ -840,8 +866,15 @@ TEMPLATE = """<!DOCTYPE html>
          not what a payload operator is looking at. This one carries a
          reticle and the pointing angles instead. -->
     <canvas class="pay-hud" id="pay-hud"></canvas>
-    <div class="nosignal" id="pay-nosignal">No payload camera yet. Add the
-      gimbal with tools/gimbal_apply.py, then restart the simulator.</div>
+    <div class="nosignal" id="pay-nosignal">
+      <b>No picture from the gimbal camera.</b>
+      <span>The gimbal has to be added to the aircraft once. In a terminal:</span>
+      <code>python3 tools/gimbal_apply.py</code>
+      <span>Then stop the simulator and start it again. If it is still blank
+        after that, check Gazebo is publishing the picture:</span>
+      <code>gz topic -l | grep payload</code>
+      <span id="pay-topic"></span>
+    </div>
     <div class="paybar" id="paybar">
       <span class="payread" id="pay-read">-</span>
       <span class="paygroup">
@@ -1169,9 +1202,13 @@ SCRIPT = """
   // reason these are one console and not two.
   function applyLayout() {
     var pilot = state.layout === 'pilot';
-    // Wider since the scrollbar got a gutter of its own: at the old width
-    // the labels started wrapping to three lines.
-    var railW = pilot ? 132 : 162;
+    // WIDER on 12 Oct 2026, twice over: once when the scrollbar got a
+    // gutter, and again when the number boxes grew arrows beside them.
+    // A label, a three-digit box and a stepper need about 115 px before
+    // padding, and squeezing that into 132 was what clipped the values.
+    // The figure itself lives in railWidth(), because the corner views
+    // need it too.
+    var railW = railWidth();
 
     document.documentElement.style.setProperty('--btn', pilot ? 'rgba(0,0,0,0.58)' : '#1e2430');
     el('topbar').style.background = pilot ? 'rgba(0,0,0,0.62)' : 'var(--panel)';
@@ -1228,16 +1265,30 @@ SCRIPT = """
     placeTiles();
   }
 
+  // The rail's width, in ONE place. It used to be written out in
+  // applyLayout and again as a magic "142" in home(), and when the rails
+  // were widened on 12 Oct 2026 only one of them changed - so the corner
+  // views moved under the right-hand rail and covered the message panel.
+  function railWidth() {
+    return state.layout === 'pilot' ? 166 : 182;
+  }
+
+  // How far in from the window edge a corner view starts: past the rail,
+  // plus the rail's own margin, plus a gap.
+  function railEdge() {
+    return railWidth() + (state.layout === 'pilot' ? 10 : 0) + 10;
+  }
+
   function home(side) {
-    var pilot = state.layout === 'pilot';
     // 400x250, the size the instructor settled on by dragging them there.
     // The old 212x120 was small enough that the map and the chase camera
     // had to be swapped into the main screen to be read at all, which
     // defeats the point of having them in the corner. Shrunk on a narrow
     // screen so the two never meet in the middle.
-    var w = Math.min(400, Math.max(212, (window.innerWidth - 420) / 2));
+    var edge = railEdge();
+    var between = window.innerWidth - 2 * edge - 24;
+    var w = Math.min(400, Math.max(212, between / 2));
     var h = Math.round(w * 0.625);
-    var edge = pilot ? 142 : 172;
     return {
       x: side === 'left' ? edge : window.innerWidth - edge - w,
       y: window.innerHeight - BAND - 14 - h,
@@ -1307,6 +1358,22 @@ SCRIPT = """
     var leftName = rotated[0], rightName = rotated[1] || rotated[0];
     if (leftName === rightName) { rightName = ring[ring.length - 1]; }
 
+    // PARK EVERYTHING ELSE. This is the bug that made the payload
+    // controls print over the chase view and left "TARGET LOCK" written
+    // across the bottom of the screen for the rest of the session.
+    //
+    // With three views and three slots, every view was re-parented on
+    // every swap, so nothing could be left behind. With four views and
+    // three slots one is always homeless - and appendChild only MOVES
+    // the view it is given. Select Payload, then Chase, and the payload
+    // view was still a child of #hero: invisible itself, but its
+    // control strip and its canvas were not, and both sat on top of the
+    // picture and the left-hand controls with no way to get rid of them.
+    for (var name in views) {
+      if (name !== h && name !== leftName && name !== rightName) {
+        store.appendChild(views[name]);
+      }
+    }
     hero.appendChild(views[h]);
     tiles.left.querySelector('.body').appendChild(views[leftName]);
     tiles.right.querySelector('.body').appendChild(views[rightName]);
@@ -1795,6 +1862,49 @@ SCRIPT = """
       }).catch(function () { say('The station did not answer.', true); });
   });
 
+  // ---------- the number steppers ----------
+  // Press for one step, hold to run. The acceleration is the point:
+  // "typing is taking too long" means going from 20 to 400 should be a
+  // held button, not forty clicks or a keyboard. stepUp/stepDown are
+  // the browser's own, so each control's own min, max and step are
+  // honoured without this code knowing any of them.
+  var holding = null;
+
+  function stepOnce(button) {
+    var input = el(button.dataset.for);
+    if (!input) { return; }
+    if (button.dataset.step === 'up') { input.stepUp(); } else { input.stepDown(); }
+    // Fire the same event typing would, so anything watching the field
+    // sees the change.
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  function stopHolding() {
+    if (!holding) { return; }
+    clearTimeout(holding.timer);
+    holding = null;
+  }
+
+  document.addEventListener('mousedown', function (e) {
+    var button = e.target.closest ? e.target.closest('.step button[data-step]') : null;
+    if (!button) { return; }
+    e.preventDefault();
+    stopHolding();
+    stepOnce(button);
+    holding = { button: button, delay: 420, timer: null };
+    function again() {
+      if (!holding) { return; }
+      stepOnce(holding.button);
+      // Faster the longer it is held, down to a floor - so a short hold
+      // nudges and a long one travels.
+      holding.delay = Math.max(45, holding.delay * 0.72);
+      holding.timer = setTimeout(again, holding.delay);
+    }
+    holding.timer = setTimeout(again, holding.delay);
+  });
+  window.addEventListener('mouseup', stopHolding);
+  window.addEventListener('blur', stopHolding);
+
   // ---------- the payload gimbal ----------
   // Three gestures, which are the three a payload operator already knows:
   // drag to slew, wheel to zoom, and - after arming it with TRACK -
@@ -1833,6 +1943,9 @@ SCRIPT = """
     rec.innerText = (d.recording && d.recording.on)
       ? 'REC ' + Math.round(d.recording.seconds) + 's' : 'REC';
     el('pay-nosignal').style.display = d.camera_live ? 'none' : '';
+    if (!d.camera_live && d.topic) {
+      el('pay-topic').innerText = 'Listening on ' + d.topic;
+    }
     if (d.said) { say(d.said); }
   }
 
@@ -1892,7 +2005,19 @@ SCRIPT = """
                   : 'UNSTABILISED - the picture will roll with the aircraft'),
                14, h - 22);
   }
-  setInterval(function () { if (state.hero === 'payload') { payReticle(); } }, 200);
+  var reticleWasOn = false;
+  setInterval(function () {
+    var on = (state.hero === 'payload');
+    if (on) { payReticle(); reticleWasOn = true; }
+    else if (reticleWasOn) {
+      // A canvas keeps its pixels. Parking the view hides it, but
+      // clearing it as well means a stale frame cannot reappear if the
+      // element is ever shown again before the first redraw.
+      var cv = el('pay-hud');
+      if (cv && cv.width) { cv.getContext('2d').clearRect(0, 0, cv.width, cv.height); }
+      reticleWasOn = false;
+    }
+  }, 200);
 
   function payCall(path) {
     return fetch(path).then(function (r) { return r.json(); })

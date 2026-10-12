@@ -495,6 +495,23 @@ def browser_checks():
               .count() == 1)
         check("the display pane is hidden while it is",
               not page.locator('.set-pane[data-pane="display"]').is_visible())
+        # The categories go DOWN THE SIDE of the panes, not above them.
+        # A leftover "flex-direction: column" from the single-column
+        # version of this window came later in the stylesheet and won,
+        # which stacked them and left 200 px of empty window above the
+        # first setting.
+        side = page.evaluate("""() => {
+            const t = document.querySelector('.set-tabs').getBoundingClientRect();
+            const p = document.querySelector('.set-panes').getBoundingClientRect();
+            const first = document.querySelector('.set-pane.on .group, .set-pane.on .set-row');
+            return { sideBySide: p.left >= t.right - 1,
+                     sameTop: Math.abs(p.top - t.top) < 4,
+                     gapAbove: Math.round(first.getBoundingClientRect().top - p.top) };
+        }""")
+        check("the categories are beside the panes, not above them",
+              side["sideBySide"] and side["sameTop"])
+        check("so the first setting is at the top of the pane (%s px down)"
+              % side["gapAbove"], side["gapAbove"] < 30)
 
         # The settings icon has to be the last thing on the bar.
         right_edge = page.evaluate("""() => {

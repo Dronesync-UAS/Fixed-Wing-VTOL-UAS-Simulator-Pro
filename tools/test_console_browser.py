@@ -605,6 +605,100 @@ def main():
               page.evaluate("""() => [...document.querySelectorAll('.railbody')]
                   .every(b => getComputedStyle(b).overflowY === 'hidden')"""))
 
+        print("7a2b. one view on the main screen, and nothing left behind")
+        # THE BUG THIS EXISTS FOR. appendChild MOVES a view, and with
+        # three views and three slots every view was re-parented on
+        # every swap, so nothing could be left behind. With four views
+        # and three slots one is always homeless - and selecting
+        # Payload and then Chase left the payload view still a child of
+        # #hero. Invisible itself, but its control strip and its canvas
+        # were not: the payload controls printed over the chase picture
+        # and "TARGET LOCK" stayed written across the bottom of the
+        # screen for the rest of the session, with no way to clear it.
+        for name in ("payload", "chase", "map", "nose", "payload", "map"):
+            page.click('#viewtabs button[data-view="%s"]' % name)
+            page.wait_for_timeout(300)
+            seen = page.evaluate("""() => ({
+                hero: [...document.getElementById('hero').children]
+                        .filter(e => e.classList.contains('view'))
+                        .map(e => e.id),
+                bars: [...document.querySelectorAll('.paybar')]
+                        .filter(e => getComputedStyle(e).display !== 'none')
+                        .map(e => e.id)
+            })""")
+            check("%s: one view on the main screen (%s)"
+                  % (name, seen["hero"]), len(seen["hero"]) == 1)
+            check("%s: at most one control strip showing (%s)"
+                  % (name, seen["bars"] or "none"), len(seen["bars"]) <= 1)
+        page.click('#viewtabs button[data-view="chase"]')
+        page.wait_for_timeout(300)
+
+        print("7a2c. the number boxes have arrows, and holding one runs")
+        # "typing is taking too long" - so one press steps once and a
+        # held press accelerates through the range.
+        field = "#in-loiter-radius_m"
+        start = page.input_value(field)
+        page.click('.step button[data-step="up"][data-for="in-loiter-radius_m"]')
+        page.wait_for_timeout(120)
+        once = page.input_value(field)
+        check("one press steps once (%s -> %s)" % (start, once),
+              float(once) > float(start))
+        box = page.locator(
+            '.step button[data-step="up"][data-for="in-loiter-radius_m"]'
+        ).bounding_box()
+        page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+        page.mouse.down()
+        page.wait_for_timeout(1500)
+        page.mouse.up()
+        held = page.input_value(field)
+        check("holding it runs through the range (%s -> %s)" % (once, held),
+              float(held) > float(once) + 50)
+        page.click('.step button[data-step="down"][data-for="in-loiter-radius_m"]')
+        page.wait_for_timeout(120)
+        check("and the other arrow goes back down",
+              float(page.input_value(field)) < float(held))
+
+        print("7a2d. the rails fill the screen and nothing sits on them")
+        # Section 7 dragged a corner view somewhere, and a view the
+        # instructor has dragged is their own business - it is allowed to
+        # sit anywhere. What has to be clear is the DEFAULT placement,
+        # so put the panels back first.
+        page.evaluate("() => document.getElementById('resettiles').click()")
+        page.wait_for_timeout(600)
+        OVERLAP = """() => {
+            const hit = (a, b) => a.left < b.right - 1 && b.left < a.right - 1
+                               && a.top < b.bottom - 1 && b.top < a.bottom - 1;
+            const g = id => document.getElementById(id).getBoundingClientRect();
+            const clashes = [];
+            for (const rail of ['rail-left', 'rail-right']) {
+              for (const tile of ['tile-left', 'tile-right']) {
+                if (hit(g(rail), g(tile))) { clashes.push(rail + ' / ' + tile); }
+              }
+            }
+            const band = 104, bar = 52;
+            return { clashes: clashes,
+                     left: Math.round(g('rail-left').height),
+                     right: Math.round(g('rail-right').height),
+                     room: Math.round(window.innerHeight - band - bar) };
+        }"""
+        for width, height in ((1600, 900), (1366, 768), (1280, 720)):
+            page.set_viewport_size({"width": width, "height": height})
+            page.wait_for_timeout(350)
+            fit = page.evaluate(OVERLAP)
+            # The columns are asked to fill the screen even when part of
+            # them is empty, because more controls are coming.
+            check("at %dx%d the left column fills the height (%s of %s)"
+                  % (width, height, fit["left"], fit["room"]),
+                  fit["left"] >= fit["room"] - 24)
+            check("at %dx%d the right column does too (%s of %s)"
+                  % (width, height, fit["right"], fit["room"]),
+                  fit["right"] >= fit["room"] - 24)
+            check("at %dx%d no corner view sits on a column (%s)"
+                  % (width, height, fit["clashes"] or "clear"),
+                  not fit["clashes"])
+        page.set_viewport_size({"width": 1600, "height": 900})
+        page.wait_for_timeout(350)
+
         print("7a3. the message panel")
         # It used to be a small box floating over a corner of the
         # picture, and an alert never cleared - so by the end of a

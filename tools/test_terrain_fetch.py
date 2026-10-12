@@ -133,6 +133,50 @@ check("it says where", "52.9000, -3.8000" in out)
 check("and how many tiles", "tiles" in out)
 check("and that nothing was downloaded", "nothing downloaded" in out.lower())
 
+print("9. the satellite imagery providers, including Mapbox")
+import contextlib                                           # noqa: E402,F811
+import io                                                    # noqa: E402,F811
+
+import fetch_satellite as fs                                 # noqa: E402
+
+check("there are keyless providers", "usgs" in fs.PROVIDERS and "esri" in fs.PROVIDERS)
+check("and Mapbox", "mapbox" in fs.PROVIDERS)
+check("Mapbox is marked as needing a token",
+      fs.PROVIDERS["mapbox"].get("needs_token") is True)
+check("the keyless ones are not",
+      not fs.PROVIDERS["usgs"].get("needs_token")
+      and not fs.PROVIDERS["esri"].get("needs_token"))
+check("the default provider needs no token",
+      not fs.PROVIDERS["usgs"].get("needs_token"))
+# A 512 px tile covers four 256 px ones, so a provider serving them must
+# drop a zoom level or the image comes out four times the ground.
+check("Mapbox asks for 512 px tiles a zoom level lower",
+      fs.PROVIDERS["mapbox"].get("tile_px") == 512
+      and fs.PROVIDERS["mapbox"].get("zoom_offset") == -1)
+check("its URL has somewhere to put the token",
+      "{token}" in fs.PROVIDERS["mapbox"]["url"])
+
+# main() reads sys.argv, so drive it that way.
+saved_argv = sys.argv
+sys.argv = ["fetch_satellite.py", "coast", "--provider", "mapbox"]
+captured = io.StringIO()
+try:
+    with contextlib.redirect_stdout(captured):
+        code = fs.main()
+finally:
+    sys.argv = saved_argv
+message = captured.getvalue()
+check("without a token it refuses rather than failing mid-download", code == 1)
+check("and says where to get one", "account.mapbox.com" in message)
+check("and offers the keyless alternative", "--provider esri" in message)
+
+# The token must not end up in the file that gets copied between machines.
+source = open(os.path.join(REPO, "tools", "fetch_satellite.py")).read()
+sidecar = source[source.index('"provider": args.provider'):]
+sidecar = sidecar[:sidecar.index("}, handle")]
+check("the token is never written into the cached image's sidecar",
+      "token" not in sidecar)
+
 print()
 if fails:
     print("%d check(s) failed:" % len(fails))

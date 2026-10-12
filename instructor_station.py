@@ -118,9 +118,22 @@ def write_layout(data):
 # where the instructor has dragged the two corner tiles. Separate key, so a
 # saved panel layout from the classic page is untouched and either page can
 # be used without destroying the other's arrangement.
-CONSOLE_DEFAULT = {"hero": "chase", "layout": "pilot", "tiles": {},
-                   "rails": {}, "shut": None, "windows": {}}
-CONSOLE_HEROES = ("chase", "nose", "map")
+# Bumped when a change makes a previously saved arrangement wrong. A
+# saved layout from an older version is dropped rather than restored,
+# once, and the console comes up on the new defaults. Version 2
+# (12 Oct 2026): the rails are now full-height columns and the saved
+# floating geometry from before that - which could be any height a rail
+# had been dragged to - left people with a short left-hand column and no
+# obvious way back.
+CONSOLE_VERSION = 2
+
+CONSOLE_DEFAULT = {"version": CONSOLE_VERSION, "hero": "chase",
+                   "layout": "pilot", "tiles": {}, "rails": {}, "shut": None,
+                   "windows": {}}
+# "payload" was missing here until 12 Oct 2026, so choosing the payload
+# view was never remembered: it was saved, rejected on the way back in,
+# and the console reopened on the chase view every time.
+CONSOLE_HEROES = ("chase", "nose", "payload", "map")
 CONSOLE_LAYOUTS = ("pilot", "station")
 TILE_MIN_W, TILE_MAX_W = 150, 520
 TILE_MIN_H, TILE_MAX_H = 96, 300
@@ -131,6 +144,10 @@ RAIL_MIN_H, RAIL_MAX_H = 90, 2000
 def read_console_layout():
     saved = read_layout().get("console")
     if not isinstance(saved, dict):
+        return dict(CONSOLE_DEFAULT)
+    if saved.get("version") != CONSOLE_VERSION:
+        # An arrangement saved before the current layout. Dropped rather
+        # than half-applied: see CONSOLE_VERSION for why.
         return dict(CONSOLE_DEFAULT)
     out = dict(CONSOLE_DEFAULT)
     if saved.get("hero") in CONSOLE_HEROES:
@@ -170,6 +187,7 @@ def write_console_layout(data):
     deleting the file by hand.
     """
     clean = dict(CONSOLE_DEFAULT)
+    clean["version"] = CONSOLE_VERSION
     if data.get("hero") in CONSOLE_HEROES:
         clean["hero"] = data["hero"]
     if data.get("layout") in CONSOLE_LAYOUTS:
@@ -645,6 +663,10 @@ def _payload_status():
     # No frames and no publisher means the gimbal is not in the model yet.
     # Saying that is far more use than an empty black rectangle.
     answer["camera_live"] = feed.fps() > 0
+    # The topic it is actually subscribed to. One fact, and it is the
+    # one that turns "the payload view is blank" into something a person
+    # can check with gz topic -l.
+    answer["topic"] = feed.current_topic()
     answer["recording"] = {
         "on": payload_media.recording.running(),
         "frames": payload_media.recording.frames,
@@ -700,8 +722,23 @@ def _render_inputs(p):
                 attrs += f' min="{inp["min"]}"'
             if "max" in inp:
                 attrs += f' max="{inp["max"]}"'
-            attrs += f' step="{inp.get("step", "any")}"'
-            control = f'<input type="number" {common} {attrs}>'
+            step = inp.get("step", "any")
+            attrs += f' step="{step}"'
+            # A number box with arrows beside it. The native spinners
+            # were removed on 12 Oct 2026 because they clipped the third
+            # digit of the value; these are drawn as part of the field
+            # instead, so they cannot overlap it, and they are bigger
+            # than the native ones - which matters on a touchscreen.
+            # Press and hold to run through the range: "typing is taking
+            # too long" was the whole complaint.
+            control = (f'<span class="num">'
+                       f'<input type="number" {common} {attrs}>'
+                       f'<span class="step">'
+                       f'<button type="button" data-step="up" data-for="{fid}" '
+                       f'tabindex="-1" aria-label="Increase">&#9650;</button>'
+                       f'<button type="button" data-step="down" data-for="{fid}" '
+                       f'tabindex="-1" aria-label="Decrease">&#9660;</button>'
+                       f'</span></span>')
 
         # "wide" on a drop-down, so the rail can put a number box and
         # its label side by side - which saves a line per number, and a
