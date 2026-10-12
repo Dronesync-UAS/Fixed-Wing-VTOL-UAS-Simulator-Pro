@@ -163,6 +163,12 @@ def new_session(reset="hard"):
 
     reset_flight_state()
     steps.append("track and home point cleared")
+    try:
+        import preflight
+        preflight.reset()
+        steps.append("pre-flight checklist cleared")
+    except Exception:                                      # noqa: BLE001
+        pass
 
     log_instructor_action("new_session", f"hard={hard} " + "; ".join(steps))
     return ("New session: " + "; ".join(steps)

@@ -290,6 +290,60 @@ TEMPLATE = """<!DOCTYPE html>
   }
   #dragmask { position: absolute; inset: 0; z-index: 60; display: none; }
 
+  /* ---------- pre-flight checklist ---------- */
+  #preflight {
+    position: absolute; left: 50%; top: 60px; transform: translateX(-50%);
+    width: 470px; max-height: calc(100% - 190px); overflow: auto; z-index: 55;
+    display: none; flex-direction: column; border-radius: 12px;
+    background: rgba(12,16,22,0.97); border: 1px solid rgba(255,255,255,0.22);
+    box-shadow: 0 14px 44px rgba(0,0,0,0.75);
+  }
+  #preflight.open { display: flex; }
+  #preflight .pf-head {
+    display: flex; align-items: center; gap: 10px; padding: 11px 14px;
+    border-bottom: 1px solid rgba(255,255,255,0.14); font-size: 14px;
+  }
+  #preflight .pf-head b { flex: 1; }
+  #preflight .pf-state { font-size: 12px; font-weight: 600; }
+  #preflight .pf-state.ready { color: var(--good); }
+  #preflight .pf-state.notready { color: #ffc400; }
+  #preflight .pf-head button {
+    min-height: 0; width: 26px; height: 24px; padding: 0; border: 0;
+    border-radius: 6px; background: rgba(255,255,255,0.14); color: #fff;
+    cursor: pointer; font-size: 16px; line-height: 1;
+  }
+  #preflight .pf-item {
+    display: flex; align-items: flex-start; gap: 10px; padding: 9px 14px;
+    border-bottom: 1px solid rgba(255,255,255,0.07); font-size: 13px;
+  }
+  #preflight .pf-item .mark {
+    width: 18px; height: 18px; flex: none; margin-top: 1px; border-radius: 5px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 700;
+  }
+  #preflight .pf-item.ok .mark { background: rgba(31,138,76,0.95); color: #fff; }
+  #preflight .pf-item.bad .mark { background: rgba(176,58,58,0.95); color: #fff; }
+  #preflight .pf-item.unknown .mark { background: rgba(255,255,255,0.18); color: var(--dim); }
+  #preflight .pf-item .text { flex: 1; }
+  #preflight .pf-item .detail { display: block; font-size: 11px; color: var(--dim); }
+  /* An automatic item cannot be ticked by hand - that is the point of it. */
+  #preflight .pf-item.auto { cursor: default; }
+  #preflight .pf-item.manual { cursor: pointer; }
+  #preflight .pf-item.manual:hover { background: rgba(255,255,255,0.06); }
+  #preflight .pf-item .who {
+    font-size: 10px; color: var(--dim); text-transform: uppercase;
+    letter-spacing: 1px; flex: none; margin-top: 3px;
+  }
+  #preflight .pf-foot {
+    display: flex; align-items: center; gap: 12px; padding: 12px 14px;
+  }
+  #preflight .pf-foot button {
+    min-height: 0; padding: 7px 14px; border: 0; border-radius: 7px;
+    background: #b5730f; color: #1a1205; font-weight: 600; cursor: pointer;
+    font-size: 13px;
+  }
+  #preflight .pf-note { font-size: 11px; color: var(--dim); }
+
   /* ---------- bottom band ---------- */
   #bottom { position: absolute; left: 0; right: 0; bottom: 0; height: 104px; z-index: 30; display: flex; flex-direction: column; }
   #params { height: 62px; display: flex; align-items: center; padding: 0 16px; }
@@ -349,6 +403,7 @@ TEMPLATE = """<!DOCTYPE html>
     <label class="topswitch" title="The flight display drawn over the camera views"><input type="checkbox" id="hud-on" checked> Gauge</label>
     <label class="topswitch" title="The low-altitude warning tone"><input type="checkbox" id="alarm-on" checked> Alarm</label>
     <label class="topswitch" title="Call out each command and each change of state"><input type="checkbox" id="voice-on"> Voice</label>
+    <button id="pf-open" style="height: 26px; padding: 0 12px; border: 0; border-radius: 6px; cursor: pointer; font-size: 12px; background: rgba(0,0,0,0.5); color: #fff">Checklist</button>
   </div>
   <div class="icons">
     <span class="item" id="t-armcheck-wrap" title="Whether PX4 will accept ARM or TAKEOFF right now">
@@ -444,6 +499,22 @@ TEMPLATE = """<!DOCTYPE html>
   <div class="body"></div>
   <div class="bar"><span class="name">-</span><span style="color:#9fb0c4; letter-spacing:2px">&#8285;&#8285;</span></div>
   <div class="grip"></div>
+</div>
+
+<!-- The pre-flight checklist. A panel rather than a rail section: it is
+     worked down once before an exercise and then put away, which is a
+     different gesture from pressing a control. -->
+<div id="preflight">
+  <div class="pf-head">
+    <b>Pre-flight checklist</b>
+    <span id="pf-state" class="pf-state">-</span>
+    <button id="pf-close" title="Put it away">&times;</button>
+  </div>
+  <div id="pf-items"></div>
+  <div class="pf-foot">
+    <button id="pf-complete">Start the exercise</button>
+    <span class="pf-note">Recorded as it stands, green or not.</span>
+  </div>
 </div>
 
 <div id="dragmask"></div>
@@ -1083,6 +1154,62 @@ SCRIPT = """
     gctx.fillStyle = 'rgba(255,255,255,0.65)';
     gctx.fillText('HDG', c, hy - 6);
   }
+
+  // ---------- pre-flight checklist ----------
+  var pf = el('preflight');
+
+  function drawPreflight(d) {
+    var state = el('pf-state');
+    state.innerText = d.ready ? 'Ready'
+      : (d.outstanding.length + ' outstanding');
+    state.className = 'pf-state ' + (d.ready ? 'ready' : 'notready');
+    el('pf-items').innerHTML = d.items.map(function (i) {
+      var cls = i.ok === true ? 'ok' : (i.ok === false ? 'bad' : 'unknown');
+      var mark = i.ok === true ? '\u2713' : (i.ok === false ? '\u2715' : '?');
+      return '<div class="pf-item ' + cls + ' ' + i.kind + '"'
+           + (i.kind === 'manual' ? ' data-item="' + i.key + '"' : '')
+           + '><span class="mark">' + mark + '</span>'
+           + '<span class="text">' + i.label
+           + '<span class="detail">' + i.detail + '</span></span>'
+           + '<span class="who">' + (i.kind === 'auto' ? 'aircraft' : 'you')
+           + '</span></div>';
+    }).join('');
+  }
+
+  function refreshPreflight() {
+    if (!pf.classList.contains('open')) { return; }
+    fetch('/preflight').then(function (r) { return r.json(); })
+      .then(drawPreflight).catch(function () {});
+  }
+
+  el('pf-open').addEventListener('click', function () {
+    pf.classList.add('open');
+    refreshPreflight();
+  });
+  el('pf-close').addEventListener('click', function () {
+    pf.classList.remove('open');
+  });
+  el('pf-items').addEventListener('click', function (e) {
+    var row = e.target.closest('.pf-item.manual');
+    if (!row) { return; }
+    var on = row.classList.contains('ok') ? '0' : '1';
+    fetch('/preflight_tick?item=' + row.dataset.item + '&on=' + on)
+      .then(function (r) { return r.json(); })
+      .then(drawPreflight).catch(function () {});
+  });
+  el('pf-complete').addEventListener('click', function () {
+    fetch('/preflight_complete').then(function (r) { return r.json(); })
+      .then(function (d) {
+        drawPreflight(d);
+        pf.classList.remove('open');
+        say(d.ready
+            ? 'Checklist complete - all items green. Written to the record.'
+            : 'Exercise started with ' + d.outstanding.length
+              + ' item(s) not green: ' + d.outstanding.join(', ')
+              + '. Written to the record.', !d.ready);
+      }).catch(function () { say('The station did not answer.', true); });
+  });
+  setInterval(refreshPreflight, 1000);
 
   // ---------- go ----------
   applyLayout();

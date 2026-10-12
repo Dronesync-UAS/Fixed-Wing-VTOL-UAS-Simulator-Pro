@@ -139,12 +139,26 @@ STUBS = {
     "/connection_status": sl.connection_status,
 }
 
+# The checklist is served by the real module, not a canned answer: its job
+# is to read the aircraft honestly, and a stub would test the panel against
+# a fiction.
+import preflight  # noqa: E402
+
 
 class Stub(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         path = self.path.split("?")[0]
         if path == "/":
             body, ctype = PAGE.encode("utf-8"), "text/html; charset=utf-8"
+        elif path == "/preflight":
+            body, ctype = json.dumps(preflight.state()).encode(), "application/json"
+        elif path == "/preflight_tick":
+            query = dict(p.split("=", 1) for p in
+                         self.path.split("?", 1)[-1].split("&") if "=" in p)
+            preflight.tick(query.get("item", ""), query.get("on") == "1")
+            body, ctype = json.dumps(preflight.state()).encode(), "application/json"
+        elif path == "/preflight_complete":
+            body, ctype = json.dumps(preflight.complete()).encode(), "application/json"
         elif path in STUBS:
             body, ctype = json.dumps(STUBS[path]).encode(), "application/json"
         elif path in ("/video_feed", "/chase_feed", "/terrain.png", "/favicon.ico"):
@@ -459,6 +473,46 @@ def main():
         check("Reset panels re-docks it",
               "floating" not in (page.get_attribute("#rail-right", "class") or ""))
 
+        print("7d. the pre-flight checklist")
+        page.click("#pf-open")
+        page.wait_for_timeout(600)
+        check("it opens", page.locator("#preflight.open").count() == 1)
+        auto = page.locator("#preflight .pf-item.auto").count()
+        manual = page.locator("#preflight .pf-item.manual").count()
+        check("it lists automatic and manual items (%s auto, %s by hand)"
+              % (auto, manual), auto >= 4 and manual >= 4)
+        # The stub aircraft is disarmed, ready to arm, 10 satellites, 87%
+        # battery, so the automatic items should already be green.
+        green_auto = page.locator("#preflight .pf-item.auto.ok").count()
+        check("the aircraft's own items read from telemetry (%s green)"
+              % green_auto, green_auto >= 3)
+        check("nothing ticked by hand yet",
+              page.locator("#preflight .pf-item.manual.ok").count() == 0)
+
+        row = page.locator("#preflight .pf-item.manual").first
+        key = row.get_attribute("data-item")
+        row.click()
+        page.wait_for_timeout(400)
+        check("a manual item ticks (%s)" % key,
+              page.locator('#preflight .pf-item.manual.ok[data-item="%s"]' % key).count() == 1)
+        row = page.locator('#preflight .pf-item.manual[data-item="%s"]' % key)
+        row.click()
+        page.wait_for_timeout(400)
+        check("and unticks again",
+              page.locator('#preflight .pf-item.manual.ok[data-item="%s"]' % key).count() == 0)
+
+        check("it says how many are outstanding (%s)"
+              % page.inner_text("#pf-state"),
+              "outstanding" in page.inner_text("#pf-state"))
+
+        # An exercise started with red items is allowed, and recorded.
+        page.click("#pf-complete")
+        page.wait_for_timeout(500)
+        check("starting the exercise puts the list away",
+              page.locator("#preflight.open").count() == 0)
+        check("and says what was not green (%s)" % page.inner_text("#status")[:60],
+              "not green" in page.inner_text("#status"))
+
         print("8. telemetry reached the readouts")
         check("altitude shown", "12.5" in page.inner_text("#p-alt"))
         check("arming state shown", "Ready" in page.inner_text("#t-armcheck"))
@@ -469,6 +523,9 @@ def main():
             out = sys.argv[sys.argv.index("--shot") + 1]
             # --nose puts the attitude overlay on screen over a stand-in for
             # bright desert, which is the only way to judge whether it reads.
+            if "--checklist" in sys.argv:
+                page.click("#pf-open")
+                page.wait_for_timeout(700)
             if "--layout" in sys.argv:
                 page.click('#layouttabs button[data-layout="%s"]'
                            % sys.argv[sys.argv.index("--layout") + 1])

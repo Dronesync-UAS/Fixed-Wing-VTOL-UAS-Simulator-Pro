@@ -34,6 +34,7 @@ from video_feed import start_video_capture, mjpeg_generator, camera_fps, FEEDS
 import console_page
 import event_logger
 import flight_display
+import preflight
 import terrain_backdrop
 
 PORT = 8080
@@ -233,8 +234,12 @@ LIMITS = {
     "ceiling_m": 120.0,          # height above the home/launch point
     "range_m": 500.0,            # lateral distance from home
     "groundspeed_ms": 30.0,      # ground speed
-    "battery_warn_pct": 30,      # amber below this
-    "battery_critical_pct": 15,  # red below this
+    # 12 Oct 2026: moved from 30/15 to match the figures the instructor
+    # asked the gauge to flash at. Two different numbers for "low battery"
+    # on one screen is a question nobody should have to answer mid-lesson.
+    # The gauge's own copy is in flight_display.py.
+    "battery_warn_pct": 20,      # amber below this
+    "battery_critical_pct": 10,  # red below this
 }
 # "Approaching" a max-type limit = within this fraction of it.
 LIMIT_WARN_FRACTION = 0.9
@@ -1081,29 +1086,33 @@ EXTRA_SCRIPT = """
         fctx.restore();
       }
 
+      // Marker size follows the canvas: the same symbol that reads well
+      // across a 1600px main screen swamps a 208px corner tile.
+      var k = Math.max(0.45, Math.min(1, Math.min(W, H) / 700));
+
       // Home: a ringed marker, labelled. Drawn larger than it was - at the
       // old 6px radius it disappeared into a 1600px picture.
       fctx.strokeStyle = 'rgba(0,0,0,0.75)'; fctx.lineWidth = 5;
-      fctx.beginPath(); fctx.arc(ox, oy, 10, 0, 7); fctx.stroke();
-      fctx.strokeStyle = '#4ade80'; fctx.lineWidth = 2.5;
-      fctx.beginPath(); fctx.arc(ox, oy, 10, 0, 7); fctx.stroke();
-      fctx.beginPath(); fctx.moveTo(ox - 14, oy); fctx.lineTo(ox + 14, oy);
-      fctx.moveTo(ox, oy - 14); fctx.lineTo(ox, oy + 14); fctx.stroke();
+      fctx.beginPath(); fctx.arc(ox, oy, 10 * k, 0, 7); fctx.stroke();
+      fctx.strokeStyle = '#4ade80'; fctx.lineWidth = 2.5 * k;
+      fctx.beginPath(); fctx.arc(ox, oy, 10 * k, 0, 7); fctx.stroke();
+      fctx.beginPath(); fctx.moveTo(ox - 14 * k, oy); fctx.lineTo(ox + 14 * k, oy);
+      fctx.moveTo(ox, oy - 14 * k); fctx.lineTo(ox, oy + 14 * k); fctx.stroke();
       fctx.fillStyle = '#4ade80';
-      fctx.beginPath(); fctx.arc(ox, oy, 3.5, 0, 7); fctx.fill();
-      fctx.font = '700 11px -apple-system, sans-serif'; fctx.textAlign = 'left';
+      fctx.beginPath(); fctx.arc(ox, oy, 3.5 * k, 0, 7); fctx.fill();
+      fctx.font = '700 ' + Math.round(11 * k + 2) + 'px -apple-system, sans-serif'; fctx.textAlign = 'left';
       fctx.lineJoin = 'round';
       fctx.strokeStyle = 'rgba(0,0,0,0.85)'; fctx.lineWidth = 3.5;
-      fctx.strokeText('HOME', ox + 17, oy + 4);
-      fctx.fillText('HOME', ox + 17, oy + 4);
+      fctx.strokeText('HOME', ox + 17 * k, oy + 4);
+      fctx.fillText('HOME', ox + 17 * k, oy + 4);
 
       // The aircraft, pointing where it is heading, at twice its old size.
       var hdg = (telem.heading_deg || 0) * Math.PI / 180;
       fctx.save(); fctx.translate(hx, hy); fctx.rotate(hdg);
       fctx.beginPath();
-      fctx.moveTo(0, -19); fctx.lineTo(13, 15); fctx.lineTo(0, 7); fctx.lineTo(-13, 15);
+      fctx.moveTo(0, -19 * k); fctx.lineTo(13 * k, 15 * k); fctx.lineTo(0, 7 * k); fctx.lineTo(-13 * k, 15 * k);
       fctx.closePath();
-      fctx.strokeStyle = 'rgba(0,0,0,0.8)'; fctx.lineWidth = 4; fctx.stroke();
+      fctx.strokeStyle = 'rgba(0,0,0,0.8)'; fctx.lineWidth = 4 * k; fctx.stroke();
       fctx.fillStyle = '#ff3b30'; fctx.fill();
       fctx.restore();
 
@@ -1502,6 +1511,26 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-type", "application/json; charset=utf-8")
             self.end_headers()
             self.wfile.write(json.dumps(connection_status).encode("utf-8"))
+        elif self.path == "/preflight":
+            self.send_response(200)
+            self.send_header("Content-type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps(preflight.state()).encode("utf-8"))
+        elif self.path.startswith("/preflight_tick"):
+            query = parse_qs(urlparse(self.path).query)
+            key = (query.get("item") or [""])[0]
+            on = (query.get("on") or ["0"])[0] == "1"
+            ok = preflight.tick(key, on)
+            self.send_response(200 if ok else 400)
+            self.send_header("Content-type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps(preflight.state()).encode("utf-8"))
+        elif self.path == "/preflight_complete":
+            done = preflight.complete()
+            self.send_response(200)
+            self.send_header("Content-type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps(done).encode("utf-8"))
         elif self.path == "/telemetry":
             self.send_response(200)
             self.send_header("Content-type", "application/json; charset=utf-8")
