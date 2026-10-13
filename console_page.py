@@ -493,6 +493,7 @@ TEMPLATE = """<!DOCTYPE html>
   }
   .topbtn.danger { background: rgba(123,26,45,0.95); color: #ffc3cd; }
   .topbtn.icon { padding: 0 9px; display: flex; align-items: center; }
+  a.topbtn { text-decoration: none; display: flex; align-items: center; }
   .topbtn.icon svg { width: 20px; height: 20px; display: block; }
   /* The close button reads red only on hover. Permanently red next to the
      settings gear it would pull the eye away from the failure controls,
@@ -933,6 +934,10 @@ TEMPLATE = """<!DOCTYPE html>
          the far right is where every tablet and every GCS puts it, and a
          control nobody touches in flight should not sit between two that
          are. -->
+    <!-- The QGC-shaped console. A link rather than a redirect: this page
+         is the one lessons are taught on, and /pro has to earn that. -->
+    <a class="topbtn" id="open-pro" href="/pro"
+       title="The QGroundControl-shaped console">Pro</a>
     <button class="topbtn icon" id="settings-open" title="Settings" aria-label="Settings">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" aria-hidden="true">
         <path d="M4 7h16M4 12h16M4 17h16"></path>

@@ -53,11 +53,23 @@ MEASURED on 14 Oct 2026 against the running simulator:
     SIM_GPS_USED = 0    GPS_RAW_INT  satellites  0, fix_type 0
     SIM_GPS_USED = 10   GPS_RAW_INT  satellites 10, fix_type 3
 
-WHY NOT MAV_CMD_INJECT_FAILURE, which is the obvious answer: it is
-handled by simulator_mavlink, the module used with the OLD jMAVSim and
-Gazebo-classic back ends. These worlds run on Gazebo Harmonic through
-gz_bridge, which does not handle it. Tried first and measured: PX4 never
-acknowledged the command and the satellite count did not move.
+WHY NOT MAV_CMD_INJECT_FAILURE, which is the obvious answer: this PX4
+cannot do it. The command is handled by simulator_mavlink, the module
+used with the OLD jMAVSim and Gazebo-classic back ends. These worlds run
+Gazebo Harmonic through gz_bridge, and gz_bridge in PX4 v1.15.4 - the
+version pinned here - has no GPS failure handling at all. Tried first and
+measured: PX4 never acknowledged the command and the satellite count did
+not move.
+
+That is a known PX4 bug, not a local mistake: PX4 issue #22296, "System
+Failure Injection (gps) not working", reported exactly this for gz and was
+closed by PR #28398 in August 2026 - AFTER v1.15.4. So on a newer PX4 the
+command would work and would be the tidier answer; on this one it does
+nothing, and SIM_GPS_USED is the mechanism that does.
+
+The gps_dropout_proxy this replaces was written to work around that same
+PX4 bug, which was sound reasoning - it was the integration that never
+landed.
 
 PARAMETERS RESET WHEN PX4 RESTARTS, so a NEW SESSION or a change of
 training area clears the failure by itself. That is the right behaviour -
