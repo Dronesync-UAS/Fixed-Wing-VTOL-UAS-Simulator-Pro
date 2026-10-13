@@ -12,3 +12,4 @@ satellite/
 *.sdf.prenormal
 *.sdf.preground
 *.sdf.presky
+*.sdf.predomeless

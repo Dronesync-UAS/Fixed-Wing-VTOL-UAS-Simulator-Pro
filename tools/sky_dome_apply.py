@@ -124,6 +124,12 @@ SKY_REPLACEMENT = """<!-- The built-in sky was removed 12 Oct 2026: it is one
            bit in this renderer, with no gradient and no cloud. The
            sky_dome model at the end of this file replaces it. -->"""
 
+# The whole dome - its comment and its model - so --remove can take it
+# out again and leave the rest of the changes in place.
+DOME_BLOCK = re.compile(
+    r'[ \t]*<!-- THE SKY, added.*?-->\s*<model name="sky_dome">.*?</model>\n',
+    re.DOTALL)
+
 SCENE = re.compile(r"<scene>.*?</scene>", re.DOTALL)
 SKY_TAG = re.compile(r"<sky\s*/>|<sky>.*?</sky>", re.DOTALL)
 AMBIENT = re.compile(r"<ambient>[^<]*</ambient>")
@@ -213,6 +219,53 @@ def apply_to(path, dry_run):
     return "done"
 
 
+def remove_from(path):
+    """Take the dome out, KEEP the lighting fix.
+
+    WHY THIS EXISTS, and it is not --revert. --revert puts the world back
+    exactly as it was, which means the washed-out 0.40 ambient comes back
+    with it. This drops only the dome and leaves the ambient at 0.26 and
+    the built-in sky off, so the sky becomes the flat <background> blue -
+    not as good as a painted sky, but a plain blue ceiling instead of a
+    near-white one, and nothing to go wrong.
+
+    For when the dome is misbehaving and flying matters more than looking
+    at it.
+    """
+    name = os.path.basename(path)
+    with open(path) as handle:
+        text = handle.read()
+    if not has_dome(text):
+        print("  %-34s no dome to remove" % name)
+        return "same"
+
+    fixed, problem = DOME_BLOCK.subn("", text)
+    if not problem:
+        print("  %-34s FAILED - could not find the dome block" % name)
+        return "failed"
+    # Make sure the lighting fix is in, in case this is an old file.
+    fixed, _ = rewrite_scene(fixed)
+    # And do not leave a comment pointing at a model that is no longer
+    # there - the next reader would go looking for it.
+    fixed = fixed.replace(
+        "sky_dome model at the end of this file replaces it.",
+        "painted dome was removed again; the sky is now the flat\n           "
+        "<background> colour above.")
+
+    shutil.copyfile(path, path + ".predomeless")
+    with open(path, "w") as handle:
+        handle.write(fixed)
+    try:
+        ET.parse(path)
+    except ET.ParseError as exc:
+        shutil.copyfile(path + ".predomeless", path)
+        print("  %-34s FAILED to parse (%s) - put back" % (name, exc))
+        return "failed"
+    print("  %-34s dome out; flat blue sky, ambient still %s"
+          % (name, NEW_AMBIENT.rsplit(" ", 1)[0]))
+    return "done"
+
+
 def revert(path):
     name = os.path.basename(path)
     backup = path + BACKUP_SUFFIX
@@ -251,6 +304,9 @@ def main():
                         help="say what would change, write nothing")
     parser.add_argument("--revert", action="store_true",
                         help="put back this script's backups")
+    parser.add_argument("--remove", action="store_true",
+                        help="take the dome out but keep the lighting fix - "
+                             "a flat blue sky instead of a painted one")
     args = parser.parse_args()
 
     if args.list:
@@ -267,6 +323,19 @@ def main():
     else:
         parser.print_help()
         return 1
+
+    if args.remove:
+        print("Taking the dome out, keeping the lighting fix:\n")
+        results = [remove_from(path) for path in chosen]
+        print()
+        if "failed" in results:
+            print("At least one world failed. Nothing of it was kept.")
+            return 1
+        print("%d changed, %d left alone."
+              % (sum(1 for r in results if r == "done"),
+                 sum(1 for r in results if r == "same")))
+        print("\nRun tools/install_worlds.py, then restart PX4 and Gazebo.")
+        return 0
 
     if args.revert:
         print("Putting worlds back:\n")
