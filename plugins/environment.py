@@ -140,6 +140,14 @@ def select_environment(environment=DEFAULT_KEY):
     # to the old world - the wind control's on/off light, for one - must
     # forget it.
     sim_target.world_changed()
+    # The aircraft in the new world is freshly spawned, so it is wearing
+    # the colour from its model file rather than the one chosen in the
+    # console. Put the choice back on.
+    try:
+        import aircraft_livery
+        aircraft_livery.reapply()
+    except Exception:                       # a colour must never fail a
+        pass                                # world switch
     try:
         video_feed.resubscribe()
     except Exception as exc:                      # a camera that fails to

@@ -195,6 +195,23 @@ def on_armed_change(callback):
     _beacon_follows_armed = callback
 
 
+# Set by the station to aircraft_lights.set_gps. Same hook-not-import
+# reason as the beacon above: this module has to run where the Gazebo
+# bindings are not installed.
+_tail_follows_gps = None
+
+# How many satellites count as having a fix. PX4 will not hold position on
+# fewer, and the GPS dropout proxy the gps_failure plugin starts takes the
+# count down - so this is the figure the aircraft itself reports, not the
+# state of the instructor's switch. A real loss from any cause shows.
+GPS_FIX_SATELLITES = 6
+
+
+def on_gps_change(callback):
+    global _tail_follows_gps
+    _tail_follows_gps = callback
+
+
 # Link health, for the "how fresh is this data" readout (CAP722B 5.2(d)).
 # `last_msg_t` is a time.monotonic() stamp updated every time ANY MAVLink
 # message is processed; the instructor station turns it into an age.
@@ -793,6 +810,9 @@ def _read_one_message():
                 round(float(msg.throttle), 1) if math.isfinite(msg.throttle) else 0.0)
         elif t == "GPS_RAW_INT":
             telemetry["satellites"] = msg.satellites_visible
+            if _tail_follows_gps is not None:
+                _tail_follows_gps(
+                    msg.satellites_visible >= GPS_FIX_SATELLITES)
         elif t == "BATTERY_STATUS":
             if msg.battery_remaining >= 0:
                 telemetry["battery_pct"] = msg.battery_remaining

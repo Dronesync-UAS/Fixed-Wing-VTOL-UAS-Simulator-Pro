@@ -56,6 +56,7 @@ the chase camera already took. The file is backed up first, the result is
 parsed as XML, and anything that fails to parse is restored automatically.
 """
 import os
+import re
 import shutil
 import sys
 import xml.etree.ElementTree as ET
@@ -72,13 +73,21 @@ LINK = "base_link"
 # name, colour, where it sits on the airframe, and what it is for.
 # The wing half-span is taken from the standard_vtol model's own wing
 # geometry (the wing runs to about 1.07 m either side of the centreline).
+# NO WING LIGHTS. There were red and green wingtip navigation lights here
+# until 13 Oct 2026. They were removed on instruction, and the reference
+# photographs of the DeltaQuad show none. They were also doing visible
+# harm: with a 40 m range and almost no attenuation they threw large red
+# and green pools onto the ground in broad daylight, which is not what a
+# navigation light does.
 LIGHTS = [
-    ("nav_port", (0.9, 0.05, 0.05), (0.0, 1.05, 0.05),
-     "port (left) wingtip - RED"),
-    ("nav_starboard", (0.05, 0.9, 0.15), (0.0, -1.05, 0.05),
-     "starboard (right) wingtip - GREEN"),
-    ("nav_tail", (0.9, 0.9, 0.85), (-0.55, 0.0, 0.10),
-     "tail, facing aft - WHITE"),
+    # THE TAIL LIGHT IS THE GPS INDICATOR, not a position light. Green
+    # flashing means the aircraft is on and has GPS; red flashing means
+    # GPS has been lost. The colour is changed while it runs - see
+    # aircraft_lights.set_gps - so the figure here is only what it starts
+    # at. Green, because an aircraft that has just started and has a fix
+    # is the normal case.
+    ("nav_tail", (0.05, 0.9, 0.15), (-0.55, 0.0, 0.10),
+     "tail, facing aft - GPS status, GREEN with a fix / RED without"),
     ("strobe_top", (1.0, 1.0, 1.0), (0.0, 0.0, 0.22),
      "spine anti-collision - WHITE"),
     ("strobe_belly", (1.0, 1.0, 1.0), (0.0, 0.0, -0.14),
@@ -88,6 +97,11 @@ LIGHTS = [
     ("beacon_top", (0.95, 0.08, 0.05), (0.12, 0.0, 0.24),
      "beacon, flashes while armed - RED"),
 ]
+
+# Lights this tool used to write and no longer does. Named explicitly
+# rather than "anything not in LIGHTS", so a light another tool added can
+# never be deleted by this one.
+OBSOLETE = ("nav_port", "nav_starboard")
 
 LIGHT_BLOCK = """\
 {i}<light name="{name}" type="point">
@@ -103,6 +117,26 @@ LIGHT_BLOCK = """\
 {i}  <cast_shadows>false</cast_shadows>
 {i}</light>
 """
+
+
+def write_out(text, what):
+    """Back up, write, and put the backup back if the result will not parse.
+    Shared by the add path and the removal-only path."""
+    backup = MODEL + SUFFIX
+    if not os.path.exists(backup):
+        shutil.copy2(MODEL, backup)
+    with open(MODEL, "w") as handle:
+        handle.write(text)
+    try:
+        ET.parse(MODEL)
+    except ET.ParseError as exc:
+        shutil.copy2(backup, MODEL)
+        print("FAILED: the edit broke the XML (%s) - restored from backup."
+              % exc, file=sys.stderr)
+        return 1
+    print("OK    %s in %s" % (what, MODEL))
+    print("      backup at %s" % os.path.basename(backup))
+    return 0
 
 
 def find_link_end(lines):
@@ -151,15 +185,67 @@ def apply(dry_run):
     # "already has its lights" and the beacon could never arrive. A tool
     # that gains a part must be able to add that part to a model it has
     # already edited.
+    # Take out the lights this tool no longer writes, before working out
+    # what is missing. Without this a model edited by an older version
+    # keeps them for ever: the tool only ever added.
+    removed = []
+    for name in OBSOLETE:
+        pattern = re.compile(
+            r'[ \t]*<light name="%s"[^>]*>.*?</light>\n' % re.escape(name),
+            re.S)
+        joined, count = pattern.subn("", joined)
+        if count:
+            removed.append(name)
+    if removed:
+        lines = joined.splitlines(keepends=True)
+        print("Removing %s - no longer part of the aircraft.\n"
+              % ", ".join(removed))
+
+    # Bring lights that ARE there into line with the table. The tool only
+    # ever added, so a light whose job changed kept its old colour: when
+    # the tail light became the GPS indicator on 13 Oct 2026 the table
+    # said green and the model still said white.
+    recoloured = []
+    for name, (r, g, b), _, _ in LIGHTS:
+        want = "<diffuse>%s %s %s 1</diffuse>" % (r, g, b)
+        block = re.search(
+            r'<light name="%s"[^>]*>.*?</light>' % re.escape(name), joined, re.S)
+        if not block or want in block.group(0):
+            continue
+        fixed = re.sub(r"<(diffuse|specular)>[^<]*</\1>",
+                       lambda m: "<%s>%s %s %s 1</%s>" % (m.group(1), r, g, b,
+                                                          m.group(1)),
+                       block.group(0))
+        joined = joined.replace(block.group(0), fixed, 1)
+        recoloured.append(name)
+    if recoloured:
+        lines = joined.splitlines(keepends=True)
+        print("Recolouring %s to match the table.\n" % ", ".join(recoloured))
+
     missing = [light for light in LIGHTS
                if 'name="%s"' % light[0] not in joined]
-    if not missing:
+    if not missing and not removed and not recoloured:
         print("SKIP  the aircraft already has all %d lights." % len(LIGHTS))
         return 0
-    if len(missing) < len(LIGHTS):
+    if missing and len(missing) < len(LIGHTS):
         print("The aircraft has %d of %d lights. Adding the rest: %s\n"
               % (len(LIGHTS) - len(missing), len(LIGHTS),
                  ", ".join(light[0] for light in missing)))
+
+    # Nothing to ADD, but something was taken out: write the removal and
+    # stop. Falling through would try to insert an empty block, which the
+    # first version of this did - it offered to "insert 4 lines" of
+    # nothing.
+    if not missing:
+        did = ([("removed " + ", ".join(removed))] if removed else []) \
+            + ([("recoloured " + ", ".join(recoloured))] if recoloured else [])
+        if dry_run:
+            print("WOULD EDIT %s" % MODEL)
+            for line in did:
+                print("  %s" % line)
+            print("\nDry run - nothing written.")
+            return 0
+        return write_out(joined, "; ".join(did))
 
     close, problem = find_link_end(lines)
     if close is None:
@@ -185,22 +271,10 @@ def apply(dry_run):
         print("\nDry run - nothing written.")
         return 0
 
-    backup = MODEL + SUFFIX
-    if not os.path.exists(backup):
-        shutil.copy2(MODEL, backup)
-    with open(MODEL, "w") as handle:
-        handle.writelines(lines[:close] + [block] + lines[close:])
-
-    try:
-        ET.parse(MODEL)
-    except ET.ParseError as exc:
-        shutil.copy2(backup, MODEL)
-        print("FAILED: the edit broke the XML (%s) - restored from backup."
-              % exc, file=sys.stderr)
+    if write_out("".join(lines[:close] + [block] + lines[close:]),
+                 "lights added") != 0:
         return 1
-
-    print("OK    aircraft lights added to %s" % MODEL)
-    print("      backup at %s" % os.path.basename(backup))
+    # write_out already reports what it did and where the backup is.
     print("""
 Next:
 

@@ -142,20 +142,25 @@ importlib.util.spec_from_file_location(
     os.path.join(REPO, "tools", "aircraft_lights_apply.py")).loader.exec_module(lights)
 
 by_name = {name: (colour, where) for name, colour, where, _ in lights.LIGHTS}
-port_colour, port_where = by_name["nav_port"]
-star_colour, star_where = by_name["nav_starboard"]
 
-# The one thing worth a test of its own: a student taught these the wrong
-# way round will be marked wrong, and they are easy to swap by accident.
-check("port is RED (%s)" % (port_colour,),
-      port_colour[0] > 0.5 and port_colour[1] < 0.2)
-check("starboard is GREEN (%s)" % (star_colour,),
-      star_colour[1] > 0.5 and star_colour[0] < 0.2)
-check("port is on the LEFT, +y in the aircraft's own axes (%s)" % (port_where,),
-      port_where[1] > 0)
-check("starboard is on the RIGHT (%s)" % (star_where,), star_where[1] < 0)
-check("the tail light is white and behind (%s)" % (by_name["nav_tail"],),
-      by_name["nav_tail"][1][0] < 0 and min(by_name["nav_tail"][0]) > 0.8)
+# NO WING LIGHTS, from 13 Oct 2026. Removed on instruction - the reference
+# photographs show none, and at 40 m range they threw coloured pools on
+# the ground in daylight. The tool must also TAKE THEM OUT of a model that
+# already has them, which it could not do when it only ever added.
+check("there are no wingtip navigation lights (%s)"
+      % ", ".join(sorted(by_name)),
+      "nav_port" not in by_name and "nav_starboard" not in by_name)
+check("and the tool knows to remove them from a model that has them",
+      set(lights.OBSOLETE) == {"nav_port", "nav_starboard"})
+
+# THE TAIL LIGHT IS THE GPS INDICATOR. Green with a fix, red without, and
+# it FLASHES - the colour is the message, so a student watching the
+# aircraft sees the gps_failure injection on the airframe.
+tail_colour, tail_where = by_name["nav_tail"]
+check("the tail light is behind the aircraft (%s)" % (tail_where,),
+      tail_where[0] < 0)
+check("and starts GREEN, the has-a-fix colour (%s)" % (tail_colour,),
+      tail_colour[1] > 0.5 and tail_colour[0] < 0.2)
 check("one strobe above and one below (%s, %s)"
       % (by_name["strobe_top"][1][2], by_name["strobe_belly"][1][2]),
       by_name["strobe_top"][1][2] > 0 and by_name["strobe_belly"][1][2] < 0)
@@ -174,7 +179,10 @@ spec.loader.exec_module(al)
 # Record every switch instead of publishing it.
 log = []
 clock = {"t": 0.0}
-al.set_light = lambda name, on: log.append((round(clock["t"], 3), name, on)) or True
+# The colour is logged too: the GPS light's colour IS its message,
+# so a test that only recorded on/off would pass with it stuck green.
+al.set_light = (lambda name, on, rgb=None:
+                log.append((round(clock["t"], 3), name, on, rgb)) or True)
 al._sleep_until = lambda moment: clock.__setitem__("t", max(clock["t"], moment))
 import time as _time                                              # noqa: E402
 al.time = type("t", (), {"monotonic": lambda: clock["t"], "sleep": lambda *_: None})
@@ -202,15 +210,33 @@ def one_cycle():
         al._sleep_until(start + al.BEACON_FLASH[0] + al.BEACON_FLASH[1])
         for name in al.BEACON:
             al.set_light(name, False)
+    # The GPS flash comes last in the cycle - see the note on GPS_FLASH.
+    al._sleep_until(start + al.GPS_FLASH[0])
+    al.set_light(al.GPS_LIGHT, True,
+                 al.GPS_GREEN if al._state["gps"] else al.GPS_RED)
+    al._sleep_until(start + al.GPS_FLASH[0] + al.GPS_FLASH[1])
+    al.set_light(al.GPS_LIGHT, False)
     al._sleep_until(start + al.CYCLE_S)
     return list(log)
 
 
 events = one_cycle()
-nav = [e for e in events if e[1] in al.NAVIGATION]
-check("the navigation lights are only ever switched ON (%s events)" % len(nav),
-      nav and all(e[2] for e in nav))
-check("every navigation light is lit", len({e[1] for e in nav}) == 3)
+
+# The GPS light flashes - on AND off in a cycle - which is what separates
+# it from the steady position lights it replaced.
+gps = [e for e in events if e[1] == al.GPS_LIGHT]
+check("the GPS light flashes rather than sitting on (%d events)" % len(gps),
+      any(e[2] for e in gps) and any(not e[2] for e in gps))
+
+al._state["gps"] = True
+green = [e for e in one_cycle() if e[1] == al.GPS_LIGHT and e[2]]
+al._state["gps"] = False
+red = [e for e in one_cycle() if e[1] == al.GPS_LIGHT and e[2]]
+al._state["gps"] = True
+check("with a fix it is sent GREEN (%s)" % (green[0][3] if green else None,),
+      green and green[0][3] == al.GPS_GREEN)
+check("and with GPS lost it is sent RED (%s)" % (red[0][3] if red else None,),
+      red and red[0][3] == al.GPS_RED)
 
 strobe_on = [e[0] for e in events if e[1] == "strobe_top" and e[2]]
 check("the strobes DOUBLE-flash (%s flashes a second)" % len(strobe_on),

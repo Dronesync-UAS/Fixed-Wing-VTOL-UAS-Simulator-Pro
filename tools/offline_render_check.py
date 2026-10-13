@@ -47,6 +47,9 @@ sl.send_command_and_wait = lambda *a, **k: (0, "accepted")
 sl.status_log = []
 sl.home_amsl = lambda: 1200.0
 sl.on_armed_change = lambda cb: None
+# The tail light follows the GPS fix - see aircraft_lights.set_gps.
+sl.on_gps_change = lambda cb: None
+sl.GPS_FIX_SATELLITES = 6
 sl.on_failure = lambda cb: None
 sl.failure_injection_blocked = lambda: None
 sl.read_param = lambda *a, **k: 1.0
@@ -70,12 +73,16 @@ sl.set_mode = lambda m, s=0, name=None: f"{name or 'mode'}: accepted by PX4."
 sys.modules["simulator_link"] = sl
 al = types.ModuleType("aircraft_lights")
 al.set_armed = lambda *a, **k: None
+al.set_gps = lambda *a, **k: None
 al.set_on = lambda on: None
 al.status = lambda: {"on": False, "armed": False, "problem": None}
-al.NAVIGATION = ["nav_port", "nav_starboard", "nav_tail"]
+# No wingtip lights from 13 Oct 2026, and the tail light is the GPS
+# indicator rather than a position light.
+al.NAVIGATION = []
+al.GPS_LIGHT = "nav_tail"
 al.STROBES = ["strobe_top", "strobe_belly"]
 al.BEACON = ["beacon_top"]
-al.ALL = al.NAVIGATION + al.STROBES + al.BEACON
+al.ALL = al.NAVIGATION + [al.GPS_LIGHT] + al.STROBES + al.BEACON
 sys.modules["aircraft_lights"] = al
 
 # --- stub event_logger so this check never writes to the real compliance CSV ---
