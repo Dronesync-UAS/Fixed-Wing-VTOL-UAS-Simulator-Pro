@@ -38,6 +38,7 @@ from video_feed import start_video_capture, mjpeg_generator, camera_fps, FEEDS
 import console_page
 import console_qgc
 import attitude_gauge
+import tile_map
 import event_logger
 import aircraft_lights
 import aircraft_livery
@@ -50,6 +51,7 @@ import preflight
 import range_profile
 import sim_target
 import terrain_backdrop
+import map_tiles
 
 PORT = 8080
 
@@ -1154,7 +1156,11 @@ def render_pro():
                         + _limits_script()
                         + flight_display.STYLE + flight_display.script()
                         + motor_sound.STYLE + motor_sound.script()
-                        + attitude_gauge.script())
+                        + attitude_gauge.script()
+                        # Tiles, and the flag that turns them on. Only this
+                        # page: the classic console keeps its single image.
+                        + "<script>window.gcsTileMap = true;</script>\n"
+                        + tile_map.script())
     return page
 
 
@@ -1757,7 +1763,19 @@ EXTRA_SCRIPT = """
         oy = H / 2 + my[my.length - 1] * scale;
       }
 
-      if (terrainImg && terrainInfo && terrainInfo.available) {
+      // TILES FIRST, if this page asked for them. The QGC-shaped console
+      // sets window.gcsTileMap and gets the same Google Hybrid tiles QGC
+      // shows, per zoom level; the classic console does not and keeps the
+      // single fetched image, unchanged. Falls back to that image if no
+      // tile has been cached for this area.
+      var drewTiles = false;
+      if (window.gcsDrawTiles) {
+        drewTiles = window.gcsDrawTiles(fctx, W, H, ox, oy, scale,
+                                        home ? home.lat : null,
+                                        home ? home.lon : null,
+                                        function () { drawPath(); });
+      }
+      if (!drewTiles && terrainImg && terrainInfo && terrainInfo.available) {
         // The backdrop is positioned in the same metres-from-home axes the
         // track uses, so it stays registered to the track at every zoom.
         var bx = ox + terrainInfo.east_min * scale;
@@ -2387,6 +2405,60 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     answer["message"] += " " + write_prefs({"livery": scheme})
                 event_logger.log_event("livery", "scheme=%s" % scheme)
             answer["locked"] = read_prefs()["livery"]
+            self.send_response(200)
+            self.send_header("Content-type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps(answer).encode("utf-8"))
+        elif self.path.startswith("/tile/"):
+            # /tile/<z>/<x>/<y> - one 256 px tile out of QGroundControl's
+            # own cache. See map_tiles.py for why it reads QGC's rather
+            # than fetching its own.
+            parts = urlparse(self.path).path.strip("/").split("/")
+            query = parse_qs(urlparse(self.path).query)
+            try:
+                z, x, y = int(parts[1]), int(parts[2]), int(parts[3])
+                provider = int((query.get("p") or [map_tiles.DEFAULT_PROVIDER])[0])
+            except (IndexError, ValueError):
+                self.send_response(400)
+                self.end_headers()
+                return
+            blob = map_tiles.tile(z, x, y, provider)
+            if blob is None:
+                # 404 rather than a blank tile: the page counts misses so it
+                # can say the area has not been downloaded in QGC yet.
+                self.send_response(404)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header("Content-type", "image/jpeg")
+            self.send_header("Content-Length", str(len(blob)))
+            # A map tile for a given z/x/y never changes.
+            self.send_header("Cache-Control", "max-age=86400")
+            self.end_headers()
+            self.wfile.write(blob)
+        elif self.path.startswith("/tile_info"):
+            answer = map_tiles.available()
+            info = terrain_backdrop.info()
+            answer["world"] = info.get("world")
+            # Coverage at the training area's own centre, so the console can
+            # say plainly that this area has no imagery yet.
+            paths = sim_target.BY_WORLD.get(sim_target.WORLD)
+            try:
+                import json as _json
+                meta = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                    "sim", "worlds", "satellite",
+                                    "%s.json" % sim_target.WORLD)
+                with open(meta) as handle:
+                    centre = _json.load(handle)
+                answer["centre"] = {"lat": centre["centre_lat"],
+                                    "lon": centre["centre_lon"]}
+                answer["coverage"] = {
+                    str(z): round(map_tiles.coverage(
+                        centre["centre_lat"], centre["centre_lon"], z), 2)
+                    for z in (15, 16, 17, 18)}
+            except (OSError, ValueError, KeyError):
+                answer["centre"] = None
             self.send_response(200)
             self.send_header("Content-type", "application/json; charset=utf-8")
             self.end_headers()

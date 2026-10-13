@@ -66,18 +66,54 @@ TEMPLATE = """<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>UAV Academy GCS Pro</title>
 <style>
-  /* QGC's palette, sampled from the screenshot: near-black translucent
-     panels over the map, white text, one accent green for "good" and one
-     red for "stop". Nothing else is coloured. */
+  /* QGC'S OWN PALETTE AND UNITS, taken from its source at v5.1.5 rather
+     than sampled off a screenshot.
+
+     Colours: src/QmlControls/QGCPalette.cc. The macro is
+     DECLARE_QGC_COLOR(name, lightDisabled, lightEnabled, darkDisabled,
+     darkEnabled), so the FOURTH value is the one a dark-themed QGC uses.
+
+     Sizes: everything in QGC derives from two numbers, which it works out
+     from the platform font - defaultFontPixelHeight and
+     defaultFontPixelWidth. Measured on this machine's QGC, maximised at
+     1854x1011:
+
+       the toolbar is 66 px, and ScreenTools says toolbarHeight =
+       defaultFontPixelHeight * 3            -> fh = 22
+       the tool strip is 56 px, and ToolStrip.qml says width =
+       defaultFontPixelWidth * 7             -> fw = 8
+
+     Those two cross-check: _toolsMargin is defaultFontPixelWidth * 0.75 =
+     6 px, and the tool strip's left edge measures 6 px. Everything below
+     is expressed in them, as QGC does, so changing the pair rescales the
+     console the way changing QGC's font scale rescales QGC. */
   :root {
-    --panel: rgba(16, 18, 22, 0.78);
-    --panel-solid: #14181f;
-    --edge: rgba(255, 255, 255, 0.13);
+    --fw: 8px;                      /* defaultFontPixelWidth  */
+    --fh: 22px;                     /* defaultFontPixelHeight */
+    --margin: 6px;                  /* fw * 0.75              */
+    --radius: 4px;                  /* fw / 2                 */
+    --toolbar: 66px;                /* fh * 3                 */
+    --strip: 56px;                  /* fw * 7                 */
+
+    --window: #222222;
+    --window-transparent: rgba(34, 34, 34, 0.80);   /* #cc222222 */
+    --window-shade: #333333;
+    --window-shade-dark: #282828;
+    --window-shade-light: #626262;
     --ink: #ffffff;
-    --dim: #9aa6b8;
-    --good: #35c759;
-    --warn: #ffb020;
-    --stop: #e2473f;
+    --dim: #bfbfbf;                 /* colorGrey */
+    --button: #626270;
+    --button-border: #adadb8;
+    --button-highlight: #3A9BDC;
+    --good: #00e04b;                /* colorGreen  */
+    --warn: #de8500;                /* colorOrange */
+    --stop: #f32836;                /* colorRed    */
+    --warning-text: #f85761;
+
+    /* kept so the rest of the sheet reads unchanged */
+    --panel: var(--window-transparent);
+    --panel-solid: var(--window);
+    --edge: rgba(255, 255, 255, 0.13);
   }
   * { box-sizing: border-box; }
   html, body {
@@ -121,10 +157,15 @@ TEMPLATE = """<!DOCTYPE html>
   }
 
   /* ---------- top bar ---------- */
+  /* QGC's toolbar is a SOLID band of the window colour, full width, 3 font
+     heights tall - not a gradient fading into the map. Measured: rows 0-65
+     of a 1011 px window are flat #222222-ish with a variance of 11, and the
+     map below jumps to 29. */
   #top {
-    position: absolute; top: 0; left: 0; right: 0; height: 56px; z-index: 40;
-    display: flex; align-items: center; gap: 18px; padding: 0 14px;
-    background: linear-gradient(rgba(10,12,16,0.85), rgba(10,12,16,0.0));
+    position: absolute; top: 0; left: 0; right: 0; height: var(--toolbar);
+    z-index: 40; display: flex; align-items: center;
+    gap: calc(var(--fw) * 2); padding: 0 var(--margin);
+    background: var(--window);
   }
   #brand {
     width: 40px; height: 40px; border-radius: 50%; border: 0; cursor: pointer;
@@ -147,13 +188,19 @@ TEMPLATE = """<!DOCTYPE html>
                stroke-width: 1.7; stroke-linecap: round; }
 
   /* ---------- the two edge strips ---------- */
+  /* ToolStrip.qml: radius fw/2, inner margins fw*0.4, spacing fw*0.25. */
   .strip {
     position: absolute; z-index: 35; display: flex; flex-direction: column;
-    gap: 2px; padding: 6px; border-radius: 12px; background: var(--panel);
+    gap: calc(var(--fw) * 0.25); padding: calc(var(--fw) * 0.4);
+    border-radius: var(--radius); background: var(--panel);
     border: 1px solid var(--edge); backdrop-filter: blur(6px);
   }
-  #tools { left: 10px; top: 68px; width: 72px; }
-  #cams  { right: 10px; top: 68px; width: 72px; }
+  /* Tool strips: width is fw*7 and they sit _toolsMargin from the edge and
+     from the toolbar, as FlyViewWidgetLayer.qml anchors them. */
+  #tools { left: var(--margin); top: calc(var(--toolbar) + var(--margin));
+           width: var(--strip); }
+  #cams  { right: var(--margin); top: calc(var(--toolbar) + var(--margin));
+           width: var(--strip); }
   .strip button {
     width: 100%; border: 0; background: none; color: var(--ink);
     padding: 8px 2px 6px; border-radius: 9px; cursor: pointer;
@@ -171,10 +218,16 @@ TEMPLATE = """<!DOCTYPE html>
   .strip .rule { height: 1px; background: var(--edge); margin: 4px 2px; }
 
   /* ---------- telemetry, bottom centre ---------- */
+  #bottomright {
+    position: absolute; right: var(--margin); bottom: var(--margin);
+    z-index: 25; display: flex; align-items: flex-end;
+    gap: var(--margin);
+  }
   #telem {
-    position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
-    z-index: 25; display: grid; grid-template-columns: repeat(4, auto);
-    gap: 4px 22px; padding: 10px 18px; border-radius: 12px;
+    display: grid; grid-template-columns: repeat(4, auto);
+    gap: calc(var(--fw) * 0.25) calc(var(--fw) * 2.5);
+    padding: calc(var(--fw) * 0.75) calc(var(--fw) * 1.5);
+    border-radius: var(--radius);
     background: var(--panel); border: 1px solid var(--edge);
     backdrop-filter: blur(6px); font-variant-numeric: tabular-nums;
   }
@@ -185,15 +238,15 @@ TEMPLATE = """<!DOCTYPE html>
 
   /* ---------- compass, bottom right ---------- */
   #gyrobox {
-    position: absolute; right: 158px; bottom: 14px; z-index: 25;
-    width: 132px; height: 132px; border-radius: 50%; overflow: hidden;
+    width: calc(var(--fh) * 6); height: calc(var(--fh) * 6);
+    border-radius: 50%; overflow: hidden; flex: 0 0 auto;
     background: var(--panel); border: 1px solid var(--edge);
     backdrop-filter: blur(6px);
   }
   #gyrobox canvas { width: 100%; height: 100%; display: block; }
   #rose {
-    position: absolute; right: 14px; bottom: 14px; z-index: 25;
-    width: 132px; height: 132px; border-radius: 50%;
+    width: calc(var(--fh) * 6); height: calc(var(--fh) * 6);
+    border-radius: 50%; flex: 0 0 auto;
     background: var(--panel); border: 1px solid var(--edge);
     backdrop-filter: blur(6px);
   }
@@ -209,8 +262,11 @@ TEMPLATE = """<!DOCTYPE html>
     display: flex; flex-direction: column;
   }
   #drawer.open { transform: none; }
+  /* Clear of the camera strip above it. Both live on the right edge, and
+     at QGC's tool-strip width the tab was sitting on top of the strip and
+     clipping its labels. */
   #drawer-tab {
-    position: absolute; right: 100%; top: 96px; z-index: 61;
+    position: absolute; right: 100%; top: 46%; z-index: 61;
     writing-mode: vertical-rl; text-orientation: mixed;
     padding: 14px 7px; border: 1px solid var(--edge); border-right: 0;
     border-radius: 9px 0 0 9px; background: var(--panel-solid);
@@ -294,6 +350,94 @@ TEMPLATE = """<!DOCTYPE html>
           gap: 14px; padding: 7px 0; }
   .srow .lbl { font-size: 13px; }
   .note { font-size: 11px; color: var(--dim); line-height: 1.45; margin: 6px 0 14px; }
+
+  /* ---------- top-bar buttons, checklist, log, exit ---------- */
+  .topbtn {
+    height: calc(var(--fh) * 1.6); padding: 0 calc(var(--fw) * 1.25);
+    border-radius: var(--radius); cursor: pointer; font-size: 13px;
+    border: 1px solid var(--button-border); background: var(--button);
+    color: var(--ink); display: flex; align-items: center;
+  }
+  .topbtn:hover { background: var(--button-highlight); }
+  .topbtn.close { padding: 0 calc(var(--fw) * 0.75); }
+  .topbtn.close svg { width: 18px; height: 18px; }
+  .topbtn.close:hover { background: var(--stop); border-color: var(--stop); }
+
+  /* A sheet is a panel over the map: the checklist and the flight log.
+     Not draggable on purpose - QGC's checklist is a popup too, and a
+     panel an instructor has to find again mid-lesson is worse than one
+     that always opens in the same place. */
+  .sheet {
+    position: absolute; z-index: 70; display: none; flex-direction: column;
+    left: calc(var(--strip) + var(--margin) * 3);
+    top: calc(var(--toolbar) + var(--margin));
+    width: calc(var(--fw) * 54); max-height: 70vh;
+    background: var(--window); border: 1px solid var(--edge);
+    border-radius: var(--radius);
+    box-shadow: 0 24px 64px rgba(0,0,0,0.7);
+  }
+  .sheet.open { display: flex; }
+  .sheethead {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: calc(var(--fw) * 1.25); border-bottom: 1px solid var(--edge);
+    font-weight: 600;
+  }
+  .sheetbody { padding: calc(var(--fw) * 1.25); overflow-y: auto; }
+  .sheetfoot {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: var(--fw); margin-top: var(--fh);
+  }
+  .sheetfoot button {
+    height: calc(var(--fh) * 1.6); padding: 0 calc(var(--fw) * 1.5);
+    border-radius: var(--radius); cursor: pointer; font-size: 13px;
+    border: 1px solid var(--button-border); background: var(--button);
+    color: var(--ink);
+  }
+  .pf-item {
+    display: flex; align-items: center; gap: var(--fw);
+    padding: calc(var(--fw) * 0.6) 0; font-size: 13px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .pf-item .pf-label { flex: 1 1 auto; }
+  .pf-item .pf-detail { color: var(--dim); font-size: 11px; text-align: right; }
+  .pf-item .mark {
+    width: 14px; height: 14px; border-radius: 3px; flex: 0 0 auto;
+    border: 1px solid var(--button-border);
+  }
+  .pf-item.ok .mark { background: var(--good); border-color: var(--good); }
+  .pf-item.manual { cursor: pointer; }
+  .pf-item.auto .mark { border-radius: 50%; }
+  .logrow {
+    display: flex; justify-content: space-between; gap: var(--fw);
+    padding: calc(var(--fw) * 0.5) 0; font-size: 13px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+
+  /* ---------- "do you want to exit?" ---------- */
+  .askback {
+    position: absolute; inset: 0; z-index: 200; display: none;
+    align-items: center; justify-content: center;
+    background: rgba(6,9,14,0.62); backdrop-filter: blur(2px);
+  }
+  .askback.open { display: flex; }
+  .askcard {
+    width: calc(var(--fw) * 42); max-width: calc(100vw - 32px);
+    padding: calc(var(--fh)) calc(var(--fw) * 2.5) calc(var(--fh) * 0.8);
+    border-radius: var(--radius); background: var(--window);
+    border: 1px solid var(--edge);
+    box-shadow: 0 30px 80px rgba(0,0,0,0.75); text-align: center;
+  }
+  .asktitle { font-size: 17px; font-weight: 600; color: var(--ink); }
+  .asknote { margin-top: 8px; font-size: 12px; color: var(--dim); line-height: 1.45; }
+  .askrow { margin-top: 18px; display: flex; gap: 10px; justify-content: center; }
+  .askrow button {
+    min-width: calc(var(--fw) * 11); height: calc(var(--fh) * 1.6);
+    border-radius: var(--radius); cursor: pointer; font-size: 13px;
+    font-weight: 600; border: 1px solid var(--edge);
+  }
+  .askno { background: var(--button); color: var(--ink); }
+  .askyes { background: var(--stop); color: #fff; border-color: var(--stop); }
+  .askcard.going .askrow { display: none; }
 
   /* ---------- messages ---------- */
   #say {
@@ -383,6 +527,50 @@ __EXTRA_STYLE__
     <span class="big" id="g-link">-</span>
   </span>
   <span class="gauge" id="t-health" style="display:none"></span>
+
+  <!-- The instructor's own top-bar buttons. QGC has no equivalent for the
+       first two; the X is where every application keeps close. -->
+  <button class="topbtn" id="open-checklist" title="Pre-flight checklist">Checklist</button>
+  <button class="topbtn" id="open-log" title="Flight log">Log</button>
+  <button class="topbtn close" id="exit-open" title="Exit the GCS" aria-label="Exit">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+         stroke-linecap="round" aria-hidden="true">
+      <path d="M6 6l12 12M18 6L6 18"></path>
+    </svg>
+  </button>
+</div>
+
+<!-- Do you want to exit? Same contract as the other console: No is the
+     default in every sense, and only the Yes button sends anything. -->
+<div id="exit-ask" class="askback" role="dialog" aria-modal="true">
+  <div class="askcard">
+    <div class="asktitle" id="exit-title">Do you want to exit?</div>
+    <div class="asknote">This stops the simulator and the instructor
+      station. Any exercise in progress ends.</div>
+    <div class="askrow">
+      <button class="askno" id="exit-no">No</button>
+      <button class="askyes" id="exit-yes">Yes</button>
+    </div>
+  </div>
+</div>
+
+<!-- The checklist and the flight log, as panels over the map. -->
+<div class="sheet" id="sheet-checklist">
+  <div class="sheethead"><span>Pre-flight checklist</span>
+    <button class="dclose" data-sheet="checklist">&times;</button></div>
+  <div class="sheetbody">
+    <div id="pf-items"></div>
+    <div class="sheetfoot">
+      <span id="pf-summary" class="note"></span>
+      <button id="pf-complete">Start the exercise</button>
+    </div>
+  </div>
+</div>
+
+<div class="sheet" id="sheet-log">
+  <div class="sheethead"><span>Flight log</span>
+    <button class="dclose" data-sheet="log">&times;</button></div>
+  <div class="sheetbody"><div id="log-body"></div></div>
 </div>
 
 <div id="say"></div>
@@ -454,6 +642,13 @@ __EXTRA_STYLE__
   <button id="gb-centre">Centre</button>
 </div>
 
+<!-- BOTTOM RIGHT, AS ONE ROW. FlyViewBottomRightRowLayout.qml puts the
+     TelemetryValuesBar and the FlyViewInstrumentPanel side by side,
+     anchored bottom-right - not telemetry in the centre with the compass
+     off on its own, which is what this had before the layout was read
+     from QGC's source. The attitude gauge is ours, and sits between them
+     because attitude and heading are read together. -->
+<div id="bottomright">
 <div id="telem">
   <div class="cell"><span class="k">ALT</span><span class="v" id="t-alt">0.0</span><span class="u">m</span></div>
   <div class="cell"><span class="k">GS</span><span class="v" id="t-gs">0.0</span><span class="u">m/s</span></div>
@@ -471,6 +666,7 @@ __EXTRA_STYLE__
      draws, not a second copy. -->
 <div id="gyrobox"><canvas id="gyro" width="184" height="184"></canvas></div>
 <div id="rose"><canvas id="rose-c" width="264" height="264"></canvas></div>
+</div>
 
 <div id="limit-banner"></div>
 
@@ -708,7 +904,13 @@ SCRIPT = """
   });
   document.addEventListener('keydown', function (e) {
     if (e.key !== 'Escape') { return; }
+    // In the order they sit on top of each other, and one per press: a
+    // single Escape that shut the dialog AND the panels behind it would
+    // leave the console rearranged without the instructor asking.
+    if (el('exit-ask').classList.contains('open')) { askExit(false); return; }
     if (el('setback').classList.contains('open')) { settings(false); return; }
+    var openSheet = document.querySelector('.sheet.open');
+    if (openSheet) { openSheet.classList.remove('open'); return; }
     if (el('drawer').classList.contains('open')) { drawer(false); }
   });
 
@@ -716,6 +918,125 @@ SCRIPT = """
     fetch('/view_mode?mode=' + el('viewmode').value)
       .then(function (r) { return r.text(); })
       .then(function (t) { say(t); }).catch(function () {});
+  });
+
+  // ---------- the checklist and the flight log ----------
+  function sheet(name, open) {
+    document.querySelectorAll('.sheet').forEach(function (el2) {
+      el2.classList.remove('open');
+    });
+    if (open) { el('sheet-' + name).classList.add('open'); }
+  }
+  document.addEventListener('click', function (e) {
+    var close = e.target.closest ? e.target.closest('[data-sheet]') : null;
+    if (close) { sheet(close.dataset.sheet, false); }
+  });
+
+  function drawChecklist(d) {
+    var box = el('pf-items');
+    box.innerHTML = '';
+    // The field names are preflight.state()'s own: key, kind ("auto" or
+    // "manual"), label, ok, detail. ok is null while an automatic item has
+    // nothing to report yet, which is not the same as false.
+    (d.items || []).forEach(function (item) {
+      var row = document.createElement('div');
+      row.className = 'pf-item ' + (item.kind === 'manual' ? 'manual' : 'auto')
+                      + (item.ok ? ' ok' : '');
+      row.dataset.item = item.key;
+      row.innerHTML = '<span class="mark"></span>'
+                    + '<span class="pf-label">' + item.label + '</span>'
+                    + '<span class="pf-detail">' + (item.detail || '') + '</span>';
+      box.appendChild(row);
+    });
+    var left = (d.outstanding || []).length;
+    el('pf-summary').textContent = left
+      ? (left + ' item(s) not green: ' + d.outstanding.join(', '))
+      : 'Every item is green.';
+  }
+  function refreshChecklist() {
+    if (!el('sheet-checklist').classList.contains('open')) { return; }
+    fetch('/preflight').then(function (r) { return r.json(); })
+      .then(drawChecklist).catch(function () {});
+  }
+  el('open-checklist').addEventListener('click', function () {
+    sheet('checklist', true);
+    refreshChecklist();
+  });
+  // A manual item is ticked by clicking it, as on the other console.
+  el('pf-items').addEventListener('click', function (e) {
+    var row = e.target.closest ? e.target.closest('.pf-item.manual') : null;
+    if (!row) { return; }
+    var on = row.classList.contains('ok') ? '0' : '1';
+    fetch('/preflight_tick?item=' + encodeURIComponent(row.dataset.item)
+          + '&on=' + on)
+      .then(function (r) { return r.json(); })
+      .then(drawChecklist).catch(function () {});
+  });
+  el('pf-complete').addEventListener('click', function () {
+    fetch('/preflight_complete').then(function (r) { return r.json(); })
+      .then(function (d) {
+        drawChecklist(d);
+        sheet('checklist', false);
+        say(d.ready
+            ? 'Checklist complete - all items green. Written to the record.'
+            : 'Exercise started with ' + (d.outstanding || []).length
+              + ' item(s) not green. Written to the record.', !d.ready);
+      }).catch(function () { say('The station did not answer.', true); });
+  });
+  setInterval(refreshChecklist, 1000);
+
+  el('open-log').addEventListener('click', function () {
+    sheet('log', true);
+    fetch('/flight_log').then(function (r) { return r.json(); })
+      .then(function (d) {
+        var box = el('log-body');
+        box.innerHTML = '';
+        var now = d.now || {};
+        var head = document.createElement('div');
+        head.className = 'note';
+        head.textContent = now.recording
+          ? 'Recording now.' : 'Not recording.';
+        box.appendChild(head);
+        (d.flights || []).forEach(function (f) {
+          var row = document.createElement('div');
+          row.className = 'logrow';
+          var when = (f.started_utc || '').replace('T', ' ').replace('+00:00', 'Z');
+          row.innerHTML = '<span>' + when + '</span><span>'
+                        + (f.world || '') + '</span>';
+          box.appendChild(row);
+        });
+        if (!(d.flights || []).length) {
+          var none = document.createElement('div');
+          none.className = 'note';
+          none.textContent = 'No flights recorded yet. Folder: ' + (d.folder || '');
+          box.appendChild(none);
+        }
+      }).catch(function () { say('The station did not answer.', true); });
+  });
+
+  // ---------- exit ----------
+  var exitBox = el('exit-ask');
+  function askExit(show) {
+    exitBox.classList.toggle('open', show);
+    if (show) { el('exit-no').focus(); }
+  }
+  el('exit-open').addEventListener('click', function () { askExit(true); });
+  el('exit-no').addEventListener('click', function () { askExit(false); });
+  exitBox.addEventListener('mousedown', function (e) {
+    if (e.target === exitBox) { askExit(false); }
+  });
+  el('exit-yes').addEventListener('click', function () {
+    exitBox.querySelector('.askcard').classList.add('going');
+    el('exit-title').textContent = 'Closing down\u2026';
+    exitBox.querySelector('.asknote').textContent =
+      'Stopping the simulator and the station. This window can be closed.';
+    fetch('/exit', { method: 'POST' }).catch(function () {});
+    setTimeout(function () {
+      el('exit-title').textContent = 'Closed.';
+      exitBox.querySelector('.asknote').textContent =
+        'Start them again with the UAV Academy GCS Pro icon.';
+      try { window.close(); } catch (err) { /* nothing to do */ }
+    }, 2500);
   });
 
   // ---------- the fuselage colour ----------
