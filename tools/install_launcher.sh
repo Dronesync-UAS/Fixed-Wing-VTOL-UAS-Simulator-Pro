@@ -25,16 +25,23 @@ set -eu
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LAUNCHER="$REPO/tools/uas_launcher.py"
 APPS="$HOME/.local/share/applications"
-START_FILE="$APPS/uas-academy-simulator.desktop"
-STOP_FILE="$APPS/uas-academy-simulator-stop.desktop"
+# ONE ICON, not two. Until 13 Oct 2026 there was a green "start" and a red
+# "stop". They are merged into a single UAV Academy GCS Pro that starts the
+# simulator if it is down and ASKS before stopping one that is up - see
+# toggle() in uas_launcher.py for why it asks. The two old files are
+# removed on install so an upgraded machine is not left with three icons,
+# two of which are stale.
+APP_FILE="$APPS/uav-academy-gcs-pro.desktop"
+OLD_START="uas-academy-simulator.desktop"
+OLD_STOP="uas-academy-simulator-stop.desktop"
 DESKTOP_DIR="$(xdg-user-dir DESKTOP 2>/dev/null || echo "$HOME/Desktop")"
 
 MODE="${1:-install}"
 
 if [ "$MODE" = "--remove" ]; then
-    rm -f "$START_FILE" "$STOP_FILE"
-    rm -f "$DESKTOP_DIR/uas-academy-simulator.desktop" \
-          "$DESKTOP_DIR/uas-academy-simulator-stop.desktop"
+    rm -f "$APP_FILE" "$APPS/$OLD_START" "$APPS/$OLD_STOP"
+    rm -f "$DESKTOP_DIR/uav-academy-gcs-pro.desktop" \
+          "$DESKTOP_DIR/$OLD_START" "$DESKTOP_DIR/$OLD_STOP"
     command -v update-desktop-database >/dev/null 2>&1 \
         && update-desktop-database "$APPS" 2>/dev/null || true
     echo "Removed the UAV Academy launcher icons."
@@ -66,31 +73,28 @@ EOF
     chmod +x "$1"
 }
 
-write_entry "$START_FILE" "UAV Academy Simulator" \
-    "Start Gazebo, PX4 and the instructor station together" \
-    "$REPO/sim/icons/uas-gcs.svg" ""
-write_entry "$STOP_FILE" "Stop UAV Academy Simulator" \
-    "Stop Gazebo, PX4 and the instructor station" \
-    "$REPO/sim/icons/uas-gcs-stop.svg" "--stop"
+write_entry "$APP_FILE" "UAV Academy GCS Pro" \
+    "Start the simulator, or stop the one that is running" \
+    "$REPO/sim/icons/uas-gcs-app-icon.png" "--toggle"
+
+# The separate start and stop icons this replaces.
+rm -f "$APPS/$OLD_START" "$APPS/$OLD_STOP" \
+      "$DESKTOP_DIR/$OLD_START" "$DESKTOP_DIR/$OLD_STOP"
 
 command -v update-desktop-database >/dev/null 2>&1 \
     && update-desktop-database "$APPS" 2>/dev/null || true
 
 echo "Installed:"
-echo "  $START_FILE"
-echo "  $STOP_FILE"
+echo "  $APP_FILE"
 
 if [ "$MODE" = "--desktop" ]; then
     if [ -d "$DESKTOP_DIR" ]; then
-        cp "$START_FILE" "$STOP_FILE" "$DESKTOP_DIR/"
-        chmod +x "$DESKTOP_DIR/uas-academy-simulator.desktop" \
-                 "$DESKTOP_DIR/uas-academy-simulator-stop.desktop"
+        cp "$APP_FILE" "$DESKTOP_DIR/"
+        chmod +x "$DESKTOP_DIR/uav-academy-gcs-pro.desktop"
         # GNOME ignores a desktop file it does not trust, and shows the
         # filename instead of the icon until it is marked trusted.
         if command -v gio >/dev/null 2>&1; then
-            gio set "$DESKTOP_DIR/uas-academy-simulator.desktop" \
-                metadata::trusted true 2>/dev/null || true
-            gio set "$DESKTOP_DIR/uas-academy-simulator-stop.desktop" \
+            gio set "$DESKTOP_DIR/uav-academy-gcs-pro.desktop" \
                 metadata::trusted true 2>/dev/null || true
         fi
         echo "  copies on $DESKTOP_DIR"

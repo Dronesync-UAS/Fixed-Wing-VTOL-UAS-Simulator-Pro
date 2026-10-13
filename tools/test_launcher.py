@@ -193,6 +193,112 @@ check("then sent the offset, which is ignored without a target",
 check("aimed from behind and above at the panel's own default distance",
       L.CAMERA_VIEW == "rear_above" and L.CAMERA_DISTANCE_M == 12)
 
+print("11. PX4's stdin never reaches end-of-file")
+# Measured 13 Oct 2026: ~/uas_sim_logs/sim_launch.log had reached 19.5 GB,
+# and sampled anywhere in the middle it was nothing but "clear the line,
+# print pxh> " over and over with no newlines. The cause was stdin on
+# /dev/null, which ends immediately; PX4's shell read the end, printed a
+# fresh prompt and read again, for ever. A terminal BLOCKS instead, which
+# is why tools/start_world.sh never showed it.
+#
+# The check is on the behaviour rather than on the source, because the
+# source reads perfectly reasonably either way - DEVNULL looks like the
+# careful choice, and it is the one that filled the disk.
+import subprocess as _sp                                     # noqa: E402
+
+_probe = ("import sys; sys.stdout.write("
+          "'EOF' if sys.stdin.readline() == '' else 'DATA')")
+
+
+def _stdin_ends(**plumbing):
+    """True if a child reading stdin gets end-of-file straight away."""
+    proc = _sp.Popen([sys.executable, "-c", _probe],
+                     stdout=_sp.PIPE, text=True, start_new_session=True,
+                     **plumbing)
+    try:
+        return proc.communicate(timeout=5)[0].strip() == "EOF"
+    except _sp.TimeoutExpired:
+        proc.kill()
+        proc.wait(timeout=5)
+        return False
+
+
+check("/dev/null really does end at once - the trap this avoids",
+      _stdin_ends(stdin=_sp.DEVNULL))
+
+_r, _w = os.pipe()
+os.set_inheritable(_w, True)
+try:
+    # The launcher exits once everything is up, so its own copies of both
+    # ends are closed immediately here too. If the child only stayed alive
+    # because the parent held the pipe, this is where that would show.
+    _ends = _stdin_ends(stdin=_r, pass_fds=(_w,))
+finally:
+    os.close(_r)
+    os.close(_w)
+check("a pipe whose write end the child holds does not end, so the "
+      "prompt cannot loop", not _ends)
+
+_src = open(os.path.join(REPO, "tools", "uas_launcher.py")).read()
+_start = _src[_src.index("def start_simulator"):]
+_start = _start[:_start.index("\ndef ")]
+check("and start_simulator uses it rather than DEVNULL",
+      "pass_fds=(write_fd,)" in _start and "stdin=subprocess.DEVNULL" not in _start)
+
+print("12. one icon: start it, or ask before stopping it")
+# The two desktop icons became one on 13 Oct 2026. The old red icon
+# stopped everything the instant it was touched; with a single icon that
+# behaviour would end an exercise on a stray double-click, so a click on a
+# RUNNING simulator asks first and anything unexpected leaves it alone.
+import contextlib as _ctx                                    # noqa: E402
+import io as _io                                             # noqa: E402
+
+_real = (L.stop_all, L.launch, L.simulator_running, L._station_answering)
+
+
+def _toggle(running, answer):
+    """Returns what the toggle did, as a list of calls."""
+    done = []
+    L.stop_all = lambda *a, **k: done.append("stop") or []
+    L.launch = lambda key, open_ui=True: done.append("start") or 0
+    L.simulator_running = lambda: running
+    L._station_answering = lambda: running
+
+    def ask(_prompt):
+        if isinstance(answer, type) and issubclass(answer, BaseException):
+            raise answer
+        if answer is None:
+            raise AssertionError("asked when nothing was running")
+        return answer
+
+    with _ctx.redirect_stdout(_io.StringIO()):
+        L.toggle("coast", ask=ask)
+    return done
+
+
+try:
+    check("a click on a stopped simulator starts it, with no questions",
+          _toggle(False, None) == ["start"])
+    check("a click on a running one can stop it", _toggle(True, "1") == ["stop"])
+    check("or restart it, which is what changing training area needs",
+          _toggle(True, "2") == ["stop", "start"])
+    check("or leave it alone", _toggle(True, "3") == [])
+    # The dangerous direction is stopping something by accident, so every
+    # answer that is not deliberately "stop" has to mean "leave it".
+    check("just pressing Enter leaves it running", _toggle(True, "") == [])
+    check("and so does a stray keypress", _toggle(True, "x") == [])
+    check("and so does closing the window mid-question",
+          _toggle(True, EOFError) == [])
+    check("and so does Ctrl+C", _toggle(True, KeyboardInterrupt) == [])
+finally:
+    (L.stop_all, L.launch, L.simulator_running, L._station_answering) = _real
+
+_installer = open(os.path.join(REPO, "tools", "install_launcher.sh")).read()
+check("the installer writes one entry, pointed at --toggle",
+      "--toggle" in _installer and "uav-academy-gcs-pro.desktop" in _installer)
+check("and clears away the two icons it replaces",
+      "OLD_START" in _installer and "OLD_STOP" in _installer)
+
 print()
 print("FAILED: %s" % fails if fails else "all checks passed")
 sys.exit(1 if fails else 0)

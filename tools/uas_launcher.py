@@ -6,6 +6,7 @@ One command - or one desktop icon - that starts the whole simulator.
     python3 tools/uas_launcher.py blackrock      # a specific one
     python3 tools/uas_launcher.py --stop         # stop everything
     python3 tools/uas_launcher.py --status       # what is running
+    python3 tools/uas_launcher.py --toggle       # what the desktop icon does
 
 Before this, starting a session meant: open a terminal, run start_world.sh,
 wait, open a second terminal, run instructor_station.py with the matching
@@ -213,11 +214,35 @@ def start_simulator(entry):
     # Hoggar's 605 m spawn over Black Rock drops it from 600 m.
     env["PX4_GZ_MODEL_POSE"] = "0,0,%s,0,0,0" % entry["spawn_z"]
     env["PX4_GZ_WORLD"] = entry["world"]
-    with open(SIM_LOG, "w") as log:
-        return subprocess.Popen(
-            ["make", "px4_sitl", "gz_standard_vtol"],
-            cwd=PX4_DIR, env=env, stdout=log, stderr=subprocess.STDOUT,
-            stdin=subprocess.DEVNULL, start_new_session=True)
+
+    # STDIN MUST NEVER REACH END-OF-FILE. This used to be
+    # subprocess.DEVNULL, and /dev/null gives end-of-file on the first
+    # read. PX4's own shell - the pxh> prompt - treats that as "the line
+    # ended", prints a fresh prompt and reads again, for ever. Measured on
+    # 13 Oct 2026: ~/uas_sim_logs/sim_launch.log had reached 19.5 GB, and
+    # sampled anywhere in the middle it was nothing but the escape sequence
+    # that clears the line followed by "pxh> ", with no newlines at all.
+    #
+    # tools/start_world.sh never showed this because it runs in a terminal,
+    # and a terminal's stdin BLOCKS rather than ending. So the fix is to
+    # give the launcher's PX4 the same thing: a pipe whose write end is
+    # held open, so a read waits instead of returning nothing.
+    #
+    # The write end is passed to the child rather than kept here on
+    # purpose - this launcher exits once everything is up, and anything it
+    # held would close with it and bring the prompt loop straight back.
+    read_fd, write_fd = os.pipe()
+    os.set_inheritable(write_fd, True)
+    try:
+        with open(SIM_LOG, "w") as log:
+            return subprocess.Popen(
+                ["make", "px4_sitl", "gz_standard_vtol"],
+                cwd=PX4_DIR, env=env, stdout=log, stderr=subprocess.STDOUT,
+                stdin=read_fd, pass_fds=(write_fd,), start_new_session=True)
+    finally:
+        # The child has its own copies of both ends now.
+        os.close(read_fd)
+        os.close(write_fd)
 
 
 def wait_for_simulator(process, timeout=PX4_TIMEOUT_S):
@@ -372,6 +397,47 @@ def print_status():
     return 0 if (sim and station) else 1
 
 
+def toggle(key, open_ui=True, ask=input):
+    """One icon for the whole thing: start it, or offer to stop it.
+
+    Added 13 Oct 2026, replacing the two desktop icons - one to start and
+    one to stop - with a single UAV Academy GCS Pro.
+
+    IT NEVER STOPS WITHOUT BEING ASKED. A click on a dead simulator starts
+    it with no questions, which is the common case and should stay one
+    click. A click on a RUNNING one asks first, because the old red icon
+    stopped everything the instant it was touched, and with one icon a
+    stray double-click would otherwise end an exercise in front of a
+    class. Restarting is on the same menu because that is what the day
+    actually consists of: changing training area.
+
+    `ask` is a seam for tools/test_launcher.py. Nothing here reads a key
+    unless the simulator is already up.
+    """
+    if not simulator_running() and not _station_answering():
+        return launch(key, open_ui=open_ui)
+
+    print("The simulator is already running.")
+    print_status()
+    print()
+    print("  1  stop it")
+    print("  2  restart it (same training area, or name another below)")
+    print("  3  leave it alone")
+    try:
+        choice = ask("\nWhich? [3] ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        choice = ""
+
+    if choice in ("1", "stop"):
+        stop_all()
+        return 0
+    if choice in ("2", "restart"):
+        stop_all()
+        return launch(key, open_ui=open_ui)
+    print("Left running.")
+    return 0
+
+
 def launch(key, open_ui=True):
     entry, problem = resolve_environment(key)
     if problem:
@@ -434,7 +500,11 @@ def launch(key, open_ui=True):
     print("  Logs: %s and %s" % (SIM_LOG, STATION_LOG))
     print("\n  To stop everything:  python3 %s --stop"
           % os.path.abspath(__file__))
-    print("  (or use the \"Stop UAV Academy Simulator\" desktop icon)")
+    # The separate "Stop" icon was named here until 13 Oct 2026, when the
+    # two icons merged into one. Telling an instructor to use an icon that
+    # is no longer on the desktop is worse than saying nothing.
+    print("  (or the X at the top right of the console, which asks first,")
+    print("   or the UAV Academy GCS Pro icon again)")
     return 0
 
 
@@ -458,6 +528,10 @@ def main(argv=None):
                              % ", ".join(sorted(sim_target.BY_KEY)))
     parser.add_argument("--stop", action="store_true",
                         help="stop the simulator and the station")
+    parser.add_argument("--toggle", action="store_true",
+                        help="what the desktop icon does: start it if it is "
+                             "not running, otherwise ask whether to stop or "
+                             "restart it")
     parser.add_argument("--status", action="store_true",
                         help="report what is running")
     parser.add_argument("--no-browser", action="store_true",
@@ -467,14 +541,17 @@ def main(argv=None):
                              "desktop icon so the window stays readable)")
     args = parser.parse_args(argv)
 
-    if args.stop and args.status:
-        parser.error("--stop and --status do different things; pick one")
+    if sum((args.stop, args.status, args.toggle)) > 1:
+        parser.error("--stop, --status and --toggle do different things; "
+                     "pick one")
 
     if args.status:
         code = print_status()
     elif args.stop:
         stop_all()
         code = 0
+    elif args.toggle:
+        code = toggle(args.world, open_ui=not args.no_browser)
     else:
         code = launch(args.world, open_ui=not args.no_browser)
 
