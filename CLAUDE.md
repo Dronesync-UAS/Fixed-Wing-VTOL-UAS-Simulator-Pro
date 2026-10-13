@@ -202,7 +202,20 @@ hovering; `full` is 150 s from disarmed.
 
 ## Checking a machine is set up
 
-These two are for a machine, not for a commit. Neither changes anything.
+These three are for a machine, not for a commit. None changes anything.
+
+What the machine IS - model, serial number, CPU, memory, graphics, disk,
+and the Gazebo and PX4 versions. The graphics line is the one that sets
+the simulator's frame rate, and it says plainly whether a discrete card
+is fitted:
+
+```
+python3 tools/machine_report.py
+```
+
+The model and serial number live in DMI, which only root can read, so
+those two lines need `sudo python3 tools/machine_report.py`. Everything
+else does not.
 
 Nothing running needed - checks the files, the worlds, the aircraft model,
 the imagery, and runs all the offline checks:
