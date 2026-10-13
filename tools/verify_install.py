@@ -282,7 +282,14 @@ MODEL_PARTS = [
     # Added 12 Oct 2026: the lights were reported not working, and this
     # script had no check for them - the same blind spot that hid the
     # missing gimbal and chase boom.
-    ("nav_port", "the navigation lights",
+    # The wing lights were removed on 13 Oct 2026 - they were wrong (white
+    # and red where they should have been red and green) and were not
+    # wanted. What this checks now is the light that replaced them: the
+    # tail light, which flashes green while the aircraft has GPS and red
+    # when it loses it. Checking nav_port here outlasted the lights
+    # themselves and told whoever ran this to re-apply a part that had
+    # been deliberately taken off.
+    ("nav_tail", "the tail GPS status light",
      "python3 tools/aircraft_lights_apply.py"),
     ("strobe_top", "the anti-collision strobes",
      "python3 tools/aircraft_lights_apply.py"),

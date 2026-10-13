@@ -93,6 +93,16 @@ PX4_MODES = {
     (7, 0): "Stabilized", (8, 0): "Rattitude",
 }
 
+# Heartbeat senders that are NOT the aircraft. A heartbeat carries no "I am
+# the vehicle" flag, so without this the station decodes a ground station's
+# or a gimbal's heartbeat as a flight mode. See _read_one_message.
+NOT_A_VEHICLE = (
+    mavutil.mavlink.MAV_TYPE_GCS,                  # 6
+    mavutil.mavlink.MAV_TYPE_ONBOARD_CONTROLLER,   # 18
+    mavutil.mavlink.MAV_TYPE_GIMBAL,               # 26
+    mavutil.mavlink.MAV_TYPE_ADSB,                 # 27
+)
+
 telemetry = {
     "armed": False, "mode": "Unknown", "altitude_m": 0.0,
     "altitude_amsl_m": None,
@@ -766,6 +776,23 @@ def _read_one_message():
         link_health["last_msg_t"] = time.monotonic()
         t = msg.get_type()
         if t == "HEARTBEAT":
+            # ONLY THE AIRCRAFT'S OWN HEARTBEAT DRIVES THIS DISPLAY.
+            # Anything else that speaks MAVLink on this link - a second
+            # ground station, a companion computer, a gimbal - also sends
+            # heartbeats, and they carry custom_mode 0 and no ARMED flag.
+            # Decoded as if they came from the aircraft that reads as mode
+            # "Mode 0.0" and DISARMED, which is what the instructor's screen
+            # showed for one frame on 14 Oct 2026 while the aircraft was
+            # flying normally. On a training device a spurious "disarmed" is
+            # about the worst thing the screen can say.
+            # Measured the same day: PX4 here is system 1, component 1.
+            # QGroundControl v5.1.5 filters the same two ways in
+            # MultiVehicleManager::_vehicleHeartbeatInfo - it ignores any
+            # component that is not MAV_COMP_ID_AUTOPILOT1, and ignores the
+            # GCS, ONBOARD_CONTROLLER, GIMBAL and ADSB vehicle types.
+            if (msg.get_srcComponent() != mavutil.mavlink.MAV_COMP_ID_AUTOPILOT1
+                    or msg.type in NOT_A_VEHICLE):
+                return
             telemetry["armed"] = bool(msg.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED)
             # The aircraft's red beacon flashes while it is armed, the way
             # a real one flashes while the engines are running.
