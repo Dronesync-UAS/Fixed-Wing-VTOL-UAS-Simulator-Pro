@@ -285,10 +285,12 @@ Next:
 
 3. Switch them on with the console's "Aircraft lights" control.
 
-The strobes double-flash, the beacon flashes while armed, and the
-navigation lights stay steady - which is what a real aircraft does. They
-are only visible against a dark scene, so set the lighting to Night
-first.
+The strobes double-flash and the beacon flashes while armed. The tail
+light is the GPS indicator - flashing green with a fix, flashing red
+without - so injecting a GPS failure shows on the airframe itself. There
+are no wingtip navigation lights: the reference aircraft has none. All of
+them are easiest to see against a dark scene, so set the lighting to
+Night first.
 
 To take them off again:
      python3 tools/aircraft_lights_apply.py --revert""")

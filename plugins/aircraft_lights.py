@@ -32,10 +32,16 @@ def toggle_lights(on=None):
     state["active"] = wanted
     log_instructor_action("aircraft_lights", f"on={wanted}")
     if wanted:
-        return ("Lights on. Navigation lights steady - red to port, green to "
-                "starboard, white at the tail. Strobes double-flashing. The "
-                "red beacon flashes while the aircraft is armed. Set the "
-                "lighting to Night to see them.")
+        # Kept in step with what the aircraft actually carries. The wingtip
+        # navigation lights were removed on 13 Oct 2026 and the tail light
+        # became the GPS indicator; this text still described the old set
+        # until 14 Oct, which is the kind of thing a student reads and
+        # believes.
+        return ("Lights on. White strobes double-flashing above and below, "
+                "and the red beacon flashes while the aircraft is armed. "
+                "The tail light is the GPS indicator: flashing GREEN with a "
+                "fix, flashing RED if GPS is lost. Set the lighting to "
+                "Night to see them properly.")
     return "Lights off."
 
 

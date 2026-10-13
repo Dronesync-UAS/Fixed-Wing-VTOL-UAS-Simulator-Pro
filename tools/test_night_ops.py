@@ -14,6 +14,7 @@ Three things worth proving before anyone flies at night with them:
 """
 import importlib.util
 import os
+import struct
 import xml.etree.ElementTree as ET
 import sys
 import types
@@ -264,6 +265,70 @@ check("switching off darkens every light",
       (al.set_on(False) or True)
       and {e[1] for e in log[-len(al.ALL):]} == set(al.ALL)
       and not any(e[2] for e in log[-len(al.ALL):]))
+
+print("4b. the GPS failure the tail light reports")
+# The control that drives the tail light red. It used to start a proxy
+# that sat between PX4 and QGroundControl, needed port plumbing nobody
+# did, and took its commands by TYPING - so started as a background
+# script its command thread died with EOFError at once while the console
+# reported "GPS failure injected." Measured on 14 Oct 2026. A control
+# that claims an injection it has not made is worse than no control, and
+# nothing here checked it.
+import types as _types                                       # noqa: E402
+
+_sent = []
+_fake_master = _types.SimpleNamespace(
+    target_system=1, target_component=1,
+    mav=_types.SimpleNamespace(
+        param_set_send=lambda sysid, comp, name, value, kind:
+            _sent.append((name, value, kind))))
+_fake_telem = {"satellites": 10}
+_marks = []
+
+_gps_mod = _types.ModuleType("gps_failure_under_test")
+_gps_src = open(os.path.join(REPO, "plugins", "gps_failure.py")).read()
+_gps_ns = {
+    "master": _fake_master,
+    "telemetry": _fake_telem,
+    "mark_failure_injected": lambda k: _marks.append(("injected", k)),
+    "mark_failure_cleared": lambda k: _marks.append(("cleared", k)),
+}
+# Run the module with simulator_link's names already provided, so the test
+# never opens a MAVLink connection.
+_body = _gps_src.replace(
+    "from simulator_link import (master, telemetry, mark_failure_injected,\n"
+    "                            mark_failure_cleared)", "")
+exec(compile(_body, "gps_failure.py", "exec"), _gps_ns)
+
+check("it sets PX4's own SIM_GPS_USED, not a proxy",
+      _gps_ns["PARAM"] == b"SIM_GPS_USED")
+# SensorGpsSim: fix_type is 3 at 4 or more satellites, 0 below.
+check("and 0 is below the 4 PX4 calls a fix",
+      _gps_ns["SATELLITES_NONE"] == 0 and _gps_ns["SATELLITES_OK"] >= 4)
+
+_fake_telem["satellites"] = 0        # what the aircraft reports once it lands
+message = _gps_ns["toggle_gps_failure"]()
+check("injecting sends 0 satellites (%s)" % (_sent[-1][0],),
+      _sent and _sent[-1][0] == b"SIM_GPS_USED"
+      and struct.unpack("<i", struct.pack("<f", _sent[-1][1]))[0] == 0)
+check("and it reports what the AIRCRAFT said, not what was sent",
+      "0 satellites" in message and "injected" in message)
+check("the failure is marked for the console's lights",
+      ("injected", "gps") in _marks)
+
+_fake_telem["satellites"] = 10
+message = _gps_ns["toggle_gps_failure"]()
+check("clearing puts the satellites back (%d)"
+      % struct.unpack("<i", struct.pack("<f", _sent[-1][1]))[0],
+      struct.unpack("<i", struct.pack("<f", _sent[-1][1]))[0] == 10)
+check("and says so", "cleared" in message and "10" in message)
+
+# The honest-failure path: if the aircraft never reports the change, say so
+# rather than claiming an injection.
+_fake_telem["satellites"] = 10
+message = _gps_ns["toggle_gps_failure"]()
+check("an injection the aircraft does not confirm is NOT claimed (%s)"
+      % message[:48], "not reported the change" in message)
 
 print("5. the aircraft's colours")
 # A fragment with the same shape as PX4's standard_vtol model: a blue
