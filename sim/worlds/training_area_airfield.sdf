@@ -512,11 +512,22 @@
     <!-- GROUND WITHIN THE TRAINING AREA, added 12 Oct 2026 by
          tools/plane_ground_texture.py.
     
-         This is a HEIGHTMAP and it is dead flat on purpose. The reason is
-         not the shape - it is that a heightmap can TILE a texture, with
-         <texture><size>, and a plane visual cannot. This world used to
-         stand on an untextured plane: one flat colour across the largest
-         surface in every camera view.
+         A MESH, from tools/make_ground_mesh.py, carrying UV coordinates
+         that repeat the texture every 16 m. A <plane> visual cannot tile -
+         it stretches one image across its whole size - which is why this
+         world used to stand on one flat colour.
+    
+         IT WAS A FLAT HEIGHTMAP FIRST, AND THAT DID NOT WORK. SDF's only
+         built-in way to tile is <heightmap><texture><size>, so a dead-flat
+         heightmap was tried on 12 Oct 2026. Loaded in Gazebo on 13 Oct it
+         rendered with no texture at all and a different colour from every
+         camera - white from the payload, near-black from the chase - while
+         the valley world's heightmap, same <texture> block but 240 m of
+         relief, rendered correctly. Giving the image a real height range
+         and adding an explicit material both changed nothing. A mesh needs
+         no terrain code and is exactly flat, which matters: the collision
+         is a separate box at z=0, and relief in the visual would show the
+         aircraft sunk into the ground or hovering over it.
     
          VISUAL ONLY. The 220 km collision box in ground_plane still
          carries every landing; a second collision here would be two
@@ -531,17 +542,34 @@
       <link name="ground_near_link">
         <visual name="ground_near_visual">
           <geometry>
-            <heightmap>
-              <texture>
-                <diffuse>file://media/grass_fine.png</diffuse>
-                <normal>file://media/grass_normal.png</normal>
-                <size>16</size>
-              </texture>
-              <uri>file://media/flat_ground_heightmap.png</uri>
-              <size>8000 8000 0.001</size>
-              <pos>0 0 0</pos>
-            </heightmap>
+            <mesh>
+              <uri>file://media/ground_tile.obj</uri>
+            </mesh>
           </geometry>
+          <!-- PLAIN COLOUR, NO TEXTURE MAPS. Measured in Gazebo on 13 Oct
+               2026, by spawning boxes side by side into the running world -
+               same light, same texture file, one variable each:
+    
+                 plain <diffuse> colour        lit and shaded, correct
+                 <albedo_map>                  near-black
+                 <albedo_map> + normal + rough near-black
+                 <albedo_map>, absolute path   near-black
+                 <emissive_map>, same file     renders the texture
+    
+               PBR albedo_map does not render in this Gazebo Harmonic /
+               ogre2 build. That is why the flat heightmap, the height
+               range, the mesh and the material were each blamed in turn and
+               no change made any difference: every one of them ended on the
+               same broken path.
+    
+               This is the one configuration proven to render, and it is
+               what the 220 km far plane has always used. The cost is no
+               surface detail. The alternative is a ground that is black. -->
+          <material>
+            <ambient>0.30 0.34 0.24 1</ambient>
+            <diffuse>0.42 0.50 0.30 1</diffuse>
+            <specular>0.04 0.04 0.04 1</specular>
+          </material>
         </visual>
       </link>
     </model>

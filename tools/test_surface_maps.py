@@ -14,10 +14,16 @@ tile without a seam, and no world may point at a flat one.
 import glob
 import math
 import os
+import re
 import sys
 
 import numpy as np
 from PIL import Image
+
+# The mesh's extent and tiling have to agree with what the tool writes into
+# the worlds, so read them from the tool rather than repeating the numbers.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import plane_ground_texture as pgt                            # noqa: E402
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MEDIA = os.path.join(REPO, "sim", "worlds", "media")
@@ -103,7 +109,7 @@ pointing_flat = []
 for path in sorted(glob.glob(os.path.join(WORLDS, "*.sdf"))):
     with open(path) as handle:
         text = handle.read()
-    if "flat_normal.png" in text:
+    if "flat_normal.png" in re.sub(r"<!--.*?-->", "", text, flags=re.S):
         pointing_flat.append(os.path.basename(path))
 check("no world uses flat_normal.png (%s)"
       % (", ".join(pointing_flat) or "none do"), not pointing_flat)
@@ -117,9 +123,14 @@ using_real = []
 for path in sorted(glob.glob(os.path.join(WORLDS, "*.sdf"))):
     with open(path) as handle:
         text = handle.read()
-    if "<heightmap>" in text:
+    # Comments stripped first. The worlds now carry a long note about why
+    # the plane worlds stopped using a heightmap, and that note contains
+    # the word - so a plain substring test marked seven worlds as having a
+    # heightmap they do not have.
+    body = re.sub(r"<!--.*?-->", "", text, flags=re.S)
+    if "<heightmap>" in body:
         using_real.append((os.path.basename(path),
-                           any(n in text for n in REAL_NORMALS)))
+                           any(n in body for n in REAL_NORMALS)))
 missing_normal = [n for n, ok in using_real if not ok]
 check("every world with a heightmap has a real normal map (%d of %d%s)"
       % (sum(1 for _, ok in using_real if ok), len(using_real),
@@ -167,18 +178,56 @@ for path in sorted(glob.glob(os.path.join(WORLDS, "*.sdf"))):
 check("no world is left with untextured ground (%s)"
       % (", ".join(untextured) or "all textured"), not untextured)
 
-# The flat heightmap the plane worlds use must exist and be uniform -
-# the point of it is that it is FLAT, and a stray pixel would be a spike
-# in the middle of the training area.
-flat_ground = os.path.join(MEDIA, "flat_ground_heightmap.png")
-if os.path.isfile(flat_ground):
-    grey = np.asarray(Image.open(flat_ground).convert("L"), dtype=np.int16)
-    check("the plane worlds' heightmap is perfectly flat (range %d)"
-          % int(grey.max() - grey.min()), int(grey.max() - grey.min()) == 0)
-    check("and is 2^n+1 across, which is the shape terrain code wants "
-          "(%d)" % grey.shape[0], grey.shape[0] in (65, 129, 257, 513))
+# The plane worlds' ground is a MESH, not a heightmap. It was a dead-flat
+# heightmap until 13 Oct 2026, when Gazebo was finally asked to render one
+# and textured it with nothing at all - see the header of
+# tools/plane_ground_texture.py for the measurements. A mesh carries its
+# own UVs, so the tiling needs no terrain code and the surface is exactly
+# flat, which the collision box at z=0 requires.
+mesh = os.path.join(MEDIA, "ground_tile.obj")
+if os.path.isfile(mesh):
+    with open(mesh) as handle:
+        obj = handle.read()
+    verts = [l.split() for l in obj.splitlines() if l.startswith("v ")]
+    uvs = [l.split() for l in obj.splitlines() if l.startswith("vt ")]
+    faces = [l for l in obj.splitlines() if l.startswith("f ")]
+    check("the ground mesh exists and has faces (%d)" % len(faces), faces)
+
+    # EXACTLY flat. Any Z at all here shows as the aircraft sunk into the
+    # ground or hovering over it, because it lands on a separate box at 0.
+    zs = {float(v[3]) for v in verts}
+    check("and every vertex is at z=0 (%d distinct heights)" % len(zs),
+          zs == {0.0})
+
+    # The UVs must run well past 1, or the texture is stretched rather
+    # than tiled - which is the whole reason this mesh exists.
+    umax = max(float(u[1]) for u in uvs)
+    vmax = max(float(u[2]) for u in uvs)
+    check("and its UVs tile the texture rather than stretching it "
+          "(%.0f x %.0f repeats)" % (umax, vmax), umax > 10 and vmax > 10)
+
+    # The mesh's own extent has to match what the tool says it covers, or
+    # the far plane takes over somewhere other than where the comment says.
+    span = max(abs(float(v[1])) for v in verts) * 2
+    check("and it is %g m across, matching plane_ground_texture "
+          "(%g)" % (pgt.NEAR_EXTENT_M, span), abs(span - pgt.NEAR_EXTENT_M) < 1)
+    check("and tiles at the interval the tool writes into the world "
+          "(%g m)" % pgt.TILE_M,
+          abs(umax - pgt.NEAR_EXTENT_M / pgt.TILE_M) < 0.01)
 else:
-    check("flat_ground_heightmap.png exists", False)
+    check("ground_tile.obj exists - run tools/make_ground_mesh.py", False)
+
+# And no world should still be carrying the heightmap that did not work.
+for path in sorted(glob.glob(os.path.join(WORLDS, "*.sdf"))):
+    with open(path) as handle:
+        text = handle.read()
+    if "ground_near" not in text:
+        continue
+    chunk = text[text.index("ground_near"):text.index("</model>",
+                                                      text.index("ground_near"))]
+    check("%s ground_near is a mesh, not the flat heightmap"
+          % os.path.basename(path),
+          "<mesh>" in chunk and "flat_ground_heightmap" not in chunk)
 
 # Visual only: a second collision would fight the 220 km box underneath.
 for path in sorted(glob.glob(os.path.join(WORLDS, "*.sdf"))):

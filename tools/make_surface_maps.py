@@ -142,6 +142,37 @@ def grass_diffuse(rng, height, base):
     return Image.fromarray(np.uint8(np.clip(rgb, 0, 255)), "RGB")
 
 
+# The plane worlds' ground is a heightmap purely so the grass texture can
+# TILE - see tools/plane_ground_texture.py. It was generated as a single
+# value, 0, everywhere, which is as flat as ground can be and is also the
+# one case the terrain code cannot use: with the minimum equal to the
+# maximum there is no height range to normalise against, and on 13 Oct
+# 2026 Gazebo built that terrain untextured. The grass never appeared,
+# the surface rendered as bare lighting, and the same ground came out
+# white from the payload camera, brown from the nose and near-black from
+# the chase - three colours for one surface, which is what an untextured
+# surface under a low ambient does.
+#
+# So it carries a real range now, 0..255, and the world scales it to
+# HEIGHTMAP_RELIEF_M. The relief is five centimetres spread over eight
+# kilometres: a slope of 0.0006 percent, far below anything visible, and
+# the ground is visual-only so nothing lands on it either way.
+HEIGHTMAP_PX = 129          # 2^7 + 1, the shape terrain code wants
+HEIGHTMAP_RELIEF_M = 0.05   # must match plane_ground_texture.NEAR_RELIEF_M
+
+
+def flat_ground_heightmap():
+    """A heightmap that is flat to the eye but not degenerate to the renderer.
+
+    A smooth diagonal ramp over the full 0..255 range. Smooth matters: a
+    noisy field at this scale would put a 5 cm step between neighbouring
+    posts 62 m apart, and a ramp cannot.
+    """
+    axis = np.linspace(0.0, 1.0, HEIGHTMAP_PX)
+    ramp = (axis[:, None] + axis[None, :]) / 2.0
+    return Image.fromarray(np.uint8(np.rint(ramp * 255.0)), "L")
+
+
 OCTAVES_FINE = ((0.6, 26.0), (2.0, 18.0), (6.0, 13.0), (18.0, 10.0))
 
 
@@ -171,6 +202,12 @@ def main():
         path = os.path.join(MEDIA, name)
         image.save(path, optimize=True)
         written.append(path)
+
+    # The plane worlds' tiling heightmap. Written last because it is not a
+    # surface map at all - it is the geometry the surface maps are tiled on.
+    path = os.path.join(MEDIA, "flat_ground_heightmap.png")
+    flat_ground_heightmap().save(path, optimize=True)
+    written.append(path)
 
     print("Wrote:\n")
     for path in written:
