@@ -931,6 +931,93 @@ SCRIPT = """
              battery: batteryLevel() };
   };
 
+  // ---------- the wheel over the height tape ----------
+  // Put the pointer on the m AGL tape and spin the wheel to climb or
+  // descend. Asked for 13 Oct 2026, and it is the gesture people try
+  // first - the number is right there and the wheel is under the hand.
+  //
+  // The tape is painted on a canvas, so there is no element to hang a
+  // listener on. The rectangle the gauge drew it in is already published
+  // as cv.tapeRects for the tests, and the hit test uses the same figures,
+  // which means the live area is exactly the tape that is visible rather
+  // than a guess at where it probably is.
+  //
+  // ONE COMMAND PER BURST. A wheel notch is a repeat event; sending per
+  // notch would put a dozen altitude changes on the wire for one flick.
+  // The target moves immediately on screen and is sent once the wheel
+  // stops, which is also what makes it safe to overshoot and come back.
+  var ALT_STEP_M = 5;
+  var ALT_MIN_M = 5, ALT_MAX_M = 120;     // plugins/climb_to.py's own limits
+  var wheelAlt = { target: null, timer: null, until: 0 };
+
+  function altTapeHit(cv, event) {
+    var rects = cv.tapeRects;
+    if (!rects || !rects.alt) { return false; }
+    var box = cv.getBoundingClientRect();
+    if (!box.width || !box.height) { return false; }
+    // cv.cssW is the width the gauge drew in; the element may be scaled by
+    // CSS, so the pointer is converted into that space rather than assumed
+    // to be in it.
+    var x = (event.clientX - box.left) * ((cv.cssW || box.width) / box.width);
+    var y = (event.clientY - box.top) * ((cv.cssH || box.height) / box.height);
+    var a = rects.alt;
+    return x >= a.left && x <= a.right && y >= a.top && y <= a.bottom;
+  }
+
+  function wheelAltSend() {
+    var want = wheelAlt.target;
+    wheelAlt.target = null;
+    if (want === null) { return; }
+    fetch('/action/climb_to?altitude_m=' + want)
+      .then(function (r) { return r.text(); })
+      .then(function (text) {
+        // The plugin refuses on the ground and says why; show its own
+        // words rather than inventing a second explanation here.
+        var bad = /not sent|fail|refus/i.test(text);
+        window.gcsAnnounce(bad ? text : ('Climbing to ' + want + ' m'),
+                           bad ? 'warn' : 'info', bad ? 6 : 3);
+      })
+      .catch(function () {
+        window.gcsAnnounce('The station did not answer.', 'warn', 5);
+      });
+  }
+
+  document.addEventListener('wheel', function (event) {
+    var cv = event.target;
+    if (!cv || cv.tagName !== 'CANVAS' || !cv.tapeRects) { return; }
+    if (!altTapeHit(cv, event)) { return; }
+    event.preventDefault();
+
+    // Start from where the aircraft actually is, not from zero, unless a
+    // burst is already running - then keep counting from the pending
+    // figure so a long spin adds up.
+    if (wheelAlt.target === null || Date.now() > wheelAlt.until) {
+      var now = telemetry().altitude_m;
+      wheelAlt.target = Math.round(((now != null ? now : 0)) / ALT_STEP_M)
+                        * ALT_STEP_M;
+    }
+    wheelAlt.target += (event.deltaY < 0) ? ALT_STEP_M : -ALT_STEP_M;
+    wheelAlt.target = Math.max(ALT_MIN_M, Math.min(ALT_MAX_M, wheelAlt.target));
+    wheelAlt.until = Date.now() + 1500;
+    window.gcsAnnounce('Height ' + wheelAlt.target + ' m - release to send',
+                       'info', 2);
+    if (wheelAlt.timer) { clearTimeout(wheelAlt.timer); }
+    wheelAlt.timer = setTimeout(function () {
+      wheelAlt.timer = null;
+      wheelAltSend();
+    }, 450);
+  }, { passive: false });
+
+  // For tools/test_flight_display.py: whether a point lands on the height
+  // tape, and what the wheel would do from a given state.
+  window.gcsAltWheel = function (selector, clientX, clientY) {
+    var cv = document.querySelector(selector);
+    if (!cv) { return null; }
+    return { hit: altTapeHit(cv, { clientX: clientX, clientY: clientY }),
+             step: ALT_STEP_M, min: ALT_MIN_M, max: ALT_MAX_M,
+             pending: wheelAlt.target };
+  };
+
   window.gcsDrawHud = function () {
     updateLowAlt();
     updateSink();

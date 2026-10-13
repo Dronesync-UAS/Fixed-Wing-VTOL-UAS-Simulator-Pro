@@ -494,6 +494,37 @@ TEMPLATE = """<!DOCTYPE html>
   .topbtn.danger { background: rgba(123,26,45,0.95); color: #ffc3cd; }
   .topbtn.icon { padding: 0 9px; display: flex; align-items: center; }
   .topbtn.icon svg { width: 20px; height: 20px; display: block; }
+  /* The close button reads red only on hover. Permanently red next to the
+     settings gear it would pull the eye away from the failure controls,
+     which are the ones that matter in a lesson. */
+  .topbtn.icon.close:hover { background: #c2384a; color: #fff; }
+
+  /* ---------- "do you want to exit?" ---------- */
+  .askback {
+    position: fixed; inset: 0; z-index: 200; display: none;
+    align-items: center; justify-content: center;
+    background: rgba(6,9,14,0.62); backdrop-filter: blur(2px);
+  }
+  .askback.open { display: flex; }
+  .askcard {
+    width: 340px; max-width: calc(100vw - 32px); padding: 20px 22px 18px;
+    border-radius: 14px; background: #141a24;
+    border: 1px solid rgba(255,255,255,0.14);
+    box-shadow: 0 30px 80px rgba(0,0,0,0.75); text-align: center;
+  }
+  .asktitle { font-size: 17px; font-weight: 600; color: #fff; }
+  .asknote { margin-top: 8px; font-size: 12px; color: #93a1b8; line-height: 1.45; }
+  .askrow { margin-top: 18px; display: flex; gap: 10px; justify-content: center; }
+  .askrow button {
+    min-width: 92px; height: 36px; border-radius: 9px; cursor: pointer;
+    font-size: 13px; font-weight: 600; border: 1px solid rgba(255,255,255,0.16);
+  }
+  /* No is the wider, lit one: the safe answer should be the easy answer. */
+  .askno { background: rgba(255,255,255,0.14); color: #fff; }
+  .askno:hover { background: rgba(255,255,255,0.22); }
+  .askyes { background: #c2384a; color: #fff; border-color: #c2384a; }
+  .askyes:hover { background: #d84054; }
+  .askcard.going .askrow { display: none; }
   /* ---------- the payload and chase control strips ---------- */
   /* Across the bottom of the picture, which is where DJI puts a payload's
      controls and therefore where a remote pilot's hand already goes. */
@@ -545,6 +576,22 @@ TEMPLATE = """<!DOCTYPE html>
   #hero > .view > .chasebar {
     left: 176px; transform: none; opacity: 0.92;
   }
+  /* DRAGGED LIKE EVERYTHING ELSE, added 13 Oct 2026. The rails, the corner
+     tiles and the pop-up panels could all be moved and remembered; this
+     strip was the one container nailed to the picture. Once dragged it is
+     fixed to the window rather than to the view, because the view itself
+     moves between the hero slot and a corner tile and a strip pinned to it
+     would travel into a 400 px tile with it. */
+  #hero > .view > .chasebar.floating,
+  .chasebar.floating {
+    position: fixed; left: auto; top: auto; transform: none; z-index: 48;
+  }
+  .chasebar .striphandle {
+    cursor: grab; padding: 0 2px; color: #7f8da4; font-size: 13px;
+    line-height: 1; letter-spacing: -1px; user-select: none;
+  }
+  .chasebar.dragging { box-shadow: 0 18px 48px rgba(0,0,0,0.8); }
+  .chasebar.dragging .striphandle { cursor: grabbing; }
   /* In Pilot layout the picture starts at the top of the window and the
      bar floats over it, so a strip pinned to the top of the picture
      would be underneath it. */
@@ -640,6 +687,29 @@ TEMPLATE = """<!DOCTYPE html>
     color: var(--dim); margin-bottom: 8px;
   }
   .set-pane .items { display: flex; flex-direction: column; gap: 7px; }
+
+  /* The external view angle: a reading, two arrows and a lock. The arrows
+     are deliberately large - they get held down while watching the picture
+     rather than the button. */
+  .anglebox { display: flex; align-items: center; gap: 6px; }
+  .anglebox #angle-read {
+    min-width: 58px; text-align: right; font-size: 16px; font-weight: 600;
+    color: #fff; font-variant-numeric: tabular-nums;
+  }
+  .anglebox button {
+    width: 30px; height: 28px; border-radius: 6px; cursor: pointer;
+    border: 1px solid rgba(255,255,255,0.18); background: rgba(255,255,255,0.07);
+    color: #dbe3f0; font-size: 12px; line-height: 1;
+  }
+  .anglebox button:hover { background: rgba(255,255,255,0.14); color: #fff; }
+  .anglebox button:disabled { opacity: 0.35; cursor: default; }
+  .anglebox .anglelock { width: auto; padding: 0 12px; font-size: 12px; }
+  .anglebox .anglelock.locked {
+    background: rgba(90,200,120,0.22); border-color: rgba(90,200,120,0.55);
+    color: #bdf0cb;
+  }
+  .set-note { font-size: 11px; color: #7f8da4; margin-top: -8px; line-height: 1.4; }
+  .set-note.locked { color: #8fc9a3; }
 
   /* ---------- the flight log ---------- */
   #win-flightlog { width: 560px; }
@@ -868,6 +938,34 @@ TEMPLATE = """<!DOCTYPE html>
         <path d="M4 7h16M4 12h16M4 17h16"></path>
       </svg>
     </button>
+    <!-- CLOSE, where every application keeps it: last on the bar, top
+         right. Added 13 Oct 2026, when the separate red "stop" desktop
+         icon was merged away - this is where that one-click stop went.
+         It always asks first; see the dialog below. -->
+    <button class="topbtn icon close" id="exit-open" title="Exit the GCS"
+            aria-label="Exit">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+        <path d="M6 6l12 12M18 6L6 18"></path>
+      </svg>
+    </button>
+  </div>
+</div>
+
+<!-- DO YOU WANT TO EXIT? Deliberately a dialog of its own rather than one
+     of the draggable panels: it must appear in the middle, over
+     everything, and it must not be possible to drag it somewhere and
+     leave it there. No is the default - Escape, the backdrop and Enter
+     all mean No, and only the Yes button means yes. -->
+<div id="exit-ask" class="askback" role="dialog" aria-modal="true"
+     aria-labelledby="exit-title">
+  <div class="askcard">
+    <div class="asktitle" id="exit-title">Do you want to exit?</div>
+    <div class="asknote">This stops the simulator and the instructor
+      station. Any exercise in progress ends.</div>
+    <div class="askrow">
+      <button class="askno" id="exit-no">No</button>
+      <button class="askyes" id="exit-yes">Yes</button>
+    </div>
   </div>
 </div>
 
@@ -898,6 +996,7 @@ TEMPLATE = """<!DOCTYPE html>
          camera on its boom; before that the view stays behind the
          aircraft and the buttons report that nothing moved. -->
     <div class="paybar chasebar" id="chasebar">
+      <span class="striphandle" title="Drag to move this strip; where it is put is remembered">&#8942;&#8942;</span>
       <span class="payread">External view</span>
       <button data-chase="behind" class="on">Behind</button>
       <button data-chase="port">Left</button>
@@ -1115,7 +1214,43 @@ __WINDOWS__
       </div>
 
       <div class="set-pane" data-pane="environment">__SETTINGS_ENVIRONMENT__</div>
-      <div class="set-pane" data-pane="aircraft">__SETTINGS_AIRCRAFT__</div>
+      <div class="set-pane" data-pane="aircraft">
+        <!-- EXTERNAL VIEW ANGLE. How far above the aircraft the chase
+             camera sits, in degrees, for the Behind view. The arrows move
+             the camera straight away so the angle can be judged by eye;
+             LOCK writes it down, and from then on every session opens at
+             it until it is changed again. Works on the ground and in the
+             air alike - the boom is a camera mount and the flight
+             controller knows nothing about it.
+
+             Top and Low are deliberately not affected. They exist to be
+             different angles, and forcing this figure on them would leave
+             six buttons that all did the same thing. -->
+        <!-- FUSELAGE COLOUR. Changed while the aircraft flies - Gazebo
+             will recolour a visual at runtime, so this needs no restart.
+             Lock keeps it for every future session, like the angle below. -->
+        <div class="set-row">
+          <span class="set-label">Fuselage</span>
+          <span>
+            <select id="livery" class="topsel" title="Orange is easiest to keep in sight; grey is what the real aircraft looks like"></select>
+            <button id="livery-lock" class="anglelock">Lock</button>
+          </span>
+        </div>
+        <div class="set-note" id="livery-note">Not locked &mdash; this session only.</div>
+        <div class="set-row">
+          <span class="set-label">External view angle</span>
+          <div class="anglebox">
+            <span id="angle-read" title="Degrees above the aircraft">17&deg;</span>
+            <button id="angle-up" title="Raise the view (the camera climbs)">&#9650;</button>
+            <button id="angle-down" title="Lower the view (the camera drops)">&#9660;</button>
+            <button id="angle-lock" class="anglelock">Lock</button>
+          </div>
+        </div>
+        <div class="set-note" id="angle-note">
+          Not locked &mdash; this session only. Lock keeps it for every future session.
+        </div>
+        __SETTINGS_AIRCRAFT__
+      </div>
       <!-- Mission planning has its own tab: it is a job, not a setting,
            and it is the one panel an instructor needs room to read
            before anything flies. -->
@@ -1895,163 +2030,12 @@ SCRIPT = """
   // and a fixed yellow aircraft symbol. The heading sits in a window in the
   // lower half, where an EFIS puts it, rather than on a compass needle -
   // a needle on an attitude indicator is not a thing real panels have.
-  var GY = 184;
-  var gy = el('gyro'), gctx = gy.getContext('2d');
-
-  function gyroFit() {
-    var dpr = Math.min(window.devicePixelRatio || 1, 2);
-    var px = Math.round(GY * dpr);
-    if (gy.width !== px) { gy.width = px; gy.height = px; }
-    gctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  }
-
-  function gyroBox(x, y, w, h, r) {
-    gctx.beginPath();
-    gctx.moveTo(x + r, y);
-    gctx.arcTo(x + w, y, x + w, y + h, r);
-    gctx.arcTo(x + w, y + h, x, y + h, r);
-    gctx.arcTo(x, y + h, x, y, r);
-    gctx.arcTo(x, y, x + w, y, r);
-    gctx.closePath();
-  }
-
+  // The gauge itself now lives in attitude_gauge.py, so this page and the
+  // QGC-shaped one draw the same instrument rather than two copies that
+  // drift. It reads window.gcsTelemetry, which this page already keeps up
+  // to date a few lines above.
   function drawGyro() {
-    gyroFit();
-    var S = GY, c = S / 2, R = c - 13;
-    var roll = telem.roll_deg || 0, pitch = telem.pitch_deg || 0;
-    // +-30 degrees across the glass, which is the span a real attitude
-    // indicator shows. It was +-26, chosen to make the numbers fit rather
-    // than to match anything.
-    var pxPerDeg = R / 30;
-    gctx.clearRect(0, 0, S, S);
-
-    // --- the glass: sky over ground, rolling and pitching -------------
-    gctx.save();
-    gctx.beginPath(); gctx.arc(c, c, R, 0, 7); gctx.clip();
-
-    gctx.save();
-    gctx.translate(c, c);
-    gctx.rotate(-roll * Math.PI / 180);
-    gctx.translate(0, pitch * pxPerDeg);
-
-    var sky = gctx.createLinearGradient(0, -S, 0, 0);
-    sky.addColorStop(0, '#17436f'); sky.addColorStop(1, '#5ba6dc');
-    gctx.fillStyle = sky; gctx.fillRect(-S, -S * 2, S * 2, S * 2);
-    var gnd = gctx.createLinearGradient(0, 0, 0, S);
-    gnd.addColorStop(0, '#5f9e28'); gnd.addColorStop(1, '#2f5513');
-    gctx.fillStyle = gnd; gctx.fillRect(-S, 0, S * 2, S * 2);
-
-    gctx.strokeStyle = '#ffffff'; gctx.lineWidth = 2.5;
-    gctx.beginPath(); gctx.moveTo(-S, 0); gctx.lineTo(S, 0); gctx.stroke();
-
-    // A real pitch ladder is read by its numbers, not by counting rungs.
-    // This one had none: five identical white bars either side of the
-    // horizon told the instructor the aircraft was pitched, but not how
-    // far, which is the one thing it exists to say.
-    gctx.font = '700 11px "IBM Plex Mono", monospace';
-    gctx.textAlign = 'center'; gctx.textBaseline = 'middle';
-    for (var d = -30; d <= 30; d += 5) {
-      if (d === 0) { continue; }
-      var y = -d * pxPerDeg, ten = (d % 10 === 0), half = ten ? 26 : 13;
-      gctx.lineWidth = ten ? 2.2 : 1.5;
-      gctx.strokeStyle = 'rgba(255,255,255,0.95)';
-      gctx.beginPath(); gctx.moveTo(-half, y); gctx.lineTo(half, y); gctx.stroke();
-      if (ten) {
-        gctx.lineJoin = 'round';
-        gctx.strokeStyle = 'rgba(0,0,0,0.8)'; gctx.lineWidth = 3;
-        gctx.strokeText(Math.abs(d), -half - 12, y);
-        gctx.strokeText(Math.abs(d), half + 12, y);
-        gctx.fillStyle = '#ffffff';
-        gctx.fillText(Math.abs(d), -half - 12, y);
-        gctx.fillText(Math.abs(d), half + 12, y);
-      }
-    }
-    gctx.restore();
-
-    // curved glass: light at the top, shaded at the bottom
-    var gloss = gctx.createLinearGradient(0, c - R, 0, c + R);
-    gloss.addColorStop(0, 'rgba(255,255,255,0.18)');
-    gloss.addColorStop(0.45, 'rgba(255,255,255,0)');
-    gloss.addColorStop(1, 'rgba(0,0,0,0.32)');
-    gctx.fillStyle = gloss; gctx.fillRect(c - R, c - R, R * 2, R * 2);
-    gctx.restore();
-
-    // --- the bezel, and the fixed roll scale it carries ---------------
-    var bez = gctx.createLinearGradient(0, 0, 0, S);
-    bez.addColorStop(0, '#5a6477'); bez.addColorStop(0.5, '#262c37'); bez.addColorStop(1, '#13171e');
-    gctx.lineWidth = c - R;
-    gctx.strokeStyle = bez;
-    gctx.beginPath(); gctx.arc(c, c, (c + R) / 2, 0, 7); gctx.stroke();
-    gctx.lineWidth = 1.5; gctx.strokeStyle = 'rgba(0,0,0,0.85)';
-    gctx.beginPath(); gctx.arc(c, c, R + 0.75, 0, 7); gctx.stroke();
-
-    // The marks a real bank scale carries: 10, 20 and 30 close in, then 45
-    // and 60. 20 was being drawn the same length as 45, which is not what
-    // the eye is trained on.
-    gctx.strokeStyle = '#ffffff'; gctx.lineCap = 'butt';
-    [-60, -45, -30, -20, -10, 10, 20, 30, 45, 60].forEach(function (a) {
-      var ar = (a - 90) * Math.PI / 180;
-      var big = (a % 30 === 0), r2 = R + (c - R) * (big ? 0.92 : 0.6);
-      gctx.lineWidth = big ? 2.4 : 1.6;
-      gctx.beginPath();
-      gctx.moveTo(c + Math.cos(ar) * R, c + Math.sin(ar) * R);
-      gctx.lineTo(c + Math.cos(ar) * r2, c + Math.sin(ar) * r2);
-      gctx.stroke();
-    });
-    gctx.fillStyle = '#ffffff';
-    gctx.beginPath();
-    gctx.moveTo(c, c - R); gctx.lineTo(c - 6, c - R - 9); gctx.lineTo(c + 6, c - R - 9);
-    gctx.closePath(); gctx.fill();
-
-    // the bank pointer, which rolls with the aircraft
-    var pa = (-roll - 90) * Math.PI / 180;
-    gctx.fillStyle = '#ffb02e';
-    gctx.beginPath();
-    gctx.moveTo(c + Math.cos(pa) * (R - 2), c + Math.sin(pa) * (R - 2));
-    gctx.lineTo(c + Math.cos(pa - 0.08) * (R - 15), c + Math.sin(pa - 0.08) * (R - 15));
-    gctx.lineTo(c + Math.cos(pa + 0.08) * (R - 15), c + Math.sin(pa + 0.08) * (R - 15));
-    gctx.closePath(); gctx.fill();
-
-    // --- the fixed aircraft symbol ------------------------------------
-    function wings() {
-      gctx.beginPath();
-      gctx.moveTo(c - 54, c); gctx.lineTo(c - 20, c); gctx.lineTo(c - 20, c + 10);
-      gctx.moveTo(c + 54, c); gctx.lineTo(c + 20, c); gctx.lineTo(c + 20, c + 10);
-      gctx.stroke();
-    }
-    gctx.lineCap = 'round'; gctx.lineJoin = 'round';
-    gctx.strokeStyle = 'rgba(0,0,0,0.8)'; gctx.lineWidth = 7.5; wings();
-    gctx.strokeStyle = '#ffc94d'; gctx.lineWidth = 4; wings();
-    gctx.fillStyle = 'rgba(0,0,0,0.8)';
-    gctx.beginPath(); gctx.arc(c, c, 5, 0, 7); gctx.fill();
-    gctx.fillStyle = '#ffc94d';
-    gctx.beginPath(); gctx.arc(c, c, 3, 0, 7); gctx.fill();
-
-    // --- bank in figures, beside the heading ---------------------------
-    var bankTxt = Math.abs(roll) < 1 ? '0\u00b0'
-                : Math.abs(Math.round(roll)) + '\u00b0 '
-                  + (roll > 0 ? 'R' : 'L');
-    gctx.font = '700 12px "IBM Plex Mono", monospace';
-    gctx.textAlign = 'center'; gctx.textBaseline = 'middle';
-    gctx.lineJoin = 'round';
-    gctx.strokeStyle = 'rgba(0,0,0,0.85)'; gctx.lineWidth = 3.5;
-    gctx.strokeText(bankTxt, c, c - R * 0.52);
-    gctx.fillStyle = Math.abs(roll) > 45 ? '#ffb02e' : '#ffffff';
-    gctx.fillText(bankTxt, c, c - R * 0.52);
-
-    // --- heading window, in the half that sits on the black band ------
-    var hw = 58, hh = 22, hx = c - hw / 2, hy = c + R * 0.40;
-    gctx.fillStyle = 'rgba(6,9,13,0.92)';
-    gctx.strokeStyle = 'rgba(255,255,255,0.6)'; gctx.lineWidth = 1.5;
-    gyroBox(hx, hy, hw, hh, 4); gctx.fill(); gctx.stroke();
-    gctx.fillStyle = '#ffffff';
-    gctx.font = '600 16px "IBM Plex Mono", monospace';
-    gctx.textAlign = 'center'; gctx.textBaseline = 'middle';
-    gctx.fillText(String(Math.round(telem.heading_deg || 0)).padStart(3, '0') + '°',
-                  c, hy + hh / 2 + 1);
-    gctx.font = '600 8px -apple-system, sans-serif';
-    gctx.fillStyle = 'rgba(255,255,255,0.65)';
-    gctx.fillText('HDG', c, hy - 6);
+    if (window.gcsDrawAttitude) { window.gcsDrawAttitude('gyro', 184); }
   }
 
   // ---------- how the camera pictures are rendered ----------
@@ -2359,6 +2343,158 @@ SCRIPT = """
       }).catch(function () { say('The station did not answer.', true); });
   });
 
+  // ---------- exit ----------
+  // The X on the top bar, and the question it asks. No is the default in
+  // every sense: Escape, the backdrop, Enter and anything that is not the
+  // Yes button all mean No. Only Yes shuts anything down.
+  var exitBox = el('exit-ask');
+  function askExit(show) {
+    exitBox.classList.toggle('open', show);
+    if (show) { el('exit-no').focus(); }
+  }
+  el('exit-open').addEventListener('click', function () { askExit(true); });
+  el('exit-no').addEventListener('click', function () { askExit(false); });
+  exitBox.addEventListener('mousedown', function (e) {
+    // A click on the dark backdrop, but not one inside the card.
+    if (e.target === exitBox) { askExit(false); }
+  });
+  el('exit-yes').addEventListener('click', function () {
+    var card = exitBox.querySelector('.askcard');
+    card.classList.add('going');
+    exitBox.querySelector('.asktitle').textContent = 'Closing down\\u2026';
+    exitBox.querySelector('.asknote').textContent =
+      'Stopping the simulator and the station. This window can be closed.';
+    // The station stops itself a moment after answering, so this request
+    // is expected to fail as it goes - which is not an error to report.
+    fetch('/exit', { method: 'POST' }).catch(function () {});
+    setTimeout(function () {
+      exitBox.querySelector('.asktitle').textContent = 'Closed.';
+      exitBox.querySelector('.asknote').textContent =
+        'The simulator and the station have stopped. Start them again '
+        + 'with the UAV Academy GCS Pro icon.';
+      // Only works if the browser opened this window itself, which the
+      // kiosk shortcut does; harmless otherwise, hence the message above.
+      try { window.close(); } catch (err) { /* nothing to do */ }
+    }, 2500);
+  });
+
+  // ---------- the fuselage colour ----------
+  // The list comes from the station rather than being written out here,
+  // so adding a scheme is a one-file change.
+  var livery = { now: null, locked: null };
+  function liveryDraw() {
+    var lockedHere = (livery.locked && livery.locked === livery.now);
+    el('livery-lock').classList.toggle('locked', !!lockedHere);
+    el('livery-lock').textContent = lockedHere ? 'Locked' : 'Lock';
+    var note = el('livery-note');
+    note.classList.toggle('locked', !!lockedHere);
+    note.textContent = lockedHere
+      ? 'Locked. Every session starts in this colour.'
+      : 'This session only. Lock keeps it for every future session.';
+  }
+  function liveryRead(d) {
+    if (!el('livery').options.length && d.schemes) {
+      d.schemes.forEach(function (s) {
+        var o = document.createElement('option');
+        o.value = s.id; o.textContent = s.label; o.title = s.why;
+        el('livery').appendChild(o);
+      });
+    }
+    livery.now = d.scheme;
+    livery.locked = d.locked || null;
+    el('livery').value = d.scheme;
+    liveryDraw();
+    if (d.message) { say(d.message, d.ok === false); }
+  }
+  function liverySend(lock) {
+    fetch('/livery?scheme=' + encodeURIComponent(el('livery').value)
+          + (lock ? '&lock=1' : ''))
+      .then(function (r) { return r.json(); })
+      .then(liveryRead)
+      .catch(function () { say('The station did not answer.', true); });
+  }
+  el('livery').addEventListener('change', function () { liverySend(false); });
+  el('livery-lock').addEventListener('click', function () { liverySend(true); });
+  fetch('/livery').then(function (r) { return r.json(); })
+    .then(liveryRead).catch(function () {});
+
+  // ---------- the external view's angle ----------
+  // Settings > Aircraft. The arrows move the camera at once so the angle
+  // can be judged by eye; Lock writes it down and every future session
+  // opens at it. Nothing here cares whether the aircraft is flying.
+  var ANGLE_STEP = 2;            // degrees per press, and per wheel notch
+  var ANGLE_MIN = -28, ANGLE_MAX = 83;   // the boom joint's own travel
+  var angle = { deg: 17, locked: null, timer: null };
+
+  function angleDraw() {
+    el('angle-read').textContent = angle.deg.toFixed(0) + '\\u00b0';
+    el('angle-up').disabled = angle.deg >= ANGLE_MAX;
+    el('angle-down').disabled = angle.deg <= ANGLE_MIN;
+    var lockedHere = (angle.locked !== null
+                      && Math.abs(angle.locked - angle.deg) < 0.05);
+    el('angle-lock').classList.toggle('locked', lockedHere);
+    el('angle-lock').textContent = lockedHere ? 'Locked' : 'Lock';
+    var note = el('angle-note');
+    note.classList.toggle('locked', lockedHere);
+    if (lockedHere) {
+      note.textContent = 'Locked at ' + angle.deg.toFixed(0)
+        + '\\u00b0. Every session opens at this angle until it is changed.';
+    } else if (angle.locked !== null) {
+      note.textContent = 'This session only. Locked angle is still '
+        + angle.locked.toFixed(0) + '\\u00b0 - press Lock to replace it.';
+    } else {
+      note.textContent = 'Not locked - this session only. '
+        + 'Lock keeps it for every future session.';
+    }
+  }
+
+  // One request per burst. Holding an arrow down, or spinning the wheel,
+  // would otherwise put a command on the wire per repeat.
+  function angleSend(lock) {
+    if (angle.timer) { clearTimeout(angle.timer); }
+    angle.timer = setTimeout(function () {
+      angle.timer = null;
+      fetch('/chase_view?el=' + angle.deg + (lock ? '&lock=1' : ''))
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (typeof d.view_angle_deg === 'number') { angle.deg = d.view_angle_deg; }
+          angle.locked = (typeof d.locked_deg === 'number') ? d.locked_deg : null;
+          angleDraw();
+          if (lock) {
+            say('External view angle locked at ' + angle.deg.toFixed(0)
+                + '\\u00b0 for every future session.');
+          } else if (!d.sent) {
+            say('The angle was set but the boom did not move - run '
+                + 'tools/chase_angles_apply.py and restart the simulator.', true);
+          }
+        }).catch(function () { say('The station did not answer.', true); });
+    }, lock ? 0 : 160);
+  }
+
+  function angleNudge(by) {
+    angle.deg = Math.max(ANGLE_MIN, Math.min(ANGLE_MAX, angle.deg + by));
+    angleDraw();
+    angleSend(false);
+  }
+  el('angle-up').addEventListener('click', function () { angleNudge(ANGLE_STEP); });
+  el('angle-down').addEventListener('click', function () { angleNudge(-ANGLE_STEP); });
+  el('angle-lock').addEventListener('click', function () { angleSend(true); });
+  // The wheel over the reading does the same, which is the gesture people
+  // try first on a number with arrows beside it.
+  el('angle-read').addEventListener('wheel', function (e) {
+    e.preventDefault();
+    angleNudge(e.deltaY < 0 ? ANGLE_STEP : -ANGLE_STEP);
+  }, { passive: false });
+
+  // Read the angle the station is actually on, rather than assuming the
+  // factory one - it may already have applied a locked angle at start-up.
+  fetch('/chase_view?read=1').then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (typeof d.view_angle_deg === 'number') { angle.deg = d.view_angle_deg; }
+      angle.locked = (typeof d.locked_deg === 'number') ? d.locked_deg : null;
+      angleDraw();
+    }).catch(function () { angleDraw(); });
+
   // ---------- settings, by category ----------
   el('set-tabs').addEventListener('click', function (e) {
     var b = e.target.closest ? e.target.closest('button') : null;
@@ -2536,6 +2672,28 @@ SCRIPT = """
     makeDraggable(win, win.querySelector('.win-head'));
   });
   makeDraggable(el('preflight'), el('preflight').querySelector('.pf-head'));
+
+  // The external view strip. It has to become fixed-position before it is
+  // dragged, or the first drag jumps: left/top mean one thing inside the
+  // view and another against the window.
+  var strip = el('chasebar');
+  if (strip) {
+    var stripHandle = strip.querySelector('.striphandle');
+    stripHandle.addEventListener('mousedown', function () {
+      var box = strip.getBoundingClientRect();
+      strip.classList.add('floating');
+      strip.style.left = Math.round(box.left) + 'px';
+      strip.style.top = Math.round(box.top) + 'px';
+    });
+    makeDraggable(strip, stripHandle);
+    // Put it back where it was last left, on every load.
+    var stripAt = state.windows[strip.id];
+    if (stripAt && stripAt.x != null) {
+      strip.classList.add('floating');
+      strip.style.left = Math.round(stripAt.x) + 'px';
+      strip.style.top = Math.round(stripAt.y) + 'px';
+    }
+  }
   document.addEventListener('click', function (e) {
     var open = e.target.closest ? e.target.closest('[data-open-win]') : null;
     if (open) { openWindow(open.dataset.openWin); return; }
@@ -2543,7 +2701,13 @@ SCRIPT = """
     if (close) { closeWindows(); }
   });
   document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape') { closeWindows(); el('preflight').classList.remove('open'); }
+    if (e.key !== 'Escape') { return; }
+    // The exit question first: if it is up, Escape answers it and nothing
+    // else. Otherwise Escape would shut the panels behind the dialog and
+    // leave the dialog itself sitting there.
+    if (exitBox.classList.contains('open')) { askExit(false); return; }
+    closeWindows();
+    el('preflight').classList.remove('open');
   });
 
   // The aircraft diagram is the control: clicking a rotor runs that

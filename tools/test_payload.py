@@ -303,6 +303,136 @@ check("the command topic is the model-scoped cmd_pos one",
       sim_target.gimbal_joint_topic("gimbal_yaw_joint")
       == "/model/%s/joint/gimbal_yaw_joint/0/cmd_pos" % sim_target.MODEL)
 
+print("8b. the external view's angle, and that it survives a restart")
+# Added 13 Oct 2026. Settings > Aircraft sets the chase view's elevation in
+# degrees and LOCKS it, which has to mean the next session opens at it. The
+# failure that matters is silent: a locked angle that is written but never
+# read back leaves an instructor setting it again every morning and
+# assuming they forgot.
+import contextlib                                           # noqa: E402
+import io                                                   # noqa: E402
+import json as _json                                        # noqa: E402
+
+_was = gimbal.CHASE_PRESETS["behind"]
+check("the boom's travel is one pair of figures, not two",
+      (gimbal.CHASE_EL_MIN, gimbal.CHASE_EL_MAX) == (-28.0, 83.0))
+check("setting the angle moves only the Behind view",
+      gimbal.set_behind_elevation(40) == 40.0
+      and gimbal.CHASE_PRESETS["behind"] == (0.0, 40.0)
+      and gimbal.CHASE_PRESETS["top"] == (0.0, 60.0))
+check("an angle past the joint's reach is clamped, not refused",
+      gimbal.set_behind_elevation(900) == gimbal.CHASE_EL_MAX
+      and gimbal.set_behind_elevation(-900) == gimbal.CHASE_EL_MIN)
+gimbal.CHASE_PRESETS["behind"] = _was
+
+with contextlib.redirect_stdout(io.StringIO()):
+    import instructor_station as _st                         # noqa: E402
+_real_layout = _st.LAYOUT_FILE
+_tmp = tempfile.mkdtemp()
+_st.LAYOUT_FILE = os.path.join(_tmp, "gcs_layout.json")
+try:
+    check("with nothing saved, no angle is locked",
+          _st.read_prefs()["view_angle_deg"] is None
+          and _st.apply_saved_prefs() is None)
+
+    _st.write_prefs({"view_angle_deg": 35.0})
+    check("a locked angle is read back as it was written",
+          _st.read_prefs()["view_angle_deg"] == 35.0)
+
+    # Clamped on the way IN as well as out: the file is on disk and can be
+    # edited by hand, and a boom told to go to 500 degrees would sit at its
+    # stop with the console claiming otherwise.
+    _st.write_prefs({"view_angle_deg": 500.0})
+    check("an impossible angle in the file is clamped on the way back in",
+          _st.read_prefs()["view_angle_deg"] == gimbal.CHASE_EL_MAX)
+
+    _st.write_prefs({"view_angle_deg": 41.0})
+    check("start-up applies the locked angle to the Behind view",
+          _st.apply_saved_prefs() == 41.0
+          and gimbal.CHASE_PRESETS["behind"] == (0.0, 41.0))
+    check("and leaves the other views alone",
+          gimbal.CHASE_PRESETS["top"] == (0.0, 60.0)
+          and gimbal.CHASE_PRESETS["low"] == (0.0, -14.0))
+
+    # The layout and the preferences share one file. Saving either must not
+    # wipe the other, which is the obvious way this breaks later.
+    _st.write_console_layout({"hero": "nose",
+                              "windows": {"chasebar": {"x": 300, "y": 200}}})
+    _saved = _json.load(open(_st.LAYOUT_FILE))
+    check("saving a layout does not wipe the locked angle",
+          _saved["prefs"]["view_angle_deg"] == 41.0)
+    check("and the external view strip's position is saved with it",
+          _saved["console"]["windows"].get("chasebar") == {"x": 300, "y": 200})
+    _st.write_prefs({"view_angle_deg": 12.0})
+    check("and saving the angle does not wipe the layout",
+          _json.load(open(_st.LAYOUT_FILE))["console"]["hero"] == "nose")
+
+    # A corrupt file must not stop the station starting. It is written on
+    # every drag, so a power cut mid-write is not far-fetched.
+    with open(_st.LAYOUT_FILE, "w") as _h:
+        _h.write("{ not json")
+    check("a corrupt file reads as no angle rather than throwing",
+          _st.read_prefs()["view_angle_deg"] is None)
+finally:
+    _st.LAYOUT_FILE = _real_layout
+    gimbal.CHASE_PRESETS["behind"] = _was
+    shutil.rmtree(_tmp, ignore_errors=True)
+
+print("8c. the fuselage colour, and that it survives a restart")
+# Added 13 Oct 2026. Two schemes, chosen from the console while the
+# aircraft flies - Gazebo recolours a visual at runtime, so this needs no
+# restart - and LOCK means the next session starts in that colour.
+import aircraft_livery                                      # noqa: E402
+
+check("there are exactly the two schemes asked for (%s)"
+      % ", ".join(sorted(aircraft_livery.SCHEMES)),
+      set(aircraft_livery.SCHEMES) == {"sar", "grey"})
+check("the orange one is the search-and-rescue scheme",
+      "Search and Rescue" in aircraft_livery.SCHEMES["sar"]["label"])
+# The visual has to be scoped model::link::visual or gz silently recolours
+# nothing - there is no error for a name that matches no entity.
+check("the fuselage visual is scoped the way gz needs (%s)"
+      % aircraft_livery.AIRFRAME_VISUAL,
+      aircraft_livery.AIRFRAME_VISUAL
+      == "%s::base_link::base_link_visual" % sim_target.MODEL)
+
+_sent = []
+_real_publish = aircraft_livery._publish
+aircraft_livery._publish = lambda rgb: _sent.append(rgb) or True
+try:
+    ok, _ = aircraft_livery.set_scheme("grey")
+    check("choosing grey sends the grey colour",
+          ok and _sent and _sent[-1] == aircraft_livery.SCHEMES["grey"]["rgb"])
+    ok, message = aircraft_livery.set_scheme("tartan")
+    check("an unknown scheme is refused, and says what is on offer",
+          not ok and "sar" in message and "grey" in message)
+    _sent.clear()
+    aircraft_livery.reapply()
+    check("and a world switch puts the chosen colour back on",
+          _sent == [aircraft_livery.SCHEMES["grey"]["rgb"]])
+finally:
+    aircraft_livery._publish = _real_publish
+    aircraft_livery.state["scheme"] = aircraft_livery.DEFAULT
+
+_real_layout2 = _st.LAYOUT_FILE
+_tmp2 = tempfile.mkdtemp()
+_st.LAYOUT_FILE = os.path.join(_tmp2, "gcs_layout.json")
+try:
+    _st.write_prefs({"livery": "grey"})
+    check("a locked livery is read back", _st.read_prefs()["livery"] == "grey")
+    # Checked against the list, because the file can be hand-edited and an
+    # unknown name would leave the console claiming a colour nobody has.
+    _st.write_prefs({"livery": "tartan"})
+    check("an unknown one in the file is ignored rather than trusted",
+          _st.read_prefs()["livery"] is None)
+    _st.write_prefs({"livery": "sar", "view_angle_deg": 30.0})
+    check("the livery and the view angle do not overwrite each other",
+          _st.read_prefs()["livery"] == "sar"
+          and _st.read_prefs()["view_angle_deg"] == 30.0)
+finally:
+    _st.LAYOUT_FILE = _real_layout2
+    shutil.rmtree(_tmp2, ignore_errors=True)
+
 print("9. the payload screen, in a real browser")
 
 
@@ -525,20 +655,33 @@ def browser_checks():
         check("so the first setting is at the top of the pane (%s px down)"
               % side["gapAbove"], side["gapAbove"] < 30)
 
-        # The settings icon has to be the last thing on the bar.
+        # The settings icon has to be at the END of the bar - the decision
+        # of 12 Oct 2026, where DJI puts it. From 13 Oct the close X sits
+        # outside it, because that is where every application keeps close
+        # and an instructor reaching for it should not have to look. So the
+        # rule is now "last but one, and still hard against the edge"
+        # rather than "last".
         right_edge = page.evaluate("""() => {
             const b = document.getElementById('settings-open');
+            const x = document.getElementById('exit-open');
             const bar = document.getElementById('topbar');
             const r = b.getBoundingClientRect(), t = bar.getBoundingClientRect();
+            const xr = x ? x.getBoundingClientRect() : null;
             const others = [...bar.querySelectorAll('button, .item, .badge')]
-              .filter(e => e !== b)
+              .filter(e => e !== b && e !== x)
               .map(e => e.getBoundingClientRect().right);
             return { gap: Math.round(t.right - r.right),
-                     last: r.right >= Math.max(...others) - 1 };
+                     lastButOne: r.right >= Math.max(...others) - 1,
+                     xIsLast: !!xr && xr.right >= r.right,
+                     xGap: xr ? Math.round(t.right - xr.right) : null };
         }""")
-        check("the menu icon is the last thing on the bar", right_edge["last"])
-        check("and sits against the right edge (%s px)" % right_edge["gap"],
-              right_edge["gap"] < 30)
+        check("the menu icon is the last thing on the bar bar the close X",
+              right_edge["lastButOne"])
+        check("the close X is the very last, as in any application",
+              right_edge["xIsLast"])
+        check("and both sit against the right edge (%s px, %s px)"
+              % (right_edge["gap"], right_edge["xGap"]),
+              right_edge["gap"] < 80 and right_edge["xGap"] < 30)
 
         page.evaluate("() => document.querySelector('[data-open-win=\"flightlog\"]').click()")
         page.wait_for_timeout(600)
@@ -567,6 +710,159 @@ def browser_checks():
         check("every control is reachable on the page (%s)"
               % (missing or "all present"), not missing)
 
+        print("12. the external view's angle, on the page")
+        # Added 13 Oct 2026. The arrows and the lock live in Settings >
+        # Aircraft; the figures they clamp to are the boom joint's own
+        # travel, and a console that let an instructor wind past it would
+        # show an angle the camera was never at.
+        check("the angle control is in the Aircraft tab, not loose on the page",
+              page.locator('.set-pane[data-pane="aircraft"] #angle-read').count() == 1)
+        # And it is reached the way an instructor reaches it: the gear, then
+        # the Aircraft tab. Hidden until then is correct, not a fault.
+        check("it is not on screen until the Aircraft tab is chosen",
+              not page.locator("#angle-up").is_visible())
+        page.locator("#settings-open").click()
+        page.locator('#set-tabs button[data-tab="aircraft"]').click()
+        check("the gear and the Aircraft tab bring it up",
+              page.locator("#angle-up").is_visible())
+
+        def angle_now():
+            return page.locator("#angle-read").inner_text().replace("°", "")
+
+        start = angle_now()
+        page.locator("#angle-up").click()
+        page.locator("#angle-up").click()
+        check("two presses of the up arrow raise it (%s -> %s)"
+              % (start, angle_now()), float(angle_now()) == float(start) + 4)
+        page.locator("#angle-down").click()
+        check("and the down arrow lowers it again (%s)" % angle_now(),
+              float(angle_now()) == float(start) + 2)
+
+        def hold(which, limit=120):
+            """Press an arrow until it goes dead, as holding it down would."""
+            for _ in range(limit):
+                if page.locator(which).is_disabled():
+                    return True
+                page.locator(which).click()
+            return False
+
+        check("the up arrow eventually goes dead rather than running on",
+              hold("#angle-up"))
+        check("it stops at the top of the boom's reach (%s)" % angle_now(),
+              float(angle_now()) == gimbal.CHASE_EL_MAX)
+        check("and the arrow goes dead there rather than doing nothing quietly",
+              page.locator("#angle-up").is_disabled())
+        check("the down arrow does the same the other way", hold("#angle-down"))
+        check("and at the bottom of it (%s)" % angle_now(),
+              float(angle_now()) == gimbal.CHASE_EL_MIN)
+        check("with the other arrow dead",
+              page.locator("#angle-down").is_disabled())
+
+        print("13. the wheel over the height tape")
+        # The tape is painted on a canvas, so the live area is a rectangle
+        # rather than an element. It is hit-tested against the figures the
+        # gauge actually drew with, which is the only way it can stay on
+        # the tape after the instructor drags a corner tile over it.
+        rects = page.evaluate("window.gcsTapes ? window.gcsTapes('canvas.hud') : null")
+        check("the gauge publishes where it drew the tapes", bool(rects and rects.get("alt")))
+        if rects and rects.get("alt"):
+            probe = """(r) => {
+              const cv = document.querySelector('canvas.hud');
+              const box = cv.getBoundingClientRect();
+              const sx = box.width / (cv.cssW || box.width);
+              const sy = box.height / (cv.cssH || box.height);
+              const mid = (a) => [box.left + ((a.left + a.right) / 2) * sx,
+                                  box.top + ((a.top + a.bottom) / 2) * sy];
+              const out = {};
+              out.onAlt = window.gcsAltWheel('canvas.hud', ...mid(r.alt)).hit;
+              out.onSpeed = window.gcsAltWheel('canvas.hud', ...mid(r.speed)).hit;
+              out.offTape = window.gcsAltWheel('canvas.hud', box.left + 4,
+                                               box.top + 4).hit;
+              const [x, y] = mid(r.alt);
+              const spin = (n, d) => { for (let i = 0; i < n; i++) {
+                cv.dispatchEvent(new WheelEvent('wheel', {deltaY: d, clientX: x,
+                  clientY: y, bubbles: true, cancelable: true})); } };
+              // The wheel counts from where the aircraft actually IS, not
+              // from zero - otherwise the first notch commands a dive to
+              // 5 m from whatever height it is at.
+              const step0 = window.gcsAltWheel('canvas.hud', x, y).step;
+              const nowAlt = (window.gcsTelemetry || {}).altitude_m || 0;
+              out.base = Math.round(nowAlt / step0) * step0;
+              spin(3, -100);
+              out.afterThreeUp = window.gcsAltWheel('canvas.hud', x, y).pending;
+              spin(1, 100);
+              out.afterOneDown = window.gcsAltWheel('canvas.hud', x, y).pending;
+              spin(80, 100);
+              out.floor = window.gcsAltWheel('canvas.hud', x, y).pending;
+              spin(120, -100);
+              out.ceiling = window.gcsAltWheel('canvas.hud', x, y).pending;
+              const ev = new WheelEvent('wheel', {deltaY: -100, clientX: x,
+                clientY: y, bubbles: true, cancelable: true});
+              cv.dispatchEvent(ev);
+              out.consumed = ev.defaultPrevented;
+              const limits = window.gcsAltWheel('canvas.hud', x, y);
+              out.step = limits.step; out.min = limits.min; out.max = limits.max;
+              return out;
+            }"""
+            w = page.evaluate(probe, rects)
+            check("the height tape takes the wheel", w["onAlt"])
+            check("the speed tape does not", not w["onSpeed"])
+            check("and neither does the rest of the picture", not w["offTape"])
+            check("it counts from the height the aircraft is at (%s m)"
+                  % w["base"], w["base"] is not None)
+            check("three notches up is three steps above that (%s m)"
+                  % w["afterThreeUp"],
+                  w["afterThreeUp"] == w["base"] + 3 * w["step"])
+            check("one back down is one step less (%s m)" % w["afterOneDown"],
+                  w["afterOneDown"] == w["base"] + 2 * w["step"])
+            check("it cannot be wound below the floor (%s m)" % w["floor"],
+                  w["floor"] == w["min"])
+            check("nor above the ceiling (%s m)" % w["ceiling"],
+                  w["ceiling"] == w["max"])
+            # Without this the console scrolls under the pointer while the
+            # instructor is changing height, which moves the tape itself.
+            check("and the page does not scroll underneath it", w["consumed"])
+
+        print("14. every container can be dragged, and is remembered")
+        # The rails, the corner tiles and the pop-up panels could all be
+        # moved and remembered. The external view strip was the one left
+        # nailed to the picture.
+        moved = page.evaluate("""() => {
+          const strip = document.getElementById('chasebar');
+          if (!strip) { return {missing: true}; }
+          const h = strip.querySelector('.striphandle');
+          if (!h) { return {noHandle: true}; }
+          const b0 = strip.getBoundingClientRect();
+          h.dispatchEvent(new MouseEvent('mousedown', {clientX: b0.left + 5,
+            clientY: b0.top + 5, bubbles: true, cancelable: true}));
+          document.dispatchEvent(new MouseEvent('mousemove',
+            {clientX: b0.left + 205, clientY: b0.top + 155, bubbles: true}));
+          const b1 = strip.getBoundingClientRect();
+          document.dispatchEvent(new MouseEvent('mouseup', {bubbles: true}));
+          return { dx: Math.round(b1.left - b0.left),
+                   dy: Math.round(b1.top - b0.top),
+                   floating: strip.classList.contains('floating'),
+                   stillDragging: strip.classList.contains('dragging'),
+                   mask: getComputedStyle(
+                     document.getElementById('dragmask')).display,
+                   buttonsIntact: strip.querySelectorAll('button[data-chase]').length };
+        }""")
+        check("the external view strip has a grip to drag it by",
+              not moved.get("missing") and not moved.get("noHandle"))
+        # A strip that jumps on the first grab is the symptom of being
+        # positioned against the view and then dragged against the window.
+        check("it follows the mouse exactly rather than jumping (%s, %s)"
+              % (moved.get("dx"), moved.get("dy")),
+              moved.get("dx") == 200 and moved.get("dy") == 150)
+        check("it is fixed to the window, not to a view that moves into a tile",
+              moved.get("floating"))
+        check("the drag ends cleanly", not moved.get("stillDragging"))
+        # The mask sits at z-index 60 over everything; left up, the whole
+        # console stops taking clicks.
+        check("and the drag mask comes back down", moved.get("mask") == "none")
+        check("and its view buttons survive the drag (%s)"
+              % moved.get("buttonsIntact"), moved.get("buttonsIntact") == 6)
+
         browser.close()
     server.shutdown()
 
@@ -578,5 +874,17 @@ if fails:
     print("%d check(s) failed:" % len(fails))
     for tag in fails:
         print("  - " + tag)
-    sys.exit(1)
-print("All checks passed.")
+
+# os._exit, NOT sys.exit. This file imports gimbal, which loads the Gazebo
+# python bindings, and those keep a background thread. On interpreter
+# shutdown that thread sometimes releases an object without the GIL and
+# pybind11 aborts the process - measured 13 Oct 2026, two runs in three,
+# every one of them AFTER every check had passed and been printed. An exit
+# code of 134 on a run with no failures reads as "the tests are broken",
+# which is worse than the race it comes from. The result is already decided
+# here, so leave without running the interpreter's teardown.
+sys.stdout.flush()
+if not fails:
+    print("All checks passed.")
+    sys.stdout.flush()
+os._exit(1 if fails else 0)

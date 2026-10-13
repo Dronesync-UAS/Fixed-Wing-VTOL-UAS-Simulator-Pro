@@ -676,6 +676,11 @@ def status():
 # and the wing is seen from above at a shallow angle - enough to read
 # the planform and the bank, which is what a chase view is for, without
 # turning into a top-down.
+# The boom joint's own travel, in degrees above and below the aircraft.
+# Named rather than written into chase_view by hand, because Settings >
+# Aircraft now clamps its arrows to the same pair and the two must agree.
+CHASE_EL_MIN, CHASE_EL_MAX = -28.0, 83.0
+
 CHASE_PRESETS = {
     "behind": (0.0, 17.0),
     "port": (-90.0, 7.0),
@@ -771,6 +776,24 @@ def start_chase_keeper(period_s=2.0):
         return _chase_keeper
 
 
+def set_behind_elevation(deg):
+    """Change how high above the aircraft the BEHIND view sits.
+
+    Added 13 Oct 2026 for Settings > Aircraft, where an instructor sets
+    the external view's angle in degrees and locks it for every future
+    session. Only "behind" moves: Top and Low exist precisely to be
+    different angles, and forcing this figure on them would leave the
+    console with six buttons that all did the same thing.
+
+    Returns the angle actually used, which is clamped to the joint's own
+    travel rather than refused - an instructor holding the up arrow
+    should stop at the top of the boom's reach, not get an error.
+    """
+    el = clamp(float(deg), CHASE_EL_MIN, CHASE_EL_MAX)
+    CHASE_PRESETS["behind"] = (CHASE_PRESETS["behind"][0], round(el, 1))
+    return CHASE_PRESETS["behind"][1]
+
+
 def chase_view(preset=None, az_deg=None, el_deg=None):
     """Swing the chase boom. Named preset, or explicit angles."""
     if preset is not None:
@@ -781,7 +804,7 @@ def chase_view(preset=None, az_deg=None, el_deg=None):
     else:
         chase["preset"] = "custom"
     az = (float(az_deg) + 180.0) % 360.0 - 180.0
-    el = clamp(float(el_deg), -28.0, 83.0)      # the joint's own travel
+    el = clamp(float(el_deg), CHASE_EL_MIN, CHASE_EL_MAX)
     chase["az_deg"], chase["el_deg"] = round(az, 1), round(el, 1)
     chase["sent"] = _send_chase()
     return chase

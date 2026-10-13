@@ -55,6 +55,9 @@ for name in ("reset_flight_state", "log_instructor_action", "mark_failure_inject
 sl.status_log = []
 sl.home_amsl = lambda: 1200.0
 sl.on_armed_change = lambda cb: None
+# The tail light follows the GPS fix - see aircraft_lights.set_gps.
+sl.on_gps_change = lambda cb: None
+sl.GPS_FIX_SATELLITES = 6
 sl.on_failure = lambda cb: None
 sl.failure_injection_blocked = lambda: None
 sl.read_param = lambda *a, **k: 1.0
@@ -86,12 +89,16 @@ sl.set_mode = lambda m, s=0, name=None: "ok"
 sys.modules["simulator_link"] = sl
 al = types.ModuleType("aircraft_lights")
 al.set_armed = lambda *a, **k: None
+al.set_gps = lambda *a, **k: None
 al.set_on = lambda on: None
 al.status = lambda: {"on": False, "armed": False, "problem": None}
-al.NAVIGATION = ["nav_port", "nav_starboard", "nav_tail"]
+# No wingtip lights from 13 Oct 2026, and the tail light is the GPS
+# indicator rather than a position light.
+al.NAVIGATION = []
+al.GPS_LIGHT = "nav_tail"
 al.STROBES = ["strobe_top", "strobe_belly"]
 al.BEACON = ["beacon_top"]
-al.ALL = al.NAVIGATION + al.STROBES + al.BEACON
+al.ALL = al.NAVIGATION + [al.GPS_LIGHT] + al.STROBES + al.BEACON
 sys.modules["aircraft_lights"] = al
 
 el = types.ModuleType("event_logger")
@@ -147,7 +154,13 @@ STUBS = {
     "/failure_status": {"gps_failure": True, "motor_failure": False},
     "/flight_path": {"home": sl.home_latlon,
                      "points": [[23.5, 6.5, 100.0], [23.5012, 6.5009, 120.0]]},
-    "/terrain_info": {"available": False},
+    # The plan view's backdrop. A world name is here because the console
+    # watches it for CHANGES - see section 10 - and "available: False"
+    # alone never exercised that.
+    "/terrain_info": {"available": True, "world": "training_area_coast",
+                      "source": "satellite", "credit": "Mapbox coast",
+                      "east_min": -2000, "east_max": 2000,
+                      "north_min": -2000, "north_max": 2000},
     "/payload_status": {"pan_deg": 0.0, "tilt_deg": 30.0, "zoom": 1.0,
                         "mode": "manual", "target": None, "range_m": None,
                         "range_source": None, "range_age_s": None,
@@ -160,6 +173,11 @@ STUBS = {
                         "recording": {"on": False, "frames": 0, "seconds": 0}},
     "/chase_view": {"az_deg": 0.0, "el_deg": 17.0, "preset": "behind",
                     "sent": True},
+    "/livery": {"scheme": "sar", "label": "Search and Rescue (orange)",
+                "locked": None,
+                "schemes": [{"id": "grey", "label": "Dark grey", "why": ""},
+                            {"id": "sar", "label": "Search and Rescue (orange)",
+                             "why": ""}]},
     "/flight_log": {"now": {"recording": False, "last": None},
                     "flights": [], "folder": "/tmp/flights"},
     "/connection_status": sl.connection_status,
@@ -189,6 +207,8 @@ class Stub(http.server.BaseHTTPRequestHandler):
             body, ctype = json.dumps(STUBS[path]).encode(), "application/json"
         elif path in ("/video_feed", "/chase_feed", "/payload_feed",
                       "/terrain.png", "/favicon.ico"):
+            if path == "/terrain.png":
+                TERRAIN_PULLS.append(self.path)
             body, ctype = PNG, "image/png"
         else:
             self.send_response(404)
@@ -203,6 +223,7 @@ class Stub(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         length = int(self.headers.get("Content-Length") or 0)
         self.rfile.read(length)
+        POSTED.append(self.path)
         self.send_response(200)
         self.send_header("Content-Length", "2")
         self.end_headers()
@@ -210,6 +231,10 @@ class Stub(http.server.BaseHTTPRequestHandler):
 
     def log_message(self, *a):
         pass
+
+
+POSTED = []
+TERRAIN_PULLS = []
 
 
 def main():
@@ -1103,6 +1128,86 @@ def main():
         page.wait_for_timeout(400)
         check("a lit failure shows its light",
               "on" in (page.get_attribute("#dot-gps_failure", "class") or ""))
+
+        print("9. the X, and the question it asks")
+        # Added 13 Oct 2026 with the merged desktop icon. The separate red
+        # "stop" icon went away, so the one-click stop lives here now - and
+        # because it is one click from ending a lesson, every answer except
+        # the Yes button has to mean no.
+        POSTED[:] = [p for p in POSTED if p != "/exit"]
+        check("there is an X on the top bar", page.locator("#exit-open").count() == 1)
+        check("and it asks nothing until it is pressed",
+              not page.locator("#exit-ask").is_visible())
+
+        page.click("#exit-open")
+        check("pressing it asks", page.locator("#exit-ask").is_visible())
+        check("with the question spelled out (%r)"
+              % page.inner_text("#exit-title"),
+              page.inner_text("#exit-title").strip() == "Do you want to exit?")
+
+        page.click("#exit-no")
+        check("No puts it away", not page.locator("#exit-ask").is_visible())
+        page.click("#exit-open")
+        page.keyboard.press("Escape")
+        check("Escape means No as well", not page.locator("#exit-ask").is_visible())
+        page.click("#exit-open")
+        page.mouse.click(20, 500)
+        check("and so does a click on the backdrop",
+              not page.locator("#exit-ask").is_visible())
+        check("none of which shut anything down (%s)" % (POSTED or "nothing sent"),
+              "/exit" not in POSTED)
+
+        # Escape with the dialog up must answer the dialog and stop there,
+        # or it closes the panels behind it and leaves the dialog sitting
+        # on top of a console that has quietly rearranged itself.
+        page.click("#settings-open")
+        page.click("#exit-open")
+        page.keyboard.press("Escape")
+        check("Escape answers the dialog without disturbing what is behind it",
+              not page.locator("#exit-ask").is_visible()
+              and page.locator("#win-settings").is_visible())
+        page.keyboard.press("Escape")
+
+        page.click("#exit-open")
+        page.click("#exit-yes")
+        page.wait_for_timeout(600)
+        check("only Yes sends the shutdown", "/exit" in POSTED)
+        check("and the page says what is happening rather than going blank",
+              "Closing" in page.inner_text("#exit-title"))
+        page.reload()
+        page.wait_for_timeout(600)
+
+        print("10. the plan view follows a change of training area")
+        # Until 13 Oct 2026 the backdrop was fetched once at page load and
+        # never again, so switching training area left the track being
+        # drawn over the PREVIOUS area's imagery, with nothing on screen to
+        # say so. The station's own side was right the whole time -
+        # plugins/environment.py resets the backdrop on every switch -
+        # nobody asked it a second time. Found by having QGroundControl
+        # open alongside: it re-centres on GPS, so it followed the switch
+        # and this map did not.
+        check("the first area's imagery is named on screen (%r)"
+              % page.inner_text("#fp-backdrop"),
+              "coast" in page.inner_text("#fp-backdrop"))
+        check("and it was fetched with the world in the URL, or the browser "
+              "cache would serve the wrong picture (%s)" % TERRAIN_PULLS[:1],
+              TERRAIN_PULLS and "training_area_coast" in TERRAIN_PULLS[0])
+
+        before = len(TERRAIN_PULLS)
+        STUBS["/terrain_info"] = dict(STUBS["/terrain_info"],
+                                      world="training_area_nullarbor",
+                                      credit="Mapbox nullarbor")
+        page.wait_for_timeout(3000)
+        check("the map follows the switch with no page reload (%r)"
+              % page.inner_text("#fp-backdrop"),
+              "nullarbor" in page.inner_text("#fp-backdrop"))
+        check("pulling the new imagery on its own URL",
+              len(TERRAIN_PULLS) > before
+              and "training_area_nullarbor" in TERRAIN_PULLS[-1])
+        # Polling the small JSON is cheap; the imagery is megabytes, so it
+        # must be pulled on a change and never on a tick.
+        check("and only once, not on every poll (%d pulls in total)"
+              % len(TERRAIN_PULLS), len(TERRAIN_PULLS) == before + 1)
 
         if "--shot" in sys.argv:
             out = sys.argv[sys.argv.index("--shot") + 1]

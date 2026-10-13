@@ -19,6 +19,7 @@ import json
 import math
 import time
 import threading
+import subprocess
 import sys
 import errno
 import os
@@ -35,8 +36,11 @@ from plugin_loader import load_plugins
 import video_feed
 from video_feed import start_video_capture, mjpeg_generator, camera_fps, FEEDS
 import console_page
+import console_qgc
+import attitude_gauge
 import event_logger
 import aircraft_lights
+import aircraft_livery
 import flight_display
 import flight_log
 import gimbal
@@ -266,6 +270,76 @@ def clear_layout():
     except OSError as exc:
         return f"Could not reset the layout - {exc.strerror}."
 
+
+# ---------------------------------------------------------------------------
+# Instructor preferences that outlive a session
+#
+# Settings an instructor sets once and expects to find again tomorrow, as
+# opposed to the layout (where panels are) or the scenario (what the
+# aircraft is doing). Kept under their own key in the same file, so the
+# existing backup picks them up and a saved layout is untouched by one of
+# these changing.
+#
+# Added 13 Oct 2026 with the external view angle, which is the first of
+# them. The rule it follows is the one asked for: changed and confirmed in
+# Settings, then applied to every session until it is changed again.
+# ---------------------------------------------------------------------------
+PREFS_DEFAULT = {"view_angle_deg": None, "livery": None}
+
+
+def read_prefs():
+    saved = read_layout().get("prefs")
+    out = dict(PREFS_DEFAULT)
+    if not isinstance(saved, dict):
+        return out
+    angle = saved.get("view_angle_deg")
+    if isinstance(angle, (int, float)):
+        out["view_angle_deg"] = round(
+            max(gimbal.CHASE_EL_MIN, min(gimbal.CHASE_EL_MAX, float(angle))), 1)
+    livery = saved.get("livery")
+    # Checked against the list rather than trusted: the file can be edited
+    # by hand, and an unknown name would leave the aircraft the colour its
+    # model file happens to carry with the console claiming otherwise.
+    if livery in aircraft_livery.SCHEMES:
+        out["livery"] = livery
+    return out
+
+
+def write_prefs(changes):
+    """Merge changes into the saved preferences. Returns a message."""
+    current = read_prefs()
+    current.update(changes)
+    existing = read_layout()
+    existing["prefs"] = current
+    try:
+        os.makedirs(os.path.dirname(LAYOUT_FILE), exist_ok=True)
+        with open(LAYOUT_FILE, "w") as handle:
+            json.dump(existing, handle, indent=2)
+    except OSError as exc:
+        return "Not saved - %s." % exc.strerror
+    return "Saved."
+
+
+def apply_saved_prefs():
+    """Put the saved preferences into effect at start-up.
+
+    Called once as the station comes up, before the first page is served,
+    so the console's first telemetry already reports the locked angle
+    rather than the factory one and then jumping."""
+    prefs = read_prefs()
+    if prefs["livery"]:
+        aircraft_livery.set_scheme(prefs["livery"])
+    angle = prefs["view_angle_deg"]
+    if angle is None:
+        return None
+    gimbal.set_behind_elevation(angle)
+    # Move the boom to it as well. The aircraft may already be flying -
+    # this works airborne and on the ground alike, because the boom is a
+    # camera mount and has nothing to do with the flight controller.
+    gimbal.chase_view(preset="behind")
+    return angle
+
+
 # ---------------------------------------------------------------------------
 # CAP722B 5.3(c) - operational-limit envelope. The instructor gets an
 # on-screen warning as the aircraft approaches (amber) or exceeds (red)
@@ -305,6 +379,9 @@ _video_node = start_video_capture()  # starts listening for camera frames immedi
 # at the wrong angle while the console showed the right one.
 gimbal.start_chase_keeper()
 on_armed_change(aircraft_lights.set_armed)
+# The tail light is the GPS indicator: green with a fix, red without.
+from simulator_link import on_gps_change            # noqa: E402
+on_gps_change(aircraft_lights.set_gps)
 
 # Every flight goes in the record, from ARM to DISARM, without anyone
 # having to press anything. A log an instructor has to remember to start
@@ -1034,7 +1111,50 @@ def render_console():
     page = page.replace("__EXTRA_SCRIPT__", EXTRA_SCRIPT
                         + _limits_script()
                         + flight_display.STYLE + flight_display.script()
-                        + motor_sound.STYLE + motor_sound.script())
+                        + motor_sound.STYLE + motor_sound.script()
+                        + attitude_gauge.script())
+    return page
+
+
+def render_pro():
+    """The QGC-shaped console. See console_qgc.py for what was copied.
+
+    Built from the same pieces as render_console: the controls come from
+    render_groups, so a plugin added tomorrow appears on both pages
+    without being mentioned in either."""
+    page = console_qgc.TEMPLATE
+    # The instructor drawer carries everything QGC has no equivalent for -
+    # the failures and the scenario controls. The flight actions are on the
+    # left strip already, so they are not repeated here.
+    page = page.replace("__INSTRUCTOR__", render_groups(RIGHT_RAIL))
+    for heading, _ in SETTINGS_GROUPS:
+        page = page.replace("__SETTINGS_%s__" % heading.upper(),
+                            render_groups([(heading,
+                                            dict(SETTINGS_GROUPS)[heading])],
+                                          collapsible=False))
+    # The flight actions in full, plus anything no group claimed. NOT the
+    # drawer's controls and not the settings ones: they are already on this
+    # page, and a second copy would mean two elements with the same id -
+    # which silently breaks the failure lights, because getElementById
+    # returns the first and the lit one may be the second.
+    #
+    # The left strip shows these as icons and cannot show their number
+    # boxes, so this is also where the climb height and the loiter radius
+    # are actually typed.
+    placed = {i for _, ids in (LEFT_RAIL + RIGHT_RAIL + SETTINGS_GROUPS)
+              for i in ids}
+    spare = [p["id"] for p in plugins if p["id"] not in placed]
+    page = page.replace("__SETTINGS_ALL__",
+                        render_groups(LEFT_RAIL, collapsible=False)
+                        + (render_groups([("Not yet placed", spare)],
+                                         collapsible=False) if spare else ""))
+    page = page.replace("__CONSOLE_SCRIPT__", console_qgc.SCRIPT)
+    page = page.replace("__EXTRA_STYLE__", EXTRA_STYLE)
+    page = page.replace("__EXTRA_SCRIPT__", EXTRA_SCRIPT
+                        + _limits_script()
+                        + flight_display.STYLE + flight_display.script()
+                        + motor_sound.STYLE + motor_sound.script()
+                        + attitude_gauge.script())
     return page
 
 
@@ -1535,20 +1655,56 @@ EXTRA_SCRIPT = """
     var out = document.getElementById('fp-backdrop');
     if (out) { out.innerText = text; }
   }
+  // WATCHED, NOT LOADED ONCE. Until 13 Oct 2026 this ran a single time at
+  // page load, so switching training area left the plan view showing the
+  // OLD area's imagery and the old extents - the track was being drawn on
+  // a map of somewhere else, with no hint that anything was wrong. The
+  // station's own side was right all along: plugins/environment.py calls
+  // terrain_backdrop.reset() on every switch. Nobody asked it again.
+  //
+  // It was noticed by having QGroundControl open alongside: QGC re-centres
+  // on the aircraft's GPS continuously, so it followed the switch to
+  // Australia while this map stayed in Norfolk.
+  var terrainWorld = null;
   showBackdrop('loading...');
-  fetch('/terrain_info').then(function (r) { return r.json(); }).then(function (d) {
-    terrainInfo = d;
-    if (!d.available) { showBackdrop('none for this world'); return; }
-    var img = new Image();
-    img.onload = function () {
-      terrainImg = img;
-      showBackdrop(d.source === 'satellite'
-                   ? (d.credit || 'satellite imagery')
-                   : 'shaded relief');
-    };
-    img.onerror = function () { showBackdrop('failed to load'); };
-    img.src = '/terrain.png';
-  }).catch(function () { showBackdrop('unavailable'); });
+  function refreshBackdrop() {
+    fetch('/terrain_info').then(function (r) { return r.json(); })
+      .then(function (d) {
+        // Only the WORLD matters here. Polling the JSON is cheap; pulling
+        // a ten-megabyte PNG every few seconds is not, so the image is
+        // re-fetched when the world changes and at no other time.
+        if (d.world === terrainWorld) { return; }
+        terrainWorld = d.world;
+        terrainInfo = d;
+        if (!d.available) {
+          terrainImg = null;
+          showBackdrop('none for this world');
+          return;
+        }
+        showBackdrop('loading...');
+        var img = new Image();
+        img.onload = function () {
+          terrainImg = img;
+          showBackdrop(d.source === 'satellite'
+                       ? (d.credit || 'satellite imagery')
+                       : 'shaded relief');
+        };
+        img.onerror = function () {
+          terrainImg = null;
+          showBackdrop('failed to load');
+        };
+        // The world in the query string is what defeats the browser cache.
+        // /terrain.png is one URL serving a different picture per world,
+        // so without this the old image comes straight back out of cache.
+        img.src = '/terrain.png?world=' + encodeURIComponent(d.world || '');
+      }).catch(function () {
+        if (terrainWorld === null) { showBackdrop('unavailable'); }
+      });
+  }
+  refreshBackdrop();
+  // A switch takes 15-30 seconds, so two seconds is well inside the time
+  // an instructor waits anyway.
+  setInterval(refreshBackdrop, 2000);
   function niceStep(x) {
     if (x <= 0) return 100;
     var p = Math.pow(10, Math.floor(Math.log(x) / Math.LN10));
@@ -2063,6 +2219,45 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(text.encode())
 
+    def _exit_everything(self):
+        """Close the whole thing down, from the console's X.
+
+        Added 13 Oct 2026 with the merged desktop icon. The separate red
+        "stop" icon went away, so the one-click stop had to live somewhere;
+        the console's own close button is where anyone would look for it.
+
+        ANSWERS FIRST, STOPS SECOND. The station is one of the things being
+        stopped, so killing before replying leaves the browser with a
+        failed request and no idea whether it worked. The reply goes out,
+        then a moment later everything stops - the simulator through the
+        launcher's own stop_all, so a shutdown from here cleans up PX4's
+        lock files exactly as the desktop icon does, and this process last.
+        """
+        event_logger.log_event("exit", "from the console")
+        self._respond("Closing down.")
+        try:
+            self.wfile.flush()
+        except OSError:
+            pass
+
+        def shutdown():
+            time.sleep(0.6)             # long enough for the reply to land
+            try:
+                sys.path.insert(0, os.path.join(os.path.dirname(
+                    os.path.abspath(__file__)), "tools"))
+                import uas_launcher
+                uas_launcher.stop_all(quiet=True)
+            except Exception:
+                # Never leave the station running because tidying up
+                # failed - that is the one outcome the button must not
+                # produce. The patterns below are the launcher's own.
+                for pattern in ("bin/px4", "gz sim"):
+                    subprocess.run(["pkill", "-f", pattern],
+                                   capture_output=True)
+            os._exit(0)
+
+        threading.Thread(target=shutdown, daemon=True).start()
+
     def _payload(self):
         """Everything the payload screen asks for.
 
@@ -2150,7 +2345,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(json.dumps(answer).encode("utf-8"))
 
     def do_GET(self):
-        if self.path in ("/", "/classic"):
+        if self.path in ("/", "/classic", "/pro"):
             self.send_response(200)
             self.send_header("Content-type", "text/html; charset=utf-8")
             self.end_headers()
@@ -2169,8 +2364,52 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                     + flight_display.STYLE + flight_display.script()
                                     + LAYOUT_STYLE + LAYOUT_SCRIPT + "</body>")
                 self.wfile.write(page.encode("utf-8"))
+            elif self.path == "/pro":
+                # The QGC-shaped console, served alongside the current one
+                # while it is judged - the same thing that was done for the
+                # panel grid at /classic when the current one was new.
+                self.wfile.write(render_pro().encode("utf-8"))
             else:
                 self.wfile.write(render_console().encode("utf-8"))
+        elif self.path.startswith("/livery"):
+            query = parse_qs(urlparse(self.path).query)
+            answer = dict(aircraft_livery.status())
+            scheme = (query.get("scheme") or [None])[0]
+            if scheme:
+                ok, message = aircraft_livery.set_scheme(scheme)
+                answer = dict(aircraft_livery.status())
+                answer["message"] = message
+                answer["ok"] = ok
+                # "lock" is the confirm, exactly as it is for the view
+                # angle: without it the colour changes for this session
+                # only and nothing is written down.
+                if ok and (query.get("lock") or ["0"])[0] in ("1", "true", "yes"):
+                    answer["message"] += " " + write_prefs({"livery": scheme})
+                event_logger.log_event("livery", "scheme=%s" % scheme)
+            answer["locked"] = read_prefs()["livery"]
+            self.send_response(200)
+            self.send_header("Content-type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps(answer).encode("utf-8"))
+        elif self.path == "/app_icon.png":
+            # The brand button on the QGC-shaped console, and a favicon.
+            # Served from the repo so it is the same picture as the desktop
+            # icon - tools/make_app_icon.py writes both.
+            icon = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                "sim", "icons", "uas-gcs-app-icon.png")
+            try:
+                with open(icon, "rb") as handle:
+                    blob = handle.read()
+            except OSError:
+                self.send_response(404)
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header("Content-type", "image/png")
+            self.send_header("Content-Length", str(len(blob)))
+            self.send_header("Cache-Control", "max-age=3600")
+            self.end_headers()
+            self.wfile.write(blob)
         elif self.path == "/connection_status":
             self.send_response(200)
             self.send_header("Content-type", "application/json; charset=utf-8")
@@ -2247,7 +2486,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-type", "application/json; charset=utf-8")
             self.end_headers()
             self.wfile.write(json.dumps(terrain_backdrop.info()).encode("utf-8"))
-        elif self.path == "/terrain.png":
+        elif self.path.startswith("/terrain.png"):
+            # startswith, not ==, because the console appends ?world=NAME.
+            # One URL serves a different picture per training area, and the
+            # browser caches by URL - so without the world in the query a
+            # switch kept redrawing the track over the old area's imagery.
             data = terrain_backdrop.png()
             if data is None:
                 self.send_response(404)
@@ -2256,8 +2499,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-type", "image/png")
             self.send_header("Content-Length", str(len(data)))
-            # The terrain does not change while the sim runs, and the image is
-            # ~400 KB - let the browser keep it rather than refetch on reload.
+            # Still worth caching for a reload - the imagery for a given
+            # world really does not change - but the cache is now keyed by
+            # a URL that carries the world, so a switch cannot hit it.
             self.send_header("Cache-Control", "max-age=3600")
             self.end_headers()
             self.wfile.write(data)
@@ -2304,6 +2548,45 @@ class Handler(http.server.BaseHTTPRequestHandler):
             }).encode("utf-8"))
         elif self.path.startswith("/chase_view"):
             query = parse_qs(urlparse(self.path).query)
+            # Read without moving anything. The console asks on load, and
+            # until 13 Oct 2026 the bare path defaulted to the Behind
+            # preset - so opening the page swung the camera back to Behind
+            # and an instructor watching from Top lost their view on every
+            # browser refresh.
+            if (query.get("read") or ["0"])[0] in ("1", "true", "yes"):
+                status = gimbal.chase_status()
+                status["view_angle_deg"] = gimbal.CHASE_PRESETS["behind"][1]
+                status["locked_deg"] = read_prefs()["view_angle_deg"]
+                self.send_response(200)
+                self.send_header("Content-type",
+                                 "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps(status).encode("utf-8"))
+                return
+            # An explicit elevation, from Settings > Aircraft. "lock" is the
+            # confirm: without it the arrows move the camera so the angle
+            # can be judged by eye, and nothing is written down.
+            if "el" in query:
+                try:
+                    wanted = float(query["el"][0])
+                except (TypeError, ValueError):
+                    self._respond("That is not an angle in degrees.", 400)
+                    return
+                used = gimbal.set_behind_elevation(wanted)
+                answer = gimbal.chase_view(preset="behind")
+                note = ""
+                if (query.get("lock") or ["0"])[0] in ("1", "true", "yes"):
+                    note = " " + write_prefs({"view_angle_deg": used})
+                event_logger.log_event("view_angle", f"deg={used:g}{note}")
+                self.send_response(200)
+                self.send_header("Content-type",
+                                 "application/json; charset=utf-8")
+                self.end_headers()
+                status = gimbal.chase_status()
+                status["view_angle_deg"] = used
+                status["locked_deg"] = read_prefs()["view_angle_deg"]
+                self.wfile.write(json.dumps(status).encode("utf-8"))
+                return
             preset = (query.get("preset") or ["behind"])[0]
             answer = gimbal.chase_view(preset=preset)
             if answer is None:
@@ -2313,7 +2596,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-type", "application/json; charset=utf-8")
             self.end_headers()
-            self.wfile.write(json.dumps(gimbal.chase_status()).encode("utf-8"))
+            status = gimbal.chase_status()
+            # The console's angle box reads these, so every answer carries
+            # them - otherwise pressing Top would leave the box showing a
+            # figure that is no longer what the camera is doing.
+            status["view_angle_deg"] = gimbal.CHASE_PRESETS["behind"][1]
+            status["locked_deg"] = read_prefs()["view_angle_deg"]
+            self.wfile.write(json.dumps(status).encode("utf-8"))
         elif self.path.startswith("/payload_"):
             self._payload()
         elif self.path.startswith("/action/"):
@@ -2337,6 +2626,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
 
     def do_POST(self):
+        if self.path == "/exit":
+            self._exit_everything()
+            return
         if self.path not in ("/layout", "/console_layout"):
             self.send_response(404)
             self.end_headers()
@@ -2385,6 +2677,10 @@ def run_server():
 
 if __name__ == "__main__":
     print(f"Loaded {len(plugins)} controls across {len([c for c in categories.values() if c])} categories.")
+    _locked_angle = apply_saved_prefs()
+    if _locked_angle is not None:
+        print(f"External view angle locked at {_locked_angle:g} degrees "
+              f"(Settings > Aircraft to change it).")
     threading.Thread(target=run_server, daemon=True).start()
     print(f"UAV Academy GCS Pro running - open a browser to: http://localhost:{PORT}")
 
