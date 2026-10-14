@@ -77,10 +77,9 @@ Two cautions:
 * it applies to every RAE in the UK, so it is a tailwind for competitors
   too, and the established simulator vendors will read it as an
   opportunity before we do;
-* the clause numbers cited throughout this codebase - `5.3(c)` and
-  `5.2(d)` - are **still unverified**, as the readiness note says. Nothing
-  should go in front of a customer or the CAA until they are checked
-  against the document.
+* the clause numbers cited throughout this codebase were checked against
+  the document on 14 Oct 2026. `5.3(c)`, `5.2(d)` and `5.5(l)` are right;
+  `2.2(f)` was wrong and is now `2.1(f)`. See the readiness note.
 
 ## The honest risks
 
@@ -97,6 +96,17 @@ screen for testing rather than an instructor console, but it shows the
 direction, and "inject a failure" alone will not be a differentiator for
 long. The differentiator has to be the *lesson*: repeatable scenarios,
 the record, the debrief.
+
+**The requirement is more specific than the pitch assumes.** Reading
+CAP 722B properly turned up three things in `5.3` - predefined loadable
+scenarios, and control of temperature, barometric pressure and
+turbulence - that the station does not have, and one, `5.3(f)`, that is
+about the room rather than the software: the instructor's display must be
+positioned so the remote pilot cannot see it. A buyer who has read the
+document will ask about all four. That is an argument for building
+against the clauses rather than against an idea of what an instructor
+console should be - and the clauses are public, so a competitor can read
+them too.
 
 **The addressable market may be small.** UK RAEs number in the dozens, not
 thousands. A product priced for that market has to either be cheap and
