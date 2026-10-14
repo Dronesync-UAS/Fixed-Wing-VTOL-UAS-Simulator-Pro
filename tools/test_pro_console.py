@@ -155,6 +155,34 @@ check("nothing is left in a pane headed \"Not yet placed\"",
       "Not yet placed" not in PAGE)
 
 
+print("0c. the payload view has its own controls")
+# The console this page replaced carried a control bar on the payload
+# picture - zoom, the infrared modes, the rangefinder, track, photo,
+# record, stabilise, centre and stow. None of it was carried over, so the
+# Payload view showed a picture an instructor could do nothing with.
+# Reported 14 Oct 2026: "no commands to control it as the older version".
+for what, token in [
+        ("zoom out", 'data-pay="zoomout"'),
+        ("zoom in", 'data-pay="zoomin"'),
+        ("the rangefinder", 'data-pay="lase"'),
+        ("track", 'data-pay="track"'),
+        ("photo", 'data-pay="photo"'),
+        ("record", 'data-pay="record"'),
+        ("stabilise", 'data-pay="stab"'),
+        ("centre", 'data-pay="centre"'),
+        ("stow", 'data-pay="stow"'),
+        ("the infrared modes", 'value="white_hot"'),
+        ("the pointing readout", 'id="q-pay-read"')]:
+    check("the payload view has %s" % what, token in PAGE)
+
+# It has to be INSIDE the payload surface, or it belongs to whatever view
+# happens to be on the stage.
+_pay = PAGE.index('id="v-payload"')
+_end = PAGE.index('</div>', PAGE.index('id="qpaybar"'))
+check("and the bar is inside the payload view, not loose on the page",
+      _pay < PAGE.index('id="qpaybar"') < _end)
+
+
 print("1. every instructor control is on the page")
 # Reachable means a button with its id, OR a tool-strip entry that sends it.
 ids = set(re.findall(r'id="btn-([a-z0-9_]+)"', PAGE))

@@ -276,6 +276,46 @@ TEMPLATE = """<!DOCTYPE html>
   }
   #rose canvas { width: 100%; height: 100%; display: block; }
 
+  /* ---------- the payload's own control bar ---------- */
+  /* Sits on the payload picture, not beside it: it is the view's own
+     controls and has to travel with it between the stage and the PiP. */
+  /* WHERE IT FITS, measured rather than guessed. The view surface fills
+     the whole window, and four things overlay it: the toolbar across the
+     top 66 px, the two 56 px tool strips down the sides from y=72, and
+     the telemetry-and-compass cluster at the bottom right. Full width
+     along the bottom put it under the compass, and along the top under
+     the exit button - in both cases those elements took the clicks, so
+     the buttons could not be pressed at all.
+     This sits in the clear band: below the toolbar, between the strips. */
+  .paybar {
+    position: absolute; top: calc(var(--toolbar) + var(--margin));
+    left: calc(var(--strip) + 2 * var(--margin));
+    right: calc(var(--strip) + 2 * var(--margin));
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 8px; flex-wrap: wrap; border-radius: var(--radius);
+    background: rgba(0,0,0,0.62); backdrop-filter: blur(4px);
+    font-size: 12px; z-index: 3;
+  }
+  /* The select is a flex item and would otherwise take all the space the
+     readout left, pushing every button onto a second row. */
+  .paybar select { flex: 0 0 auto; width: auto; }
+  .paybar button, .paybar select {
+    background: rgba(255,255,255,0.10); color: var(--ink);
+    border: 1px solid var(--edge); border-radius: var(--radius);
+    padding: 4px 9px; font-size: 12px; font-weight: 600; cursor: pointer;
+    font-family: inherit;
+  }
+  .paybar button:hover, .paybar select:hover { background: rgba(255,255,255,0.18); }
+  /* QGC's own green for a control that is ON, and its red for recording. */
+  .paybar button.on { background: var(--good); border-color: var(--good); color: #06130a; }
+  .paybar button.rec { background: var(--stop); border-color: var(--stop); color: #fff; }
+  .paybar .paygroup { display: flex; align-items: center; gap: 4px; }
+  .paybar .paygroup b { min-width: 42px; text-align: center; font-variant-numeric: tabular-nums; }
+  .payread { color: var(--dim); font-variant-numeric: tabular-nums; margin-right: auto; }
+  /* While picking a track target the whole picture is the hit area. */
+  #v-payload.picking { cursor: crosshair; }
+  #v-payload.slewing { cursor: grabbing; }
+
   /* ---------- the instructor drawer ---------- */
   /* QGC has nothing like this, so it is the one place the design departs.
      Shut by default: the resting screen stays QGC's. */
@@ -523,6 +563,32 @@ __EXTRA_STYLE__
   <div class="surface" id="v-payload" data-name="Payload">
     <img src="/payload_feed" alt="Payload camera">
     <canvas class="hud"></canvas>
+    <!-- THE PAYLOAD'S OWN CONTROLS. They were on the console this page
+         replaced and were not carried over, so the Payload view showed a
+         picture an instructor could do nothing with - reported 14 Oct
+         2026, "no commands to control it as the older version". Same
+         endpoints as the old bar; QGC's own button styling. -->
+    <div class="paybar" id="qpaybar">
+      <span class="payread" id="q-pay-read">-</span>
+      <span class="paygroup">
+        <button data-pay="zoomout" title="Zoom out">&minus;</button>
+        <b id="q-pay-zoom">1.0x</b>
+        <button data-pay="zoomin" title="Zoom in">+</button>
+      </span>
+      <select id="q-pay-view" title="Renderings of the colour camera, not a thermal sensor">
+        <option value="normal">Day</option>
+        <option value="white_hot">IR white hot</option>
+        <option value="black_hot">IR black hot</option>
+        <option value="night_vision">Night vision</option>
+      </select>
+      <button data-pay="lase" title="Fire the rangefinder once">LRF</button>
+      <button data-pay="track" id="q-pay-track" title="Then click the target to hold">TRACK</button>
+      <button data-pay="photo" title="Save a photograph with its position">PHOTO</button>
+      <button data-pay="record" id="q-pay-record" title="Start or stop recording">REC</button>
+      <button data-pay="stab" id="q-pay-stab" title="Hold the line of sight while the aircraft moves">STAB</button>
+      <button data-pay="centre" title="Point it straight ahead">Centre</button>
+      <button data-pay="stow" title="Point it straight down">Stow</button>
+    </div>
   </div>
 </div>
 
@@ -895,6 +961,127 @@ SCRIPT = """
   el('gb-centre').addEventListener('click', function () {
     el('gb-pan').value = 0; el('gb-tilt').value = 30; gimbalSend();
   });
+
+  // ---------- the payload's own controls ----------
+  // The same endpoints the previous console used; nothing in the station
+  // changed. Kept here rather than in the Gimbal popup because these are
+  // the picture's controls - an operator reads the frame and acts on it,
+  // and a pan slider in another window is not that.
+  var pay = { status: null, picking: false, drag: null };
+  var payView = el('v-payload');
+
+  function payCall(path) {
+    return fetch(path).then(function (r) { return r.json(); })
+      .then(payShow)
+      .catch(function () { say('The station did not answer.', true); });
+  }
+
+  function payShow(d) {
+    if (!d) { return; }
+    pay.status = d;
+    var zoom = el('q-pay-zoom');
+    if (zoom) { zoom.textContent = (d.zoom || 1).toFixed(1) + 'x'; }
+    var read = el('q-pay-read');
+    if (read) {
+      var range = (d.range_m == null) ? '--'
+        : Math.round(d.range_m) + ' m' + (d.range_stale ? ' (old)' : '');
+      read.textContent = 'PAN ' + Math.round(d.pan_deg) + '\u00b0  TILT '
+        + Math.round(d.tilt_deg) + '\u00b0  FOV ' + (d.fov_deg || 0).toFixed(0)
+        + '\u00b0  RNG ' + range;
+    }
+    var stab = el('q-pay-stab');
+    if (stab) { stab.classList.toggle('on', !!d.stabilised); }
+    var rec = el('q-pay-record');
+    if (rec) { rec.classList.toggle('rec', !!(d.recording && d.recording.on)); }
+    var track = el('q-pay-track');
+    if (track) { track.classList.toggle('on', d.mode === 'lock' || pay.picking); }
+    var sel = el('q-pay-view');
+    if (sel && d.view_mode && sel.value !== d.view_mode) { sel.value = d.view_mode; }
+  }
+
+  el('qpaybar').addEventListener('click', function (e) {
+    var b = e.target.closest ? e.target.closest('button') : null;
+    if (!b) { return; }
+    e.stopPropagation();           // the bar is ON the picture; do not slew
+    var what = b.dataset.pay;
+    if (what === 'zoomin') { payCall('/payload_zoom?steps=1'); }
+    else if (what === 'zoomout') { payCall('/payload_zoom?steps=-1'); }
+    else if (what === 'lase') { payCall('/payload_lase'); }
+    else if (what === 'photo') { payCall('/payload_photo'); }
+    else if (what === 'centre') { payCall('/payload_centre'); }
+    else if (what === 'stow') { payCall('/payload_stow'); }
+    else if (what === 'stab') {
+      payCall('/payload_stabilise?on='
+              + (pay.status && pay.status.stabilised ? '0' : '1'));
+    } else if (what === 'record') {
+      var on = pay.status && pay.status.recording && pay.status.recording.on;
+      payCall('/payload_record?on=' + (on ? '0' : '1'));
+    } else if (what === 'track') {
+      if (pay.status && pay.status.mode === 'lock') {
+        pay.picking = false;
+        payView.classList.remove('picking');
+        payCall('/payload_unlock');
+      } else {
+        pay.picking = !pay.picking;
+        payView.classList.toggle('picking', pay.picking);
+        say(pay.picking ? 'Click the target you want the gimbal to hold.'
+                        : 'Target selection cancelled.');
+        payShow(pay.status);
+      }
+    }
+  });
+
+  el('q-pay-view').addEventListener('change', function () {
+    payCall('/payload_view?mode=' + el('q-pay-view').value);
+  });
+
+  // DRAG TO SLEW, converted through the field of view actually on screen,
+  // so a drag of half the frame moves the gimbal half a frame whatever the
+  // zoom. Without that a zoomed-in view is unusably twitchy.
+  payView.addEventListener('mousedown', function (e) {
+    if (e.button !== 0 || (e.target.closest && e.target.closest('.paybar'))) { return; }
+    e.preventDefault();
+    pay.drag = { x: e.clientX, y: e.clientY,
+                 box: payView.getBoundingClientRect(), moved: 0 };
+    payView.classList.add('slewing');
+  });
+  window.addEventListener('mousemove', function (e) {
+    if (!pay.drag) { return; }
+    var dx = e.clientX - pay.drag.x, dy = e.clientY - pay.drag.y;
+    if (Math.abs(dx) < 2 && Math.abs(dy) < 2) { return; }
+    pay.drag.moved += Math.abs(dx) + Math.abs(dy);
+    pay.drag.x = e.clientX; pay.drag.y = e.clientY;
+    var fov = pay.status ? pay.status.fov_deg : 60, box = pay.drag.box;
+    // Dragging left moves the picture left, so the camera looks right.
+    var dpan = -(dx / Math.max(1, box.width)) * fov;
+    var dtilt = -(dy / Math.max(1, box.height)) * fov
+                * (box.height / Math.max(1, box.width));
+    payCall('/payload_aim?dpan=' + dpan.toFixed(3)
+            + '&dtilt=' + dtilt.toFixed(3));
+  });
+  window.addEventListener('mouseup', function (e) {
+    if (!pay.drag) { return; }
+    var moved = pay.drag.moved, box = pay.drag.box;
+    pay.drag = null;
+    payView.classList.remove('slewing');
+    // A click rather than a drag, while picking, is the target.
+    if (moved < 4 && pay.picking) {
+      var u = (e.clientX - box.left) / Math.max(1, box.width);
+      var v = (e.clientY - box.top) / Math.max(1, box.height);
+      if (u >= 0 && u <= 1 && v >= 0 && v <= 1) {
+        pay.picking = false;
+        payView.classList.remove('picking');
+        payCall('/payload_lock?u=' + u.toFixed(4) + '&v=' + v.toFixed(4));
+      }
+    }
+  });
+
+  function payPoll() {
+    fetch('/payload_status').then(function (r) { return r.json(); })
+      .then(payShow).catch(function () {});
+  }
+  payPoll();
+  setInterval(payPoll, 500);
 
   // ---------- the drawer ----------
   function drawer(open) { el('drawer').classList.toggle('open', open); }
