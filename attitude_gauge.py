@@ -40,15 +40,14 @@ window.gcsDrawAttitude = function (id, size) {
     gctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
 
-  function gyroBox(x, y, w, h, r) {
-    gctx.beginPath();
-    gctx.moveTo(x + r, y);
-    gctx.arcTo(x + w, y, x + w, y + h, r);
-    gctx.arcTo(x + w, y + h, x, y + h, r);
-    gctx.arcTo(x, y + h, x, y, r);
-    gctx.arcTo(x, y, x + w, y, r);
-    gctx.closePath();
-  }
+  // The classic instrument colours, flattened to one tone each. The sky
+  // and ground of an attitude indicator are the one thing about it nobody
+  // should restyle - a blue-over-brown horizon is how it is read at a
+  // glance - so they stay, without the gradients.
+  var SKY = '#3c7fb1';
+  var GND = '#6b4b2a';
+  // The compass needle's red, so the moving part of both gauges matches.
+  var ROSE_RED = '#e2473f';
 
   function drawGyro() {
     gyroFit();
@@ -69,82 +68,80 @@ window.gcsDrawAttitude = function (id, size) {
     gctx.rotate(-roll * Math.PI / 180);
     gctx.translate(0, pitch * pxPerDeg);
 
-    var sky = gctx.createLinearGradient(0, -S, 0, 0);
-    sky.addColorStop(0, '#17436f'); sky.addColorStop(1, '#5ba6dc');
-    gctx.fillStyle = sky; gctx.fillRect(-S, -S * 2, S * 2, S * 2);
-    var gnd = gctx.createLinearGradient(0, 0, 0, S);
-    gnd.addColorStop(0, '#5f9e28'); gnd.addColorStop(1, '#2f5513');
-    gctx.fillStyle = gnd; gctx.fillRect(-S, 0, S * 2, S * 2);
+    // FLAT COLOUR, NOT A GRADIENT. The compass beside this one is drawn
+    // flat - thin white ticks on the panel colour, one weight of line, no
+    // shading - and this was drawn as a moulded instrument: gradient sky
+    // and ground, a gloss highlight over the glass, a gradient bezel and
+    // black outlines behind every number. Side by side they read as two
+    // instruments from two different aircraft. Asked for on 14 Oct 2026:
+    // "align design style as the compass maintaining classic
+    // representation of the gyroscope gauge design".
+    //
+    // So the TREATMENT changes and the INSTRUMENT does not. Sky over
+    // ground, a horizon that rolls and pitches, a numbered pitch ladder, a
+    // fixed bank scale with a rolling pointer and a fixed aircraft symbol
+    // are what an attitude indicator is, and all of them stay.
+    gctx.fillStyle = SKY; gctx.fillRect(-S, -S * 2, S * 2, S * 2);
+    gctx.fillStyle = GND; gctx.fillRect(-S, 0, S * 2, S * 2);
 
-    gctx.strokeStyle = '#ffffff'; gctx.lineWidth = 2.5;
+    gctx.strokeStyle = '#ffffff'; gctx.lineWidth = 2;
     gctx.beginPath(); gctx.moveTo(-S, 0); gctx.lineTo(S, 0); gctx.stroke();
 
     // A real pitch ladder is read by its numbers, not by counting rungs.
-    // This one had none: five identical white bars either side of the
-    // horizon told the instructor the aircraft was pitched, but not how
-    // far, which is the one thing it exists to say.
-    gctx.font = '700 11px "IBM Plex Mono", monospace';
+    // The compass's own type: sans-serif, and no black outline behind it -
+    // the rose has none, and on flat fill nothing needs one.
+    gctx.font = 'bold 11px -apple-system, sans-serif';
     gctx.textAlign = 'center'; gctx.textBaseline = 'middle';
     for (var d = -30; d <= 30; d += 5) {
       if (d === 0) { continue; }
       var y = -d * pxPerDeg, ten = (d % 10 === 0), half = ten ? 26 : 13;
-      gctx.lineWidth = ten ? 2.2 : 1.5;
-      gctx.strokeStyle = 'rgba(255,255,255,0.95)';
+      gctx.lineWidth = ten ? 2 : 1.5;
+      // The rose draws its minor ticks at 0.35 and its cardinals solid.
+      gctx.strokeStyle = ten ? 'rgba(255,255,255,0.9)'
+                             : 'rgba(255,255,255,0.45)';
       gctx.beginPath(); gctx.moveTo(-half, y); gctx.lineTo(half, y); gctx.stroke();
       if (ten) {
-        gctx.lineJoin = 'round';
-        gctx.strokeStyle = 'rgba(0,0,0,0.8)'; gctx.lineWidth = 3;
-        gctx.strokeText(Math.abs(d), -half - 12, y);
-        gctx.strokeText(Math.abs(d), half + 12, y);
-        gctx.fillStyle = '#ffffff';
+        gctx.fillStyle = 'rgba(255,255,255,0.9)';
         gctx.fillText(Math.abs(d), -half - 12, y);
         gctx.fillText(Math.abs(d), half + 12, y);
       }
     }
     gctx.restore();
-
-    // curved glass: light at the top, shaded at the bottom
-    var gloss = gctx.createLinearGradient(0, c - R, 0, c + R);
-    gloss.addColorStop(0, 'rgba(255,255,255,0.18)');
-    gloss.addColorStop(0.45, 'rgba(255,255,255,0)');
-    gloss.addColorStop(1, 'rgba(0,0,0,0.32)');
-    gctx.fillStyle = gloss; gctx.fillRect(c - R, c - R, R * 2, R * 2);
     gctx.restore();
 
-    // --- the bezel, and the fixed roll scale it carries ---------------
-    var bez = gctx.createLinearGradient(0, 0, 0, S);
-    bez.addColorStop(0, '#5a6477'); bez.addColorStop(0.5, '#262c37'); bez.addColorStop(1, '#13171e');
-    gctx.lineWidth = c - R;
-    gctx.strokeStyle = bez;
-    gctx.beginPath(); gctx.arc(c, c, (c + R) / 2, 0, 7); gctx.stroke();
-    gctx.lineWidth = 1.5; gctx.strokeStyle = 'rgba(0,0,0,0.85)';
-    gctx.beginPath(); gctx.arc(c, c, R + 0.75, 0, 7); gctx.stroke();
-
-    // The marks a real bank scale carries: 10, 20 and 30 close in, then 45
-    // and 60. 20 was being drawn the same length as 45, which is not what
-    // the eye is trained on.
-    gctx.strokeStyle = '#ffffff'; gctx.lineCap = 'butt';
+    // --- the bank scale -----------------------------------------------
+    // No bezel ring is drawn any more. #gyrobox and #rose already carry
+    // the same disc - var(--panel), a 1 px var(--edge) border and the same
+    // blur - so the gauge painted a second, heavier rim inside the one the
+    // page had already drawn. Removing it is what makes the pair match.
+    gctx.strokeStyle = 'rgba(255,255,255,0.45)'; gctx.lineCap = 'butt';
     [-60, -45, -30, -20, -10, 10, 20, 30, 45, 60].forEach(function (a) {
       var ar = (a - 90) * Math.PI / 180;
       var big = (a % 30 === 0), r2 = R + (c - R) * (big ? 0.92 : 0.6);
-      gctx.lineWidth = big ? 2.4 : 1.6;
+      gctx.lineWidth = big ? 2 : 1.5;
+      gctx.strokeStyle = big ? 'rgba(255,255,255,0.9)'
+                             : 'rgba(255,255,255,0.45)';
       gctx.beginPath();
       gctx.moveTo(c + Math.cos(ar) * R, c + Math.sin(ar) * R);
       gctx.lineTo(c + Math.cos(ar) * r2, c + Math.sin(ar) * r2);
       gctx.stroke();
     });
-    gctx.fillStyle = '#ffffff';
+    // Wings level, at the top. The rose's own index is a plain filled
+    // triangle, so this is one too.
+    gctx.fillStyle = 'rgba(255,255,255,0.9)';
     gctx.beginPath();
     gctx.moveTo(c, c - R); gctx.lineTo(c - 6, c - R - 9); gctx.lineTo(c + 6, c - R - 9);
     gctx.closePath(); gctx.fill();
 
-    // the bank pointer, which rolls with the aircraft
+    // The bank pointer, which rolls with the aircraft. Red, the same red
+    // the compass needle uses, so the one moving part of each gauge is the
+    // same colour on both.
     var pa = (-roll - 90) * Math.PI / 180;
-    gctx.fillStyle = '#ffb02e';
+    gctx.fillStyle = ROSE_RED;
     gctx.beginPath();
     gctx.moveTo(c + Math.cos(pa) * (R - 2), c + Math.sin(pa) * (R - 2));
-    gctx.lineTo(c + Math.cos(pa - 0.08) * (R - 15), c + Math.sin(pa - 0.08) * (R - 15));
-    gctx.lineTo(c + Math.cos(pa + 0.08) * (R - 15), c + Math.sin(pa + 0.08) * (R - 15));
+    gctx.lineTo(c + Math.cos(pa - 0.085) * (R - 16), c + Math.sin(pa - 0.085) * (R - 16));
+    gctx.lineTo(c + Math.cos(pa + 0.085) * (R - 16), c + Math.sin(pa + 0.085) * (R - 16));
     gctx.closePath(); gctx.fill();
 
     // --- the fixed aircraft symbol ------------------------------------
@@ -155,38 +152,24 @@ window.gcsDrawAttitude = function (id, size) {
       gctx.stroke();
     }
     gctx.lineCap = 'round'; gctx.lineJoin = 'round';
-    gctx.strokeStyle = 'rgba(0,0,0,0.8)'; gctx.lineWidth = 7.5; wings();
-    gctx.strokeStyle = '#ffc94d'; gctx.lineWidth = 4; wings();
-    gctx.fillStyle = 'rgba(0,0,0,0.8)';
-    gctx.beginPath(); gctx.arc(c, c, 5, 0, 7); gctx.fill();
-    gctx.fillStyle = '#ffc94d';
+    gctx.strokeStyle = '#ffffff'; gctx.lineWidth = 3; wings();
+    gctx.fillStyle = '#ffffff';
     gctx.beginPath(); gctx.arc(c, c, 3, 0, 7); gctx.fill();
 
-    // --- bank in figures, beside the heading ---------------------------
+    // --- bank in figures ----------------------------------------------
+    // Where the rose puts its heading: beneath the centre, plain white
+    // sans-serif, no box and no outline. The heading window this gauge
+    // used to carry is gone - the compass sits immediately beside it and
+    // shows the heading in large type, so the gyro was repeating its
+    // neighbour inside a bordered box that was the most moulded-looking
+    // thing on it. Bank angle is this instrument's own number.
     var bankTxt = Math.abs(roll) < 1 ? '0\u00b0'
                 : Math.abs(Math.round(roll)) + '\u00b0 '
                   + (roll > 0 ? 'R' : 'L');
-    gctx.font = '700 12px "IBM Plex Mono", monospace';
+    gctx.font = '600 18px -apple-system, sans-serif';
     gctx.textAlign = 'center'; gctx.textBaseline = 'middle';
-    gctx.lineJoin = 'round';
-    gctx.strokeStyle = 'rgba(0,0,0,0.85)'; gctx.lineWidth = 3.5;
-    gctx.strokeText(bankTxt, c, c - R * 0.52);
-    gctx.fillStyle = Math.abs(roll) > 45 ? '#ffb02e' : '#ffffff';
-    gctx.fillText(bankTxt, c, c - R * 0.52);
-
-    // --- heading window, in the half that sits on the black band ------
-    var hw = 58, hh = 22, hx = c - hw / 2, hy = c + R * 0.40;
-    gctx.fillStyle = 'rgba(6,9,13,0.92)';
-    gctx.strokeStyle = 'rgba(255,255,255,0.6)'; gctx.lineWidth = 1.5;
-    gyroBox(hx, hy, hw, hh, 4); gctx.fill(); gctx.stroke();
-    gctx.fillStyle = '#ffffff';
-    gctx.font = '600 16px "IBM Plex Mono", monospace';
-    gctx.textAlign = 'center'; gctx.textBaseline = 'middle';
-    gctx.fillText(String(Math.round(t.heading_deg || 0)).padStart(3, '0') + '°',
-                  c, hy + hh / 2 + 1);
-    gctx.font = '600 8px -apple-system, sans-serif';
-    gctx.fillStyle = 'rgba(255,255,255,0.65)';
-    gctx.fillText('HDG', c, hy - 6);
+    gctx.fillStyle = Math.abs(roll) > 45 ? ROSE_RED : '#ffffff';
+    gctx.fillText(bankTxt, c, c + R * 0.62);
   }
   drawGyro();
 };
