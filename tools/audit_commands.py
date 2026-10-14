@@ -70,6 +70,7 @@ def _install_stubs():
     video = types.ModuleType("video_feed")
     video.resubscribe = lambda: None
     video.camera_fps = lambda: 0.0
+    video.camera_latency_ms = lambda: 0.0
     video.start_video_capture = lambda: None
     video.mjpeg_generator = lambda: iter(())
     sys.modules.setdefault("video_feed", video)

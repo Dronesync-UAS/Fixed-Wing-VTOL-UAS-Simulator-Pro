@@ -111,6 +111,8 @@ vf = types.ModuleType("video_feed")
 vf.start_video_capture = lambda: None
 vf.mjpeg_generator = lambda: iter(())
 vf.camera_fps = lambda: 15.0
+# CAP 722B 5.2(d) wants the visual response time next to the frame rate.
+vf.camera_latency_ms = lambda: 48.0
 
 
 class _Feed:
@@ -150,7 +152,8 @@ PNG = bytes.fromhex(
 STUBS = {
     "/telemetry": sl.telemetry,
     "/limit_status": {"level": "ok", "items": []},
-    "/health": {"telemetry_age_s": 0.4, "camera_fps": 15.0},
+    "/health": {"telemetry_age_s": 0.4, "camera_fps": 15.0,
+                "camera_response_ms": 48.0},
     "/failure_status": {"gps_failure": True, "motor_failure": False},
     "/flight_path": {"home": sl.home_latlon,
                      "points": [[23.5, 6.5, 100.0], [23.5012, 6.5009, 120.0]]},

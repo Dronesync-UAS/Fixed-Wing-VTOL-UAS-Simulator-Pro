@@ -137,6 +137,11 @@ class CameraFeed:
         # actual frames-per-second figure (CAP722B 5.2(d) - a visible
         # indication of video responsiveness).
         self._frame_times = deque(maxlen=30)
+        # How long each frame took to get through this station, in seconds:
+        # from the Gazebo image message arriving to the JPEG being ready to
+        # serve. Feeds latency_ms() - see there for what it does and does
+        # not include. Added 14 Oct 2026 for CAP 722B 5.2(d).
+        self._frame_latencies = deque(maxlen=30)
         # The node holding the live subscription. Held because a Node that
         # goes out of scope stops delivering.
         self._node = None
@@ -162,6 +167,7 @@ class CameraFeed:
 
     # -- incoming frames ------------------------------------------------
     def _on_image(self, msg):
+        started = time.monotonic()
         # A frame whose size does not match what this feed expects would be
         # decoded as garbage by frombytes, so trust the message over the
         # configuration - the model file is edited by hand and can disagree.
@@ -186,9 +192,11 @@ class CameraFeed:
         buffer = io.BytesIO()
         image.save(buffer, format="JPEG", quality=self.quality)
         frame = buffer.getvalue()
+        finished = time.monotonic()
         with self._lock:
             self._latest = frame
-            self._frame_times.append(time.monotonic())
+            self._frame_times.append(finished)
+            self._frame_latencies.append(finished - started)
         # Outside the lock: writing a file must not hold up the next frame.
         recorder = self.recorder
         if recorder is not None and recorder.running():
@@ -229,6 +237,40 @@ class CameraFeed:
             return 0.0
         span = times[-1] - times[0]
         return round((len(times) - 1) / span, 1) if span > 0 else 0.0
+
+    def latency_ms(self):
+        """Visual response time, in milliseconds. 0 if nothing is arriving.
+
+        CAP 722B 5.2(d) requires an FSTD to be able to display "the visual
+        response time (ms) and frame rate (fps) of any display". fps() is
+        the second half; this is the first.
+
+        WHAT IT MEASURES: the whole of this station's contribution to the
+        delay - decoding Gazebo's raw frame, any infrared or zoom
+        rendering, and the JPEG encode - plus the frame period, because a
+        picture is on average half a frame old before it is sent and a
+        change can wait a whole frame to appear at all.
+
+        WHAT IT DOES NOT MEASURE, and an instructor should know this
+        before quoting the number: Gazebo's own render time before the
+        frame reached us, the network hop, and the browser's decode and
+        paint. So it is a floor on the true glass-to-glass figure, not the
+        figure itself. Measuring the real one needs a camera pointed at
+        the screen, which is how it is done for a qualified FSTD.
+        """
+        now = time.monotonic()
+        with self._lock:
+            times = [t for t in self._frame_times if now - t < 2.0]
+            work = list(self._frame_latencies)
+        if len(times) < 2 or not work:
+            return 0.0
+        span = times[-1] - times[0]
+        frame_period = span / (len(times) - 1) if span > 0 else 0.0
+        # The median, not the mean: one slow frame (a garbage collection,
+        # a recording flush) should not be reported as the response time.
+        work.sort()
+        median = work[len(work) // 2]
+        return round((median + frame_period) * 1000.0, 1)
 
     def current_topic(self):
         return self._topic
@@ -337,6 +379,11 @@ FEEDS = {"nose": nose, "chase": chase, "payload": payload}
 def camera_fps():
     """The nose camera's frame rate - what the console's Feeds readout shows."""
     return nose.fps()
+
+
+def camera_latency_ms():
+    """The nose camera's visual response time, in ms. See Feed.latency_ms."""
+    return nose.latency_ms()
 
 
 def current_topic():

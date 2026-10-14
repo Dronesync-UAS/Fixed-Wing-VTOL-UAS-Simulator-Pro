@@ -254,6 +254,20 @@ def browser_checks():
         # checked on its own below.
         clock = [1000000.0]
 
+        # STOP THE PAGE'S OWN 80 ms LOOP FIRST. It calls the same
+        # gcsMotorDemand with Date.now(), and the spool it updates is the
+        # one these helpers drive with the virtual clock above. A tick
+        # landing between two calls here restarts the ramp from zero, so
+        # both the quiet and the loud reading come back at idle and "the
+        # pitch follows the throttle" fails. Intermittent, about one run in
+        # three, and only inside verify_install where the machine is busy -
+        # which is the worst kind, because the check the instructor is told
+        # to trust before committing was the one crying wolf.
+        stopped = page.evaluate(
+            "() => { if (window.gcsMotorTick) { clearInterval(window.gcsMotorTick);"
+            " window.gcsMotorTick = null; return true; } return false; }")
+        check("the page's own sound loop can be stopped for this test", stopped)
+
         def raw(ms, **telem):
             """One reading, ms after the previous one."""
             clock[0] += ms

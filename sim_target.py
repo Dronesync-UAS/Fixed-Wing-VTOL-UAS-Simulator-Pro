@@ -26,6 +26,8 @@ clearing was widened to 600 m that day - beyond 1 km it still rises 582 m.
 
 import json
 import os
+import re
+import subprocess
 
 DEFAULT_WORLD = "training_area"
 STATE_FILE = os.path.join(os.path.expanduser("~/uas_sim_logs"), "gcs_world.json")
@@ -89,6 +91,43 @@ def _remembered():
 
 WORLD = os.environ.get("GCS_WORLD") or _remembered() or DEFAULT_WORLD
 MODEL = os.environ.get("GCS_MODEL", "standard_vtol_0")
+
+
+def running_world(timeout_ms=2000):
+    """The world Gazebo is ACTUALLY running, or None if it cannot be asked.
+
+    Why this exists: the station's idea of the world comes from GCS_WORLD or
+    a remembered file, and nothing checked it against reality. Start the
+    station without GCS_WORLD against a Gazebo running something else and
+    every camera subscribes to a topic that will never carry a frame, while
+    the wind, freeze and external-view controls publish into nothing. All of
+    it fails SILENTLY - the pictures are simply black. Measured on 14 Oct
+    2026 doing exactly that by hand.
+
+    `gz topic -l` cannot answer this: it still lists worlds from Gazebo
+    instances that have since exited, and on the machine this was found on it
+    listed three. The /gazebo/worlds service is answered by the running
+    server itself, so it can only name what is actually up.
+
+    Never raises: this is called at start-up and a station that will not come
+    up because Gazebo is absent would be far worse than one that does not
+    know the world. Returns None whenever the answer is not trustworthy.
+    """
+    try:
+        result = subprocess.run(
+            ["gz", "service", "-s", "/gazebo/worlds",
+             "--reqtype", "gz.msgs.Empty", "--reptype", "gz.msgs.StringMsg_V",
+             "--timeout", str(int(timeout_ms)), "-r", ""],
+            capture_output=True, text=True, timeout=timeout_ms / 1000.0 + 3)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    # One `data: "name"` line per world. A server running more than one is
+    # not something this station can be pointed at, so take it as unknown
+    # rather than guess which was meant.
+    names = re.findall(r'data:\s*"([^"]+)"', result.stdout)
+    return names[0] if len(names) == 1 else None
 
 
 def remember(world):

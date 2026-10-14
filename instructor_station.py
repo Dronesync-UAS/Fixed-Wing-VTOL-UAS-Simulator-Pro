@@ -34,7 +34,8 @@ from simulator_link import (telemetry, connection_status, flight_path,
                             on_failure)
 from plugin_loader import load_plugins
 import video_feed
-from video_feed import start_video_capture, mjpeg_generator, camera_fps, FEEDS
+from video_feed import (start_video_capture, mjpeg_generator, camera_fps,
+                        camera_latency_ms, FEEDS)
 import console_page
 import console_qgc
 import attitude_gauge
@@ -375,6 +376,48 @@ LIMIT_WARN_FRACTION = 0.9
 # not every poll. metric name -> "ok" | "warn" | "breach".
 _limit_state = {}
 _limit_lock = threading.Lock()
+def _reconcile_world():
+    """Point the station at the world Gazebo is actually running.
+
+    WHY. The world comes from GCS_WORLD or from the remembered file, and
+    until 14 Oct 2026 nothing checked it against what was up. tools/
+    start_world.sh PRINTS "GCS_WORLD=<world> python3 instructor_station.py"
+    for the instructor to run, so starting the station any other way - or
+    restarting it later in a session - leaves it pointed wherever it was
+    last. Everything then talks to a world that is not there: the cameras
+    subscribe to topics that will never carry a frame, and the wind, freeze
+    and external-view controls publish into nothing. Nothing reports an
+    error; the pictures are simply black.
+
+    Found by doing exactly that by hand on 14 Oct 2026 - the station was on
+    the estate while Gazebo was running the Nullarbor, and the only symptom
+    was 0 fps.
+
+    An explicit GCS_WORLD is NOT overridden. If someone has said which world
+    they mean, the station says the two disagree and leaves their choice
+    alone; silently flying a different world from the one asked for would be
+    its own kind of wrong.
+    """
+    actual = sim_target.running_world()
+    if actual is None or actual == sim_target.WORLD:
+        return                       # agrees, or Gazebo is not up to ask
+    if os.environ.get("GCS_WORLD"):
+        print("[world] WARNING: GCS_WORLD says %s but Gazebo is running %s. "
+              "Leaving it on %s - cameras and world controls will not work."
+              % (sim_target.WORLD, actual, sim_target.WORLD))
+        return
+    if actual not in sim_target.BY_WORLD:
+        print("[world] WARNING: Gazebo is running %s, which is not one of the "
+              "training areas. Staying on %s." % (actual, sim_target.WORLD))
+        return
+    was = sim_target.WORLD
+    sim_target.set_world(actual)
+    sim_target.world_changed()
+    print("[world] Gazebo is running %s, not %s - switched to it."
+          % (actual, was))
+
+
+_reconcile_world()
 _video_node = start_video_capture()  # starts listening for camera frames immediately
 # The chase boom needs its opening angles sent, and re-sent: see
 # gimbal.start_chase_keeper for the three separate ways it was ending up
@@ -735,7 +778,12 @@ def health_status():
     data feeds are: telemetry age and measured camera frame rate."""
     last = link_health.get("last_msg_t")
     age = round(time.monotonic() - last, 1) if last is not None else None
-    return {"telemetry_age_s": age, "camera_fps": camera_fps()}
+    # camera_response_ms is the other half of CAP 722B 5.2(d), which asks
+    # for "the visual response time (ms) AND frame rate (fps) of any
+    # display". Only the frame rate was here before. What the figure
+    # covers, and what it leaves out, is set out in video_feed.latency_ms.
+    return {"telemetry_age_s": age, "camera_fps": camera_fps(),
+            "camera_response_ms": camera_latency_ms()}
 
 
 def _payload_meta():
@@ -1413,7 +1461,7 @@ PAGE_TEMPLATE = """
     <div class="status-item"><div class="k">Heading</div><div class="v" id="t-heading">-</div></div>
     <div class="status-item"><div class="k">GPS</div><div class="v" id="t-gps">-</div></div>
     <div class="status-item"><div class="k">Battery</div><div class="v" id="t-batt">-</div></div>
-    <div class="status-item"><div class="k">Feeds</div><div class="v" id="t-health" title="Telemetry age / camera frame rate">-</div></div>
+    <div class="status-item"><div class="k">Feeds</div><div class="v" id="t-health" title="Camera frame rate / visual response time (CAP 722B 5.2(d))">-</div></div>
   </div>
 
   <div id="limit-banner" class="limit-banner" style="display:none;"></div>
@@ -1896,9 +1944,16 @@ EXTRA_SCRIPT = """
     fetch('/health').then(function (r) { return r.json(); }).then(function (d) {
       if (!d) return;
       var age = d.telemetry_age_s;
-      var ageTxt = (age == null) ? '--' : (age < 1 ? '<1s' : age.toFixed(0) + 's');
       var fps = (d.camera_fps != null && d.camera_fps > 0) ? d.camera_fps.toFixed(0) : '--';
-      healthEl.innerText = ageTxt + ' \\u00b7 ' + fps + ' fps';
+      // CAP 722B 5.2(d) asks for the visual response time AND the frame rate
+      // of the display, so both are here. The telemetry age that used to
+      // share this readout is NOT duplicated here any more - the panel below
+      // has its own "Link age" showing the same number, and carrying three
+      // figures made this group spill over the aircraft's state on a 1100 px
+      // laptop (caught by test_console_browser on 14 Oct 2026).
+      var ms = (d.camera_response_ms != null && d.camera_response_ms > 0)
+        ? Math.round(d.camera_response_ms) + 'ms' : '--';
+      healthEl.innerText = fps + 'fps ' + ms;
       healthEl.className = 'v' + ((age != null && age > 2) ? ' stale' : '');
     }).catch(function () {});
   }

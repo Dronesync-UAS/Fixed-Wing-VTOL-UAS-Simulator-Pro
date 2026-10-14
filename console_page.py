@@ -923,7 +923,7 @@ TEMPLATE = """<!DOCTYPE html>
       </svg>
       <span class="mono num" id="t-batt">-</span>
     </span>
-    <span class="item" title="Telemetry age and camera frame rate">
+    <span class="item" title="Camera frame rate and visual response time (CAP 722B 5.2(d))">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <rect x="2" y="7" width="13" height="11" rx="2"></rect>
         <path d="M15 11.5 L21.5 8v9L15 13.5z"></path>

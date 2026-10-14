@@ -97,6 +97,7 @@ vf = types.ModuleType("video_feed")
 vf.start_video_capture = lambda: None
 vf.mjpeg_generator = lambda: iter(())
 vf.camera_fps = lambda: 0.0
+vf.camera_latency_ms = lambda: 0.0
 class _Feed:
     def fov_rad(self): return 1.5708
     def mjpeg_generator(self): return iter(())

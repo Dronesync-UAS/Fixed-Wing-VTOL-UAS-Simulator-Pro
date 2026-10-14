@@ -521,7 +521,7 @@ __EXTRA_STYLE__
       <path d="M21.5 11.5v2"></path></svg>
     <span class="big" id="g-batt">-</span>
   </span>
-  <span class="gauge" title="Telemetry age and camera frame rate">
+  <span class="gauge" title="Telemetry age, camera frame rate and visual response time (CAP 722B 5.2(d))">
     <svg viewBox="0 0 24 24"><path d="M12 7v5l3 2"></path>
       <circle cx="12" cy="12" r="9"></circle></svg>
     <span class="big" id="g-link">-</span>
@@ -1173,8 +1173,17 @@ SCRIPT = """
   function refreshLink() {
     fetch('/health').then(function (r) { return r.json(); }).then(function (d) {
       var age = (d.telemetry_age_s != null) ? d.telemetry_age_s : null;
-      el('g-link').textContent = (age == null) ? '-'
-        : (age < 1 ? '<1s' : Math.round(age) + 's');
+      var txt = (age == null) ? '-' : (age < 1 ? '<1s' : Math.round(age) + 's');
+      // CAP 722B 5.2(d) wants the frame rate AND the visual response time of
+      // any display. They are only shown once a feed is running - a made-up
+      // "0 fps / 0 ms" when nothing is streaming would be worse than blank.
+      if (d.camera_fps > 0) {
+        txt += ' \u00b7 ' + Math.round(d.camera_fps) + 'fps';
+        if (d.camera_response_ms > 0) {
+          txt += ' \u00b7 ' + Math.round(d.camera_response_ms) + 'ms';
+        }
+      }
+      el('g-link').textContent = txt;
     }).catch(function () { el('g-link').textContent = '-'; });
   }
   function refreshFailures() {

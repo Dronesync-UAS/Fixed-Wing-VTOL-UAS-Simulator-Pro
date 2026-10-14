@@ -426,7 +426,17 @@ SCRIPT = """
     }
   });
 
-  setInterval(tick, 80);
+  // Kept on window so it can be STOPPED. tick() calls gcsMotorDemand with
+  // no clock, so it uses Date.now(); a test that drives the same function
+  // with a virtual clock shares the one spool with it. A tick landing
+  // between two test calls rewrites spool.at with a real timestamp, the
+  // next test call sees the armed state change back and restarts the ramp
+  // from zero, and the rotors read as idle when they should be at full
+  // song. That is exactly how test_sound_and_gear's "the pitch follows the
+  // throttle" came and went - passing on its own, failing about one run in
+  // three inside verify_install, with nothing to show for it. Diagnosed and
+  // fixed 14 Oct 2026.
+  window.gcsMotorTick = setInterval(tick, 80);
 })();
 </script>
 """
