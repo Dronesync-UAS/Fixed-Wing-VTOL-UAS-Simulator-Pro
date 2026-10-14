@@ -209,6 +209,25 @@ check("and the buttons in settings panes too",
       "#setback .pane button" in PAGE)
 
 
+print("0e. PX4's own messages reach the console")
+# Until 14 Oct 2026 the station had never seen a single STATUSTEXT. PX4
+# withholds them from a link until a GCS identifies itself on it -
+# streams/STATUSTEXT.hpp guards the whole send on is_gcs_connected() - and
+# this station sent no heartbeat at all. Everything PX4 ever said about
+# what it refused, what it substituted and why it would not arm went
+# nowhere. The arm-blocker readout built on 11 Oct could never have shown
+# a reason live; it passed only because its test feeds messages directly.
+_link = open(os.path.join(REPO, "simulator_link.py")).read()
+check("the station sends a GCS heartbeat, or PX4 stays silent",
+      "_say_hello_forever" in _link and "MAV_TYPE_GCS" in _link)
+check("and keeps each message's severity, not just its text",
+      "SEVERITY_NAMES" in _link and '"level"' in _link)
+check("the console has a message indicator", 'id="msg-ind"' in PAGE)
+check("and a list to open", 'id="view-messages"' in PAGE)
+check("coloured by the worst message, not just counted",
+      "worst_level" in PAGE)
+
+
 print("1. every instructor control is on the page")
 # Reachable means a button with its id, OR a tool-strip entry that sends it.
 ids = set(re.findall(r'id="btn-([a-z0-9_]+)"', PAGE))

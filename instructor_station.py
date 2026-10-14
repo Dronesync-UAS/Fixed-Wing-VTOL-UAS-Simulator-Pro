@@ -29,6 +29,7 @@ from urllib.parse import urlparse, parse_qs
 
 sys.path.insert(0, os.path.dirname(__file__))
 
+import simulator_link                 # for status_log and SEVERITY_NAMES
 from simulator_link import (telemetry, connection_status, flight_path,
                             home_latlon, link_health, on_armed_change,
                             on_failure)
@@ -2762,6 +2763,28 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-type", "application/json; charset=utf-8")
             self.end_headers()
             self.wfile.write(json.dumps(read_layout()).encode("utf-8"))
+        elif self.path == "/messages":
+            # PX4's own STATUSTEXT stream, newest first. QGC puts this
+            # behind a toolbar indicator (VehicleMessageList.qml) because
+            # the autopilot says a great deal that never reaches a
+            # ground station any other way - what it refused and why,
+            # what it substituted, what it is about to do. We were
+            # keeping the text and showing only arming refusals.
+            recent = list(simulator_link.status_log)[-40:]
+            recent.reverse()
+            worst = min([m.get("severity", 6) for m in recent], default=6)
+            answer = {
+                "messages": recent,
+                "count": len(recent),
+                # The console colours its indicator by the worst thing in
+                # the list, the way QGC does.
+                "worst": worst,
+                "worst_level": simulator_link.SEVERITY_NAMES.get(worst, "info"),
+            }
+            self.send_response(200)
+            self.send_header("Content-type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps(answer).encode("utf-8"))
         elif self.path == "/health":
             self.send_response(200)
             self.send_header("Content-type", "application/json; charset=utf-8")

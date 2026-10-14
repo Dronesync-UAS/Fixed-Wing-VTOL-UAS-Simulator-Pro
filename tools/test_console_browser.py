@@ -53,6 +53,13 @@ for name in ("reset_flight_state", "log_instructor_action", "mark_failure_inject
              "mark_failure_cleared", "start_background_script", "stop_background_script"):
     setattr(sl, name, lambda *a, **k: None)
 sl.status_log = []
+# The /messages route reads these off the module. Added to the stub on
+# 14 Oct 2026 with the route itself, so a later test that calls it does
+# not fall over on a name the real module has and this one did not.
+sl.SEVERITY_NAMES = {0: "emergency", 1: "alert", 2: "critical",
+                     3: "error", 4: "warning", 5: "notice",
+                     6: "info", 7: "debug"}
+sl.SEVERITY_WARNING = 4
 sl.home_amsl = lambda: 1200.0
 sl.on_armed_change = lambda cb: None
 # The tail light follows the GPS fix - see aircraft_lights.set_gps.

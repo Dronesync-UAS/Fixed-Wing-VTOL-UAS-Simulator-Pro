@@ -276,6 +276,37 @@ TEMPLATE = """<!DOCTYPE html>
   }
   #rose canvas { width: 100%; height: 100%; display: block; }
 
+  /* ---------- PX4's own messages ---------- */
+  .msgind {
+    background: none; border: 0; color: var(--ink); cursor: pointer;
+    font: inherit; padding: 0 2px;
+  }
+  /* Coloured by the WORST thing in the list, which is how QGC's reads: a
+     count on its own tells an instructor nothing about whether to look. */
+  .msgind.warning .big { color: var(--warn); }
+  .msgind.critical .big, .msgind.error .big,
+  .msgind.alert .big, .msgind.emergency .big { color: var(--stop); }
+  .msgrow {
+    display: flex; gap: 12px; align-items: baseline;
+    padding: 7px 10px; border-bottom: 1px solid var(--edge);
+    border-left: 3px solid transparent;
+  }
+  .msgrow time {
+    color: var(--dim); font-size: 12px; flex: 0 0 auto;
+    font-variant-numeric: tabular-nums;
+  }
+  .msgrow .lvl {
+    flex: 0 0 68px; font-size: 10.5px; text-transform: uppercase;
+    letter-spacing: .06em; color: var(--dim);
+  }
+  .msgrow.warning { border-left-color: var(--warn); }
+  .msgrow.warning .lvl { color: var(--warn); }
+  .msgrow.critical, .msgrow.error, .msgrow.alert, .msgrow.emergency {
+    border-left-color: var(--stop);
+  }
+  .msgrow.critical .lvl, .msgrow.error .lvl,
+  .msgrow.alert .lvl, .msgrow.emergency .lvl { color: var(--stop); }
+
   /* ---------- settings: nothing native, nothing white ----------
      The Display pane's checkboxes, the Lock buttons and the view-angle
      arrows were plain <input> and <button> with no class, so the browser
@@ -732,6 +763,14 @@ __EXTRA_STYLE__
   </span>
   <span class="gauge" id="t-health" style="display:none"></span>
 
+  <!-- PX4's own messages. QGC carries this as a toolbar indicator
+       (VehicleMessageList.qml) because the autopilot says a great deal
+       that reaches a ground station no other way. -->
+  <button class="gauge msgind" id="msg-ind" title="What the aircraft has said">
+    <svg viewBox="0 0 24 24"><path d="M4 5h16v11H8l-4 4z"></path></svg>
+    <span class="big" id="msg-count">0</span>
+  </button>
+
   <!-- The instructor's own top-bar buttons. QGC has no equivalent for the
        first two; the X is where every application keeps close. -->
   <button class="topbtn" id="open-checklist" title="Pre-flight checklist">Checklist</button>
@@ -817,6 +856,15 @@ __EXTRA_STYLE__
       happened.</span>
     <button class="dclose" data-closeview="analyze">&times;</button></div>
   <div class="bvbody"><div id="analyze-body"></div></div>
+</div>
+
+<!-- the message list the indicator opens -->
+<div class="bigview" id="view-messages">
+  <div class="bvhead"><span>Aircraft messages</span>
+    <span class="bvnote">What PX4 itself has said this session, newest
+      first. Severity is the autopilot's own.</span>
+    <button class="dclose" data-closeview="messages">&times;</button></div>
+  <div class="bvbody"><div class="bvcol" id="msg-body"></div></div>
 </div>
 
 <div id="say"></div>
@@ -1252,6 +1300,36 @@ SCRIPT = """
 
   // ---------- settings ----------
   function settings(open) { el('setback').classList.toggle('open', open); }
+  // ---------- PX4's own messages ----------
+  // Until 14 Oct 2026 this console never saw one: PX4 withholds STATUSTEXT
+  // from a link until a GCS has identified itself on it, and the station
+  // sent no heartbeat. See simulator_link._say_hello_forever.
+  var MSG_LEVELS = ['emergency', 'alert', 'critical', 'error',
+                    'warning', 'notice', 'info', 'debug'];
+  function refreshMessages() {
+    fetch('/messages').then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d) { return; }
+        el('msg-count').textContent = d.count || 0;
+        var ind = el('msg-ind');
+        MSG_LEVELS.forEach(function (l) { ind.classList.remove(l); });
+        if (d.count) { ind.classList.add(d.worst_level || 'info'); }
+        var box = el('msg-body');
+        if (!box || !el('view-messages').classList.contains('open')) { return; }
+        box.innerHTML = (d.messages || []).map(function (m) {
+          return '<div class="msgrow ' + (m.level || 'info') + '">'
+               + '<time>' + (m.at || '') + '</time>'
+               + '<span class="lvl">' + (m.level || '') + '</span>'
+               + '<span>' + (m.text || '').replace(/</g, '&lt;') + '</span></div>';
+        }).join('') || '<p class="note">Nothing said yet this session.</p>';
+      }).catch(function () {});
+  }
+  el('msg-ind').addEventListener('click', function () {
+    showView(el('view-messages').classList.contains('open') ? 'fly' : 'messages');
+  });
+  refreshMessages();
+  setInterval(refreshMessages, 2000);
+
   // ---------- the view menu ----------
   // QGC's logo button opens a view list; it does not jump straight into one
   // screen. SelectViewDropdown.qml, v5.1.5.
@@ -1263,7 +1341,7 @@ SCRIPT = """
   function showView(name) {
     // Only one big view at a time, and Fly means "close them all" - the
     // flying screen is always underneath, which is how QGC behaves.
-    ['plan', 'analyze'].forEach(function (v) {
+    ['plan', 'analyze', 'messages'].forEach(function (v) {
       el('view-' + v).classList.toggle('open', v === name);
     });
     settings(name === 'settings');
@@ -1271,6 +1349,7 @@ SCRIPT = """
       b.classList.toggle('on', b.dataset.view === name);
     });
     if (name === 'analyze') { loadAnalyze(); }
+    if (name === 'messages') { refreshMessages(); }
     // The map canvas lives in the Fly view's own surface. Plan borrows it
     // rather than drawing a second one: two canvases would be two tracks
     // and two tile caches, and they would drift apart the moment one of

@@ -194,6 +194,17 @@ _arm_blocker = {"text": None, "t": None}
 _STATUS_LOG_MAX = 60
 status_log = []
 
+# MAV_SEVERITY, which is what QGroundControl colours its message list by:
+# anything at WARNING or worse is worth an instructor's eye, and the three
+# above it mean the aircraft is in trouble. Added 14 Oct 2026 - the text
+# was being kept and the severity thrown away, so every message looked as
+# important as every other.
+SEVERITY_NAMES = {
+    0: "emergency", 1: "alert", 2: "critical", 3: "error",
+    4: "warning", 5: "notice", 6: "info", 7: "debug",
+}
+SEVERITY_WARNING = 4
+
 # Set by the station at start-up to aircraft_lights.set_armed. Kept as a
 # hook rather than an import so this module stays free of the Gazebo
 # bindings - it has to run on machines where they are not installed.
@@ -848,7 +859,17 @@ def _read_one_message():
             if isinstance(text, bytes):
                 text = text.decode("utf-8", "replace")
             text = text.strip()
-            status_log.append({"text": text, "t": time.monotonic()})
+            severity = getattr(msg, "severity", 6)
+            status_log.append({
+                "text": text,
+                "t": time.monotonic(),
+                # Wall clock as well as monotonic: the console shows a time
+                # of day and monotonic is seconds since boot, which is not
+                # a thing to put in front of an instructor.
+                "at": time.strftime("%H:%M:%S"),
+                "severity": severity,
+                "level": SEVERITY_NAMES.get(severity, "info"),
+            })
             del status_log[:-_STATUS_LOG_MAX]
             if text.lower().startswith(_ARM_BLOCKER_PREFIXES):
                 _arm_blocker["text"] = text
@@ -878,7 +899,57 @@ def _connect_then_start_telemetry():
     connection_status["message"] = "Connected."
     print("Connected.")
     event_logger.log_event("session_start")
+    threading.Thread(target=_say_hello_forever, daemon=True).start()
     _telemetry_loop()
+
+
+def _say_hello_forever():
+    """Tell PX4 a ground station is here, once a second, for ever.
+
+    WHY THIS MATTERS, and it is not politeness.
+
+    PX4 withholds STATUSTEXT from a link until a GCS has identified itself
+    on it. streams/STATUSTEXT.hpp:
+
+        bool send() override
+        {
+            if (_mavlink->is_gcs_connected()) {
+
+    and is_gcs_connected is true only once mavlink_receiver has seen a
+    HEARTBEAT whose type is MAV_TYPE_GCS on that link - mavlink_receiver
+    .cpp sets _heartbeat_type_gcs in exactly that case.
+
+    THIS STATION HAS NEVER SENT A HEARTBEAT. So PX4 has never regarded a
+    ground station as present on port 14540, and has silently withheld
+    every message it ever had for us. Measured 14 Oct 2026: a complete
+    arm - takeoff - land sortie with the station listening throughout
+    produced ZERO STATUSTEXT, while feeding the same station a synthetic
+    one from outside stored it correctly. The station was fine; PX4 was
+    not being asked.
+
+    What was lost with them: "Takeoff detected", "Landing detected", what
+    PX4 substituted for a command it did not like, and - the one that
+    matters - the Preflight Fail lines that say WHY arming is refused.
+    The console has had an arm-blocker readout since 11 Oct that could
+    only ever have shown PX4's reason if PX4 sent one, and it never did.
+    That feature passed its test because the test feeds it messages
+    directly.
+
+    Sending a heartbeat is also simply what a ground station does. QGC
+    sends one; that is the very heartbeat that was corrupting this
+    console's own display until it was filtered on 14 Oct.
+    """
+    while True:
+        try:
+            master.mav.heartbeat_send(
+                mavutil.mavlink.MAV_TYPE_GCS,
+                mavutil.mavlink.MAV_AUTOPILOT_INVALID,
+                0, 0, mavutil.mavlink.MAV_STATE_ACTIVE)
+        except Exception as exc:
+            # A failed heartbeat must never take the telemetry down with
+            # it; the link coming back is handled elsewhere.
+            print(f"[mavlink] heartbeat not sent: {exc!r}", file=sys.stderr)
+        time.sleep(1.0)
 
 
 threading.Thread(target=_connect_then_start_telemetry, daemon=True).start()
