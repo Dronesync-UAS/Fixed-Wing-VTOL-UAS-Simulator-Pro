@@ -196,7 +196,10 @@ for path in fg.worlds():
         narrow.append((os.path.basename(path), size))
     # Exactly one plane may match, or the pattern is hitting something
     # that is not the ground.
-    if len(fg.PLANE_SIZE.findall(text)) != 1:
+    # Counts the solid box too: --solid turns the ground plane into one,
+    # and this check is here to catch the pattern matching something that
+    # is not the ground - not to insist on a particular primitive.
+    if fg.ground_visual_count(text) != 1:
         check("%s has exactly one ground plane" % os.path.basename(path), False)
 
 check("%d worlds stand on a plane and %d on a heightmap"

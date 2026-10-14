@@ -86,7 +86,7 @@ def ground_kind(text):
     What a world stands on is its ground PLANE if it has one. The
     heightmap over the top is decoration.
     """
-    if PLANE_SIZE.search(text):
+    if PLANE_SIZE.search(text) or SOLID_GROUND_BOX.search(text):
         return "plane"
     if "<heightmap>" in text:
         return "heightmap"
@@ -94,8 +94,24 @@ def ground_kind(text):
 
 
 def current_size(text):
+    """How wide the visible ground is, whether it is a plane or a box."""
     found = PLANE_SIZE.search(text)
-    return (float(found.group(2)), float(found.group(3))) if found else None
+    if found:
+        return (float(found.group(2)), float(found.group(3)))
+    # After --solid the ground is a box, and its first two numbers are the
+    # same width and depth the plane carried.
+    found = SOLID_GROUND_BOX.search(text)
+    return (float(found.group(1)), float(found.group(2))) if found else None
+
+
+def ground_visual_count(text):
+    """How many ground visuals the pattern can see - must be exactly one.
+
+    Counts planes AND solid boxes, since --solid turns one into the other
+    and the check behind this exists to catch the pattern matching
+    something that is not the ground at all.
+    """
+    return len(PLANE_SIZE.findall(text)) + len(SOLID_GROUND_BOX.findall(text))
 
 
 def widen(text, size_m):
@@ -120,6 +136,60 @@ def parses(path):
         return True
     except ET.ParseError:
         return False
+
+
+# A visual <plane> and the thin box that replaces it.
+GROUND_VISUAL_PLANE = re.compile(
+    r'(<visual name="ground_visual">)(\s*)(<geometry>\s*)<plane>\s*'
+    r'(?:<normal>[^<]*</normal>\s*)?<size>\s*([0-9.eE+-]+)\s+([0-9.eE+-]+)'
+    r'\s*</size>\s*</plane>', re.DOTALL)
+# Thick enough that nothing can see its edge from inside, sunk so its TOP
+# face is exactly z=0 - where the plane's surface was, so nothing else in
+# the world moves.
+SOLID_THICKNESS_M = 2.0
+
+# The same ground after --solid has turned it into a box. ground_kind has
+# to go on calling these the PLANE worlds: it is what the world stands on
+# that matters, not which primitive draws it, and the widening, the
+# collision reach and the range-profile check are all keyed off that word.
+SOLID_GROUND_BOX = re.compile(
+    r'<visual name="ground_visual">.*?<box>\s*<size>\s*'
+    r'([0-9.eE+-]+)\s+([0-9.eE+-]+)\s+([0-9.eE+-]+)\s*</size>', re.DOTALL)
+
+
+def make_ground_solid(text):
+    """Turn the ground VISUAL's plane into a thin box. Returns (text, done).
+
+    WHY, and this is the answer to the "dark ground" that survived three
+    attempts between 12 and 14 Oct 2026:
+
+    **<geometry><plane> IGNORES ITS SDF MATERIAL in this Gazebo Harmonic /
+    ogre2 build.** The ground renders a default grey-brown and nothing
+    written in <material> changes it.
+
+    Measured on 14 Oct 2026, on the coast world, with everything running:
+
+        ground_plane material set to magenta, geometry left a <plane>
+            -> camera sees (151.8, 137.5, 126.5). No change at all.
+        same magenta material, geometry changed to a <box>
+            -> camera sees (160.1, 2.1, 158.6). Magenta.
+
+    That is why every earlier fix failed: the flat heightmap, the explicit
+    material, the 8 km mesh and the normal maps were all downstream of a
+    surface that was never going to show any of them. It is also why the
+    five HEIGHTMAP worlds looked right all along - a heightmap is not a
+    plane, so its material and texture were always honoured.
+
+    The collision is untouched. It has always been a separate sunken box
+    and still is; this changes what you SEE, not what you land on.
+    """
+    def swap(m):
+        x, y = float(m.group(4)), float(m.group(5))
+        return ('%s%s<pose>0 0 %.3f 0 0 0</pose>%s%s<box><size>%g %g %g</size></box>'
+                % (m.group(1), m.group(2), -SOLID_THICKNESS_M / 2.0,
+                   m.group(2), m.group(3), x, y, SOLID_THICKNESS_M))
+    out, n = GROUND_VISUAL_PLANE.subn(swap, text, count=1)
+    return out, n > 0
 
 
 def apply_to(path, size_m, dry_run):
@@ -156,6 +226,35 @@ def apply_to(path, size_m, dry_run):
     return "done"
 
 
+def solidify(path, dry_run):
+    """Make one world's ground visual a box instead of a plane."""
+    name = os.path.basename(path)
+    with open(path) as handle:
+        text = handle.read()
+    if '<visual name="ground_visual">' not in text:
+        print("  %-34s SKIPPED - no ground_visual" % name)
+        return "skipped"
+    if "<plane>" not in text.split('<visual name="ground_visual">', 1)[1][:600]:
+        print("  %-34s already solid" % name)
+        return "unchanged"
+    out, done = make_ground_solid(text)
+    if not done:
+        print("  %-34s SKIPPED - could not read its plane" % name)
+        return "skipped"
+    if dry_run:
+        print("  %-34s plane -> box" % name)
+        return "would"
+    shutil.copyfile(path, path + BACKUP_SUFFIX)
+    with open(path, "w") as handle:
+        handle.write(out)
+    if not parses(path):
+        shutil.copyfile(path + BACKUP_SUFFIX, path)
+        print("  %-34s FAILED to parse - put back as it was" % name)
+        return "failed"
+    print("  %-34s plane -> box, so its material shows" % name)
+    return "done"
+
+
 def revert(path):
     name = os.path.basename(path)
     backup = path + BACKUP_SUFFIX
@@ -182,6 +281,10 @@ def main():
                              % DEFAULT_SIZE_M)
     parser.add_argument("--dry-run", action="store_true",
                         help="say what would change, write nothing")
+    parser.add_argument("--solid", action="store_true",
+                        help="make the ground visual a box rather than a "
+                             "plane, so its material is actually rendered - "
+                             "see make_ground_solid for the measurements")
     parser.add_argument("--revert", action="store_true",
                         help="put back the backup this script made")
     args = parser.parse_args()
@@ -221,6 +324,18 @@ def main():
         print("Putting worlds back:\n")
         for path in chosen:
             revert(path)
+        return 0
+
+    if args.solid:
+        print("%s the ground visual from a plane to a box:\n"
+              % ("Would change" if args.dry_run else "Changing"))
+        results = [solidify(path, args.dry_run) for path in chosen]
+        print()
+        if "failed" in results:
+            print("At least one world did not parse and was put back.")
+            return 1
+        if not args.dry_run and "done" in results:
+            print("Run tools/install_worlds.py, then restart PX4 and Gazebo.")
         return 0
 
     print("%s the visible ground to %d m square:\n"

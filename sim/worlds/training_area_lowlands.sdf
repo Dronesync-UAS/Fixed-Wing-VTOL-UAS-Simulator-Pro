@@ -122,11 +122,9 @@
           </surface>
         </collision>
         <visual name="ground_visual">
+          <pose>0 0 -1.000 0 0 0</pose>
           <geometry>
-            <plane>
-              <normal>0 0 1</normal>
-              <size>220000 220000</size>
-            </plane>
+            <box><size>220000 220000 2</size></box>
           </geometry>
           <material>
             <!-- Pasture green rather than the flat world's olive. The
