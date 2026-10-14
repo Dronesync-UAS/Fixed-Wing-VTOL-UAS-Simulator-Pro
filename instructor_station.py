@@ -587,6 +587,58 @@ SETTINGS_GROUPS = [
                  "reset_spawn", "set_home", "freeze", "external_view"]),
 ]
 
+# WHAT THE INSTRUCTOR DRAWER CARRIES on the QGC-shaped console.
+#
+# Why this list exists separately from the rails: render_pro used to fill
+# the drawer with RIGHT_RAIL, which is four recover buttons, a height box,
+# two flight modes and TERMINATE - eight controls. Its own comment said the
+# drawer carried "the failures and the scenario controls", and it did not.
+# Everything else fell through to the settings window, and the failure
+# injections - the single thing an instructor console exists for - landed
+# in a settings pane headed "Not yet placed". Measured 14 Oct 2026 on the
+# running station: 6 controls on the tool strip, 2 on the camera strip, 8
+# in the drawer, and 34 hidden in Settings. Reported as "many instructor
+# commands are missing", which was exactly right.
+#
+# The split now is by WHEN it is used, not by what it does:
+#   the DRAWER   is the lesson - what an instructor touches while a
+#                student is flying, and it must all be one click away
+#   SETTINGS     is set up once before the lesson and left alone
+#
+# Order within the drawer is the order a lesson runs: recover first
+# because it is what you grab in a hurry, then the exercise, then the
+# failures, then the conditions, then starting again.
+#
+# NOTHING MAY APPEAR TWICE. Two elements with the same id silently break
+# the failure lights - getElementById returns the first, and the lit one
+# may be the second. render_pro subtracts this list from the settings
+# panes for that reason, and test_pro_console fails on a duplicate id.
+PRO_DRAWER = [
+    # Recover first: these are what anyone grabs in a hurry, and they must
+    # be in a fixed place at the top where nothing can push them down.
+    ("Recover", ["hold", "rtl", "land", "disarm"]),
+    # Then the failures, because they are what this console is FOR and
+    # they are pressed mid-exercise. They sat below the flight-mode group
+    # for one build and its five number boxes pushed them off the bottom -
+    # an instructor should not scroll past a cruise speed to reach GPS
+    # failure.
+    ("Failure injection", ["gps_failure", "data_link_loss", "rc_signal_loss",
+                           "engine_failure", "motor_failure",
+                           "cuas_encounter"]),
+    ("Conditions", ["conditions", "wind_gust", "weather", "time_of_day"]),
+    ("Scenario", ["freeze", "reset_scenario", "reset_spawn", "set_home",
+                  "new_session"]),
+    ("Adjust", ["climb_to"]),
+    # Tall: each of these carries its own number boxes, so it goes below
+    # the things pressed without looking.
+    ("Flight mode", ["mode_position", "mode_manual",
+                     "hover_flight", "forward_flight", "loiter"]),
+    # A ground check done once before flying, so last but one.
+    ("Function test", ["motor_test_1", "motor_test_2", "motor_test_3",
+                       "motor_test_4", "motor_test_5"]),
+    ("Emergency", ["flight_termination"]),
+]
+
 # Kept so the classic page at /classic, which is still served, goes on
 # working - it renders by category and knows nothing about the rails.
 LEFT_CATEGORIES = ["Flight Ops", "Flight Mode", "Emergency"]
@@ -1173,15 +1225,25 @@ def render_pro():
     render_groups, so a plugin added tomorrow appears on both pages
     without being mentioned in either."""
     page = console_qgc.TEMPLATE
-    # The instructor drawer carries everything QGC has no equivalent for -
-    # the failures and the scenario controls. The flight actions are on the
-    # left strip already, so they are not repeated here.
-    page = page.replace("__INSTRUCTOR__", render_groups(RIGHT_RAIL))
+    # The instructor drawer carries everything QGC has no equivalent for:
+    # the failures, the conditions and the scenario controls. See
+    # PRO_DRAWER - this used to say the same thing while passing
+    # RIGHT_RAIL, so the failures were not here at all.
+    page = page.replace("__INSTRUCTOR__", render_groups(PRO_DRAWER))
+
+    # Anything the drawer now carries must NOT be rendered again in the
+    # settings window: a second element with the same id breaks the
+    # failure lights. So each settings group is what is left of it.
+    in_drawer = {i for _, ids in PRO_DRAWER for i in ids}
+
+    def _without_drawer(ids):
+        return [i for i in ids if i not in in_drawer]
+
     for heading, _ in SETTINGS_GROUPS:
+        left = _without_drawer(dict(SETTINGS_GROUPS)[heading])
         page = page.replace("__SETTINGS_%s__" % heading.upper(),
-                            render_groups([(heading,
-                                            dict(SETTINGS_GROUPS)[heading])],
-                                          collapsible=False))
+                            render_groups([(heading, left)],
+                                          collapsible=False) if left else "")
     # The flight actions in full, plus anything no group claimed. NOT the
     # drawer's controls and not the settings ones: they are already on this
     # page, and a second copy would mean two elements with the same id -
@@ -1191,11 +1253,16 @@ def render_pro():
     # The left strip shows these as icons and cannot show their number
     # boxes, so this is also where the climb height and the loiter radius
     # are actually typed.
-    placed = {i for _, ids in (LEFT_RAIL + RIGHT_RAIL + SETTINGS_GROUPS)
+    placed = {i for _, ids in (LEFT_RAIL + PRO_DRAWER + SETTINGS_GROUPS)
               for i in ids}
     spare = [p["id"] for p in plugins if p["id"] not in placed]
+    # The left rail's launch controls, minus anything the drawer took. The
+    # tool strip shows arm and takeoff as icons and cannot show their
+    # number boxes, so the climb height is still typed here.
+    launch = [(heading, _without_drawer(ids)) for heading, ids in LEFT_RAIL]
+    launch = [(h, ids) for h, ids in launch if ids]
     page = page.replace("__SETTINGS_ALL__",
-                        render_groups(LEFT_RAIL, collapsible=False)
+                        render_groups(launch, collapsible=False)
                         + (render_groups([("Not yet placed", spare)],
                                          collapsible=False) if spare else ""))
     page = page.replace("__CONSOLE_SCRIPT__", console_qgc.SCRIPT)

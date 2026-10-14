@@ -121,6 +121,40 @@ check("the original panel grid is still reachable at /classic",
       len(_serve("/classic")) > 1000)
 
 
+print("0b. the instructor's own controls are IN THE DRAWER, not in Settings")
+# "Reachable" is the word that let the last fault through: all 42 controls
+# were on the page and the test passed, while the failure injections sat in
+# a settings pane headed "Not yet placed" and the drawer held eight
+# recover buttons. An instructor console whose failures take three clicks
+# through a settings window is not an instructor console.
+#
+# The drawer markup comes before <div id="setback"> in the page, so a
+# control's position relative to that marker says which it is in.
+_setback = PAGE.index('<div id="setback">')
+
+
+def _in_drawer(plugin_id):
+    at = PAGE.find('id="btn-%s"' % plugin_id)
+    return 0 <= at < _setback
+
+
+# The things an instructor reaches for WHILE a student is flying.
+for group, ids in [
+        ("failure injection", ["gps_failure", "data_link_loss",
+                               "rc_signal_loss", "engine_failure",
+                               "motor_failure", "cuas_encounter"]),
+        ("conditions", ["conditions", "weather", "time_of_day", "wind_gust"]),
+        ("scenario", ["freeze", "reset_scenario", "reset_spawn",
+                      "new_session"]),
+]:
+    adrift = [i for i in ids if not _in_drawer(i)]
+    check("every %s control is in the drawer (%s)"
+          % (group, adrift or "all of them"), not adrift)
+
+check("nothing is left in a pane headed \"Not yet placed\"",
+      "Not yet placed" not in PAGE)
+
+
 print("1. every instructor control is on the page")
 # Reachable means a button with its id, OR a tool-strip entry that sends it.
 ids = set(re.findall(r'id="btn-([a-z0-9_]+)"', PAGE))
