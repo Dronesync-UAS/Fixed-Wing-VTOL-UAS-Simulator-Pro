@@ -271,6 +271,11 @@ def _toggle(running, answer):
             raise AssertionError("asked when nothing was running")
         return answer
 
+    # Drive the TERMINAL menu, not the desktop dialog. This test's stdin is
+    # a pipe, and the launcher reads that as "no terminal" since 14 Oct
+    # 2026, so without pinning it the stub ask() below would never be
+    # called and both answers would come back as "leave it alone".
+    L.GUI = False
     with _ctx.redirect_stdout(_io.StringIO()):
         L.toggle("coast", ask=ask)
     return done
@@ -298,6 +303,20 @@ check("the installer writes one entry, pointed at --toggle",
       "--toggle" in _installer and "uav-academy-gcs-pro.desktop" in _installer)
 check("and clears away the two icons it replaces",
       "OLD_START" in _installer and "OLD_STOP" in _installer)
+# "do not show terminal window activating the app", 14 Oct 2026. A
+# terminal is what the icon used to open and sit in for the minute PX4 and
+# Gazebo take to start.
+check("the icon opens no terminal window",
+      "Terminal=false" in _installer and "Terminal=true" not in _installer)
+check("and does not wait for Enter it can never be given",
+      "--hold" not in _installer)
+# The terminal carried the progress and the already-running question, so
+# with it gone both have to land somewhere a person can see them.
+_launcher_src = open(os.path.join(REPO, "tools", "uas_launcher.py")).read()
+check("progress goes to desktop notifications instead",
+      "notify-send" in _launcher_src)
+check("and the already-running question to a dialog",
+      "zenity" in _launcher_src)
 
 print()
 print("FAILED: %s" % fails if fails else "all checks passed")

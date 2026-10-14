@@ -55,6 +55,13 @@ fi
 
 mkdir -p "$APPS"
 
+# Terminal=false since 14 Oct 2026 - "do not show terminal window
+# activating the app". The terminal was not decoration: it carried the
+# progress messages through the minute PX4 and Gazebo take to start, and
+# the "already running" question needs somewhere to be asked. The launcher
+# detects having no terminal and sends progress to desktop notifications
+# and the question to a zenity dialog, so nothing was lost with it.
+# StartupNotify=true so the dock shows the launch is under way.
 write_entry() {
     # $1 file, $2 name, $3 comment, $4 icon, $5 extra launcher arguments
     cat > "$1" <<EOF
@@ -63,12 +70,12 @@ Type=Application
 Version=1.0
 Name=$2
 Comment=$3
-Exec=python3 "$LAUNCHER" $5 --hold
+Exec=python3 "$LAUNCHER" $5
 Icon=$4
-Terminal=true
+Terminal=false
 Categories=Education;Science;Engineering;
 Keywords=UAV;drone;PX4;Gazebo;simulator;GCS;
-StartupNotify=false
+StartupNotify=true
 EOF
     chmod +x "$1"
 }

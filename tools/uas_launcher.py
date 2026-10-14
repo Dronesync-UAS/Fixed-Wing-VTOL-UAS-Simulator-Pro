@@ -77,8 +77,66 @@ PX4_PATTERNS = ("bin/px4", "gz sim")
 STATION_PATTERN = "instructor_station.py"
 
 
+# RUNNING FROM THE DESKTOP ICON, with no terminal behind it.
+#
+# The icon used to carry Terminal=true, so double-clicking it threw up a
+# terminal window that sat there for the minute PX4 and Gazebo take to
+# come up. Asked for on 14 Oct 2026: "do not show terminal window
+# activating the app".
+#
+# The terminal was not decoration - it carried the progress messages, and
+# the "already running" question needs somewhere to be asked. So with no
+# terminal the progress goes to desktop notifications and the question to
+# a dialog box. Detected rather than switched: if there IS a terminal the
+# behaviour is exactly as before, so running this by hand is unchanged.
+# Overridable so a test can pin it: tools/test_launcher.py drives the
+# terminal menu through a stub ask(), and its own stdin is a pipe, so
+# without this it would take the dialog branch and never exercise the
+# path a person actually types into.
+#   UAS_LAUNCHER_GUI=0  always use the terminal
+#   UAS_LAUNCHER_GUI=1  always use dialogs
+def _gui_wanted():
+    forced = os.environ.get("UAS_LAUNCHER_GUI")
+    if forced in ("0", "false", "no"):
+        return False
+    if forced in ("1", "true", "yes"):
+        return True
+    return not sys.stdin.isatty()
+
+
+GUI = _gui_wanted()
+
+# The same icon the desktop entry uses, so the notification looks like it
+# came from the application rather than from nowhere.
+ICON_PATH = os.path.join(REPO, "sim", "icons", "uas-gcs-app-icon.png")
+
+
+def _notify(title, message):
+    """A desktop notification. Never raises - this is feedback, not work."""
+    try:
+        icon = (ICON_PATH if os.path.isfile(ICON_PATH)
+                else "dialog-information")
+        subprocess.run(["notify-send", "--app-name=UAV Academy GCS Pro",
+                        "--icon=" + icon, title, message],
+                       check=False, timeout=5, capture_output=True)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
+def _dialog(argv, timeout=300):
+    """Run zenity. Returns (ok, stdout). (False, "") if zenity is missing."""
+    try:
+        done = subprocess.run(["zenity"] + argv, capture_output=True,
+                              text=True, timeout=timeout)
+    except (OSError, subprocess.SubprocessError):
+        return False, ""
+    return done.returncode == 0, done.stdout.strip()
+
+
 def say(step, message):
     print("[%s] %s" % (step, message), flush=True)
+    if GUI:
+        _notify("UAV Academy GCS Pro", message)
 
 
 # ---------------------------------------------------------------- state
@@ -419,14 +477,27 @@ def toggle(key, open_ui=True, ask=input):
 
     print("The simulator is already running.")
     print_status()
-    print()
-    print("  1  stop it")
-    print("  2  restart it (same training area, or name another below)")
-    print("  3  leave it alone")
-    try:
-        choice = ask("\nWhich? [3] ").strip().lower()
-    except (EOFError, KeyboardInterrupt):
-        choice = ""
+    if GUI:
+        # No terminal to ask in, so ask in a dialog. Cancel means leave it
+        # alone, which is the same as the terminal default.
+        ok, picked = _dialog([
+            "--list", "--title=UAV Academy GCS Pro",
+            "--text=The simulator is already running. What would you like "
+            "to do?",
+            "--column=Action", "--hide-header",
+            "Leave it running", "Restart it", "Stop it",
+            "--width=420", "--height=240"])
+        choice = {"Stop it": "1", "Restart it": "2",
+                  "Leave it running": "3"}.get(picked, "3") if ok else "3"
+    else:
+        print()
+        print("  1  stop it")
+        print("  2  restart it (same training area, or name another below)")
+        print("  3  leave it alone")
+        try:
+            choice = ask("\nWhich? [3] ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            choice = ""
 
     if choice in ("1", "stop"):
         stop_all()
@@ -555,7 +626,10 @@ def main(argv=None):
     else:
         code = launch(args.world, open_ui=not args.no_browser)
 
-    if args.hold:
+    # Nothing to hold open when there is no terminal: the desktop entry
+    # carries Terminal=false since 14 Oct 2026, and input() on no stdin
+    # just raises straight away.
+    if args.hold and not GUI:
         try:
             input("\nPress Enter to close this window. "
                   "The simulator keeps running.\n")
