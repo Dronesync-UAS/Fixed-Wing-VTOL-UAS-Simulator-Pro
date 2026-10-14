@@ -86,6 +86,16 @@ def pipeline(view, width, height, bitrate):
         "-q",
         "souphttpsrc", "location=%s%s" % (STATION, path),
         "is-live=true", "user-agent=%s" % MARKER,
+        # do-timestamp IS THE WHOLE DIFFERENCE BETWEEN A PICTURE AND A GREY
+        # RECTANGLE. The station's MJPEG carries no timestamps of its own,
+        # and multipartdemux passes buffers on without any. jpegdec and
+        # jpegenc do not care, which is why the feed looked fine everywhere
+        # it was checked - but x264enc does, and with none it emits
+        # perfectly blank frames. Measured 14 Oct 2026: the same pipeline
+        # decoded back gave mean luma 128.0 with a spread of 0.0 - flat
+        # grey to the last pixel - and 86.4 with this one property set.
+        # QGC was never at fault; it was faithfully showing what it got.
+        "do-timestamp=true",
         "!", "multipartdemux",
         "!", "jpegdec",
         # QUEUES, PLURAL. Without one before the encoder gstreamer warns
@@ -93,8 +103,13 @@ def pipeline(view, width, height, bitrate):
         # to zero, which shows up as stutter rather than as an error.
         "!", "queue", "max-size-buffers=3", "leaky=downstream",
         "!", "videoconvert",
+        # videorate with an explicit framerate below: the source arrives at
+        # whatever rate Gazebo renders at, and an encoder told nothing
+        # about timing has to guess.
+        "!", "videorate",
         "!", "videoscale",
-        "!", "video/x-raw,width=%d,height=%d" % (width, height),
+        "!", "video/x-raw,width=%d,height=%d,format=I420,framerate=25/1"
+             % (width, height),
         "!", "x264enc", "tune=zerolatency", "speed-preset=ultrafast",
         "bitrate=%d" % bitrate,
         # A keyframe every second, or QGC shows nothing until the next one
