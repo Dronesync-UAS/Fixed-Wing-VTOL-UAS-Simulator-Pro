@@ -383,6 +383,18 @@ def browser_checks():
         page.wait_for_timeout(600)
         check("only Yes sends the shutdown", "/exit" in posted)
 
+        # WAIT FOR THE TILES TO ARRIVE BEFORE JUDGING THEM. Tiles are
+        # fetched over the network on first sight of an area and drawn from
+        # an ancestor until each one lands, which is what every slippy map
+        # does. Reading the counters before they settle measures the
+        # loading state, not the result - it reported 42 upscaled tiles
+        # that were all replaced a second later.
+        for _ in range(40):
+            stats = page.evaluate(
+                "() => window.gcsTileStats ? window.gcsTileStats() : null")
+            if stats and stats.get("have") and not stats.get("fromParent"):
+                break
+            page.wait_for_timeout(500)
         stats = page.evaluate("() => window.gcsTileStats ? window.gcsTileStats() : null")
         check("the map drew tiles (%s)" % (stats,), stats and stats["have"] > 0)
         # NOTHING UPSCALED. fromParent counts tiles drawn by blowing up an

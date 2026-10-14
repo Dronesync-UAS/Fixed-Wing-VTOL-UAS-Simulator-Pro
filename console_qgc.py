@@ -175,10 +175,19 @@ TEMPLATE = """<!DOCTYPE html>
     gap: calc(var(--fw) * 2); padding: 0 var(--margin);
     background: var(--window);
   }
+  /* The logo, sized and shaped exactly as QGroundControl's own.
+     QGCToolBarButton.qml: height is defaultFontPixelHeight * 3 (the full
+     toolbar, 66 px), the image inside is defaultFontPixelHeight * 2 square
+     (44 px), horizontal padding is defaultFontPixelWidth (8 px) a side, and
+     the background is Qt.rgba(0,0,0,0) with border.width 0 - transparent,
+     square, no ring. FlyViewToolBar.qml puts it first in the row.
+     This was a 40 px circle with a dark fill, a 1 px ring and a 26 px
+     icon until 14 Oct 2026 - "make it the size of QGC logo and get rid of
+     the circle". */
   #brand {
-    width: 40px; height: 40px; border-radius: 50%; border: 0; cursor: pointer;
-    background: #1b2330 url('/app_icon.png') center/26px no-repeat;
-    box-shadow: 0 0 0 1px var(--edge);
+    height: var(--toolbar); width: calc(44px + 2 * var(--fw));
+    border: 0; border-radius: 0; cursor: pointer; padding: 0;
+    background: transparent url('/app_icon.png') center/44px 44px no-repeat;
   }
   .state { font-size: 21px; font-weight: 600; letter-spacing: 0.2px; }
   .state.armed { color: var(--stop); }

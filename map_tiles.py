@@ -53,6 +53,7 @@ corrupt an instructor's map cache.
 """
 
 import math
+import io
 import os
 import urllib.request
 import sqlite3
@@ -154,6 +155,30 @@ ESRI_URL = ("https://server.arcgisonline.com/ArcGIS/rest/services/"
 ESRI_CREDIT = "Esri World Imagery - check Esri's terms of use"
 ESRI_MAX_ZOOM = 21
 
+# HYBRID, because that is what QGroundControl is showing.
+# ~/.config/QGroundControl/QGroundControl.ini on this machine reads
+# mapProvider=Google and mapType=Hybrid - satellite imagery with roads and
+# place names drawn over it, not bare imagery. Asked for on 14 Oct 2026:
+# "use same type of map".
+#
+# Google's own hybrid tiles are not ours to fetch - QGC has a key
+# arrangement and this does not - so the same thing is built from Esri's
+# own reference layers, which are transparent overlays meant for exactly
+# this. Boundaries and places carries the labels; transportation carries
+# the roads. Both return 200 at the zooms this uses, checked the same day.
+ESRI_OVERLAYS = (
+    ("https://server.arcgisonline.com/ArcGIS/rest/services/"
+     "Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"),
+    ("https://server.arcgisonline.com/ArcGIS/rest/services/"
+     "Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}"),
+)
+HYBRID_CREDIT = ("Esri World Imagery with Esri reference layers - "
+                 "check Esri's terms of use")
+
+# Set GCS_MAP_PLAIN=1 to get bare imagery with nothing drawn over it.
+def _hybrid_wanted():
+    return os.environ.get("GCS_MAP_PLAIN", "") not in ("1", "true", "yes")
+
 # Mapbox is better again where it is licensed, but needs a working token.
 # The one on this machine returned 401 Not Authorized when this was built
 # on 14 Oct 2026, which is why it is not the default - and why anything
@@ -224,6 +249,42 @@ def _download(url, timeout):
         return None
 
 
+def _overlay(base_blob, z, x, y, timeout):
+    """Draw the reference layers over the imagery. None if it cannot be done.
+
+    Returns JPEG bytes. Falling back to the bare imagery on any problem is
+    deliberate: a map with no road names is a great deal better than no map,
+    and Pillow not being importable should not cost the instructor a
+    backdrop.
+    """
+    try:
+        from PIL import Image
+    except ImportError:
+        return None
+    try:
+        base = Image.open(io.BytesIO(base_blob)).convert("RGBA")
+    except Exception:
+        return None
+    drew = False
+    for template in ESRI_OVERLAYS:
+        blob = _download(template.format(z=z, y=y, x=x), timeout)
+        if not blob:
+            continue
+        try:
+            layer = Image.open(io.BytesIO(blob)).convert("RGBA")
+        except Exception:
+            continue
+        if layer.size != base.size:
+            layer = layer.resize(base.size)
+        base = Image.alpha_composite(base, layer)
+        drew = True
+    if not drew:
+        return None
+    out = io.BytesIO()
+    base.convert("RGB").save(out, format="JPEG", quality=88)
+    return out.getvalue()
+
+
 def fetch_tile(z, x, y, timeout=8.0):
     """One satellite tile for (z, x, y) from our own source, or None.
 
@@ -238,6 +299,8 @@ def fetch_tile(z, x, y, timeout=8.0):
         return blob
     if z <= ESRI_MAX_ZOOM:
         blob = _download(ESRI_URL.format(z=z, y=y, x=x), timeout)
+        if blob is not None and _hybrid_wanted():
+            blob = _overlay(blob, z, x, y, timeout) or blob
     if blob is None and mapbox_token():
         blob = _download(
             MAPBOX_URL.format(z=z, x=x, y=y, token=mapbox_token()), timeout)

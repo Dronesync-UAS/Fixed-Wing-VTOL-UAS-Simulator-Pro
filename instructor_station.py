@@ -1725,20 +1725,37 @@ EXTRA_SCRIPT = """
   // speck. 120 m is the new floor, and followAircraft below is what
   // makes it adaptable: the view centres on the aircraft at a span the
   // wheel sets, rather than trying to hold every place it has been.
-  // 14 Oct 2026: "not zoomed at suitable height". It was 120 m, and
-  // because the following view is MAP_SPAN_M / mapZoom, the widest the
+  // 14 Oct 2026: "not zoomed at suitable height". It was 120 m across at
+  // 1x, and because the following view is span / mapZoom, the widest the
   // map could ever go was 120 / 0.25 = 480 m - so the station's own 500 m
   // range limit NEVER fitted on the screen. An instructor could not see
-  // the edge of the area the student had to stay inside.
-  //
-  // 600 m at 1x contains the 500 m limit with room around it, and the
-  // wheel still reaches 37 m at full zoom (600/16) for close work and
-  // 2400 m at the widest. The earlier 120 m came from "make it closer"
-  // on 12 Oct, which was right about the fault - the view was auto-
-  // fitting the whole track and retreating all sortie - but the fix
-  // belonged in followAircraft, which is where it now is, not in the
+  // the edge of the area the student had to stay inside. The 120 m came
+  // from "make it closer" on 12 Oct, which was right about the fault -
+  // the view was auto-fitting the whole track and retreating all sortie -
+  // but the fix belonged in followAircraft, where it now is, not in the
   // span.
-  var MAP_SPAN_M = 600;
+  // QGroundControl's own flight-map zoom, read from its settings file on
+  // this machine: ~/.config/QGroundControl/QGroundControl.ini carries
+  // FlightMapZoom=17. Asked for on 14 Oct 2026 - "adjust zoom level as
+  // QGC" - so rather than pick a number that looks about right, the view
+  // opens at the zoom QGC opens at.
+  var QGC_FLIGHT_MAP_ZOOM = 17;
+  // Web Mercator ground resolution: the equator is 40075016.686 m and a
+  // zoom level z spans 256 * 2^z pixels across it, narrowing by cos(lat).
+  function metresPerPixel(lat, z) {
+    return 40075016.686 * Math.cos(lat * Math.PI / 180) /
+           (256 * Math.pow(2, z));
+  }
+  // How many metres the short side of the map shows at 1x. Matching QGC's
+  // zoom means matching its metres-per-pixel, so the span follows the
+  // canvas size exactly as QGC's does when its window is resized.
+  // 600 m flat was the previous answer; before that it was 120 m, which
+  // meant the station's own 500 m range limit never fitted on the screen
+  // at any zoom.
+  function mapSpanM(lat, shortSidePx) {
+    if (lat == null || !shortSidePx) { return 600; }
+    return shortSidePx * metresPerPixel(lat, QGC_FLIGHT_MAP_ZOOM);
+  }
   var mapZoom = 1;
   function setMapZoom(z) {
     mapZoom = Math.max(0.25, Math.min(16, z));
@@ -1869,16 +1886,17 @@ EXTRA_SCRIPT = """
       // A parked aircraft has a track a few metres across, so auto-fit alone
       // zoomed to a 50 m square of blank ground with the aircraft and home on
       // top of each other and nothing around them to read. Never show less
-      // than MAP_SPAN_M across, and let the instructor zoom from there.
+      // than the QGC-matched span across, and let the instructor zoom on.
+      var spanM = mapSpanM(home ? home.lat : null, Math.min(W, H));
       if (followAircraft) {
         // Following: the span is whatever the wheel says, and the whole
         // track is deliberately NOT fitted - that is what made the view
         // retreat further and further as the sortie went on.
-        maxAbs = (MAP_SPAN_M / 2) / mapZoom;
+        maxAbs = (spanM / 2) / mapZoom;
       } else {
         // Fit everything flown, with the same floor as before so a
         // parked aircraft does not zoom to a blank 50 m square.
-        maxAbs = Math.max(maxAbs, MAP_SPAN_M / 2) / mapZoom;
+        maxAbs = Math.max(maxAbs, spanM / 2) / mapZoom;
       }
       var scale = Math.min(W, H) / (2 * maxAbs);
       // ox/oy is where HOME lands on the canvas. Metres east are +x and
