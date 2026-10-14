@@ -301,11 +301,28 @@ finally:
 _installer = open(os.path.join(REPO, "tools", "install_launcher.sh")).read()
 check("the installer writes one entry, pointed at --toggle",
       "--toggle" in _installer and "uav-academy-gcs-pro.desktop" in _installer)
-check("and clears away the two icons it replaces",
-      "OLD_START" in _installer and "OLD_STOP" in _installer)
+# Was OLD_START/OLD_STOP until 14 Oct 2026, when the pair became a list
+# so that every earlier entry is cleared, not just those two.
+check("and clears away the icons it replaces",
+      "STALE_ENTRIES" in _installer)
 # "do not show terminal window activating the app", 14 Oct 2026. A
 # terminal is what the icon used to open and sit in for the minute PX4 and
 # Gazebo take to start.
+# 14 Oct 2026: a machine carried THREE things called "UAV Academy GCS
+# Pro". The cleanup list only knew about the two icons this replaced on
+# 13 Oct, so two older entries - one running instructor_station.py with no
+# PX4 behind it, one opening firefox at a station that was not up - sat in
+# the menu looking identical and neither could work.
+for stale in ("uas-instructor-station.desktop", "uas-control-deck.desktop",
+              "uas-academy-simulator.desktop",
+              "uas-academy-simulator-stop.desktop"):
+    check("the installer clears the stale %s" % stale, stale in _installer)
+# More than one MAIN category makes the application appear more than once
+# in the menu - desktop-file-validate says so, and it carried three.
+check("the entry declares exactly one main category",
+      "Categories=Education;" in _installer
+      and "Education;Science;Engineering;" not in _installer)
+
 check("the icon opens no terminal window",
       "Terminal=false" in _installer and "Terminal=true" not in _installer)
 check("and does not wait for Enter it can never be given",

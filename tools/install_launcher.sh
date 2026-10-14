@@ -32,16 +32,32 @@ APPS="$HOME/.local/share/applications"
 # removed on install so an upgraded machine is not left with three icons,
 # two of which are stale.
 APP_FILE="$APPS/uav-academy-gcs-pro.desktop"
-OLD_START="uas-academy-simulator.desktop"
-OLD_STOP="uas-academy-simulator-stop.desktop"
+# EVERY earlier entry, not just the two this replaced directly. On
+# 14 Oct 2026 a machine still carried three things called "UAV Academy GCS
+# Pro" because the list below only knew about the pair from 13 Oct:
+#
+#   uas-instructor-station  ran instructor_station.py on its own, with no
+#                           PX4 and no Gazebo, so it sat on "Connecting to
+#                           the simulator" for ever - in a terminal window
+#   uas-control-deck        opened firefox at localhost:8080 and started
+#                           nothing, so it was blank unless the station
+#                           happened to be running already
+#
+# Both predate the launcher and neither can work. Anything added here is
+# deleted on install, so an upgraded machine ends with exactly one icon.
+STALE_ENTRIES="uas-academy-simulator.desktop
+uas-academy-simulator-stop.desktop
+uas-instructor-station.desktop
+uas-control-deck.desktop"
 DESKTOP_DIR="$(xdg-user-dir DESKTOP 2>/dev/null || echo "$HOME/Desktop")"
 
 MODE="${1:-install}"
 
 if [ "$MODE" = "--remove" ]; then
-    rm -f "$APP_FILE" "$APPS/$OLD_START" "$APPS/$OLD_STOP"
-    rm -f "$DESKTOP_DIR/uav-academy-gcs-pro.desktop" \
-          "$DESKTOP_DIR/$OLD_START" "$DESKTOP_DIR/$OLD_STOP"
+    rm -f "$APP_FILE" "$DESKTOP_DIR/uav-academy-gcs-pro.desktop"
+    echo "$STALE_ENTRIES" | while read -r stale; do
+        [ -n "$stale" ] && rm -f "$APPS/$stale" "$DESKTOP_DIR/$stale"
+    done
     command -v update-desktop-database >/dev/null 2>&1 \
         && update-desktop-database "$APPS" 2>/dev/null || true
     echo "Removed the UAV Academy launcher icons."
@@ -62,6 +78,11 @@ mkdir -p "$APPS"
 # detects having no terminal and sends progress to desktop notifications
 # and the question to a zenity dialog, so nothing was lost with it.
 # StartupNotify=true so the dock shows the launch is under way.
+# ONE main category. desktop-file-validate warns that more than one makes
+# the application "appear more than once in the application menu", and this
+# carried three - Education, Science and Engineering. A machine that
+# already had three things called UAV Academy GCS Pro did not need help
+# showing a fourth. Keywords below still find it by drone, PX4 and so on.
 write_entry() {
     # $1 file, $2 name, $3 comment, $4 icon, $5 extra launcher arguments
     cat > "$1" <<EOF
@@ -73,7 +94,7 @@ Comment=$3
 Exec=python3 "$LAUNCHER" $5
 Icon=$4
 Terminal=false
-Categories=Education;Science;Engineering;
+Categories=Education;
 Keywords=UAV;drone;PX4;Gazebo;simulator;GCS;
 StartupNotify=true
 EOF
@@ -85,8 +106,9 @@ write_entry "$APP_FILE" "UAV Academy GCS Pro" \
     "$REPO/sim/icons/uas-gcs-app-icon.png" "--toggle"
 
 # The separate start and stop icons this replaces.
-rm -f "$APPS/$OLD_START" "$APPS/$OLD_STOP" \
-      "$DESKTOP_DIR/$OLD_START" "$DESKTOP_DIR/$OLD_STOP"
+echo "$STALE_ENTRIES" | while read -r stale; do
+    [ -n "$stale" ] && rm -f "$APPS/$stale" "$DESKTOP_DIR/$stale"
+done
 
 command -v update-desktop-database >/dev/null 2>&1 \
     && update-desktop-database "$APPS" 2>/dev/null || true
