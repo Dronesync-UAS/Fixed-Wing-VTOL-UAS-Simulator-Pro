@@ -183,11 +183,18 @@ TEMPLATE = """<!DOCTYPE html>
      square, no ring. FlyViewToolBar.qml puts it first in the row.
      This was a 40 px circle with a dark fill, a 1 px ring and a 26 px
      icon until 14 Oct 2026 - "make it the size of QGC logo and get rid of
-     the circle". */
+     the circle".
+
+     THE IMAGE IS 56 px, NOT QGC's 44. Asked for straight afterwards -
+     "make the logo bigger in GCS" - so this one number is deliberately
+     not QGC's. 56 leaves 5 px above and below inside the 66 px toolbar,
+     which is as large as it goes without touching the edges. Everything
+     else about the button - the height, the padding, the transparent
+     square background - is still QGC's. */
   #brand {
-    height: var(--toolbar); width: calc(44px + 2 * var(--fw));
+    height: var(--toolbar); width: calc(56px + 2 * var(--fw));
     border: 0; border-radius: 0; cursor: pointer; padding: 0;
-    background: transparent url('/app_icon.png') center/44px 44px no-repeat;
+    background: transparent url('/app_icon.png') center/56px 56px no-repeat;
   }
   .state { font-size: 21px; font-weight: 600; letter-spacing: 0.2px; }
   .state.armed { color: var(--stop); }
