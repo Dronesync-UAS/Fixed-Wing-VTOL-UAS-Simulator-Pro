@@ -2620,6 +2620,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(blob)
         elif self.path.startswith("/tile_info"):
             answer = map_tiles.available()
+            # What the Maps settings page reports: where the imagery comes
+            # from and whether the roads and names are drawn over it.
+            answer["source"] = map_tiles.ESRI_CREDIT
+            answer["hybrid"] = map_tiles._hybrid_wanted()
             info = terrain_backdrop.info()
             answer["world"] = info.get("world")
             # Coverage at the training area's own centre, so the console can

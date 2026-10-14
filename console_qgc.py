@@ -978,32 +978,39 @@ __EXTRA_STYLE__
     <div class="shead"><span>Settings</span>
       <button class="dclose" id="set-close">&times;</button></div>
     <div class="sbody">
+      <!-- QGC'S OWN PAGE NAMES where we have the matching thing.
+           docs.qgroundcontrol.com lists fifteen settings pages: General,
+           Fly View, 3D View, Plan View, ADSB Server, Comm Links, Logging,
+           Maps, GNSS Receiver, RTK Corrections, PX4 Log Transfer, Remote
+           ID, Telemetry, Video, Help.
+           Most of them configure real hardware - an external GNSS
+           receiver, RTK corrections, Remote ID registration - and mean
+           nothing against a simulated aircraft. Putting up empty pages
+           with QGC's names on them would be imitation, not replication.
+           So: QGC's names for the pages we can genuinely fill, our own
+           for the simulator's own settings, and Plan View is a VIEW here
+           rather than a settings page because that is where QGC puts the
+           planning itself. -->
       <div id="settabs">
-        <button data-pane="display" class="on">Display</button>
+        <button data-pane="flyview" class="on">Fly View</button>
+        <button data-pane="maps">Maps</button>
+        <button data-pane="video">Video</button>
         <button data-pane="aircraft">Aircraft</button>
         <button data-pane="environment">Environment</button>
         <button data-pane="session">Session</button>
         <button data-pane="all">All controls</button>
+        <button data-pane="help">Help</button>
       </div>
       <div id="setpanes">
-        <div class="pane on" data-pane="display">
+        <!-- FLY VIEW: what QGC's own Fly View page carries - the
+             instrument panel, the warnings, and the checklist behaviour. -->
+        <div class="pane on" data-pane="flyview">
           <div class="srow"><span class="lbl">Attitude overlay</span>
             <input type="checkbox" id="hud-on" checked></div>
           <div class="srow"><span class="lbl">Warning sounds</span>
             <input type="checkbox" id="alarm-on" checked></div>
           <div class="srow"><span class="lbl">Spoken callouts</span>
             <input type="checkbox" id="voice-on" checked></div>
-          <div class="srow"><span class="lbl">Camera view</span>
-            <select id="viewmode">
-              <option value="normal">Daylight</option>
-              <option value="ir">Infrared (white hot)</option>
-              <option value="ir_black">Infrared (black hot)</option>
-            </select></div>
-          <!-- Fuselage colour. Runtime, no restart - see aircraft_livery.py. -->
-          <div class="srow"><span class="lbl">Fuselage</span>
-            <span><select id="livery"></select>
-              <button id="livery-lock">Lock</button></span></div>
-          <div class="note" id="livery-note">Not locked &mdash; this session only.</div>
           <div class="srow"><span class="lbl">External view angle</span>
             <span><button id="angle-down">&#9660;</button>
               <b id="angle-read">17&deg;</b>
@@ -1011,10 +1018,77 @@ __EXTRA_STYLE__
               <button id="angle-lock">Lock</button></span></div>
           <div class="note" id="angle-note">Not locked &mdash; this session only.</div>
         </div>
-        <div class="pane" data-pane="aircraft">__SETTINGS_AIRCRAFT__</div>
+
+        <!-- MAPS: provider, type and what imagery this area actually has.
+             QGC's Maps page manages offline tile sets; ours reports what
+             is cached and where it came from, which is the same question
+             an instructor is asking - will the map be there tomorrow. -->
+        <div class="pane" data-pane="maps">
+          <div class="srow"><span class="lbl">Imagery</span>
+            <b id="map-provider">&mdash;</b></div>
+          <div class="srow"><span class="lbl">Roads and place names</span>
+            <b id="map-hybrid">&mdash;</b></div>
+          <div class="srow"><span class="lbl">This training area</span>
+            <b id="map-area">&mdash;</b></div>
+          <div class="srow"><span class="lbl">Tiles held</span>
+            <b id="map-cached">&mdash;</b></div>
+          <div class="note">Tiles are fetched once for an area and then cost
+            nothing and work with no network. Set GCS_MAP_PLAIN=1 before
+            starting the station for bare imagery with nothing drawn over
+            it.</div>
+        </div>
+
+        <!-- VIDEO: QGC's Video page is source, recording and decoder. The
+             two numbers here are the ones CAP 722B 5.2(d) asks an FSTD to
+             be able to display. -->
+        <div class="pane" data-pane="video">
+          <div class="srow"><span class="lbl">Camera view</span>
+            <select id="viewmode">
+              <option value="normal">Daylight</option>
+              <option value="ir">Infrared (white hot)</option>
+              <option value="ir_black">Infrared (black hot)</option>
+            </select></div>
+          <div class="srow"><span class="lbl">Frame rate</span>
+            <b id="vid-fps">&mdash;</b></div>
+          <div class="srow"><span class="lbl">Visual response time</span>
+            <b id="vid-ms">&mdash;</b></div>
+          <div class="note">Frame rate and visual response time are what
+            CAP&nbsp;722B 5.2(d) requires an FSTD to be able to display. The
+            response time is this station's own contribution to the delay -
+            see video_feed.latency_ms for what it does and does not
+            include.</div>
+          <div class="srow"><span class="lbl">To QGroundControl</span>
+            <b id="vid-stream">&mdash;</b></div>
+          <div class="note">Send the camera to a student's QGC with
+            <code>python3 tools/stream_to_qgc.py --host &lt;their
+            address&gt;</code>, then set Video to UDP h.264 on port 5600 in
+            their QGC.</div>
+        </div>
+        <div class="pane" data-pane="aircraft">
+          <!-- Fuselage colour. Runtime, no restart - see aircraft_livery.py.
+               Moved here from the old Display page on 14 Oct 2026: it is a
+               property of the aircraft, not of the display. -->
+          <div class="srow"><span class="lbl">Fuselage</span>
+            <span><select id="livery"></select>
+              <button id="livery-lock">Lock</button></span></div>
+          <div class="note" id="livery-note">Not locked &mdash; this session only.</div>
+          __SETTINGS_AIRCRAFT__</div>
         <div class="pane" data-pane="environment">__SETTINGS_ENVIRONMENT__</div>
         <div class="pane" data-pane="session">__SETTINGS_SESSION__</div>
         <div class="pane" data-pane="all">__SETTINGS_ALL__</div>
+        <div class="pane" data-pane="help">
+          <div class="note">This station pairs with standard
+            QGroundControl: the student flies QGC, the instructor works
+            here. Both hold their own MAVLink link to one aircraft.</div>
+          <div class="srow"><span class="lbl">QGroundControl guide</span>
+            <b>docs.qgroundcontrol.com</b></div>
+          <div class="srow"><span class="lbl">Two machines</span>
+            <b>docs/two-machine-setup.md</b></div>
+          <div class="srow"><span class="lbl">CAP 722B readiness</span>
+            <b>docs/CAP722B-readiness.md</b></div>
+          <div class="srow"><span class="lbl">What this console checks</span>
+            <b>python3 tools/verify_live.py</b></div>
+        </div>
       </div>
     </div>
   </div>
@@ -1299,7 +1373,47 @@ SCRIPT = """
   });
 
   // ---------- settings ----------
-  function settings(open) { el('setback').classList.toggle('open', open); }
+  function settings(open) {
+    el('setback').classList.toggle('open', open);
+    // The two live pages are read when the window opens, not polled behind
+    // it - nothing here changes fast enough to be worth a timer.
+    if (open) { refreshMapsPage(); refreshVideoPage(); }
+  }
+  // ---------- the Maps and Video settings pages ----------
+  // Filled from what the station actually has rather than from a stored
+  // preference: an instructor opening Maps is asking "will the map be
+  // there tomorrow", and that is a question about the cache.
+  function refreshMapsPage() {
+    fetch('/tile_info').then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d) { return; }
+        var prov = el('map-provider');
+        if (prov) { prov.textContent = d.source || 'Esri World Imagery'; }
+        var hyb = el('map-hybrid');
+        if (hyb) { hyb.textContent = d.hybrid === false ? 'off' : 'on'; }
+        var area = el('map-area');
+        if (area) { area.textContent = d.world || '-'; }
+        var cached = el('map-cached');
+        if (cached && window.gcsTileStats) {
+          var t = window.gcsTileStats();
+          cached.textContent = t && t.have
+            ? t.have + ' on screen at zoom ' + t.zoom
+              + (t.missing ? ', ' + t.missing + ' missing' : ', none missing')
+            : 'none drawn yet';
+        }
+      }).catch(function () {});
+  }
+  function refreshVideoPage() {
+    fetch('/health').then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d) { return; }
+        var f = el('vid-fps'), m = el('vid-ms'), st = el('vid-stream');
+        if (f) { f.textContent = d.camera_fps > 0 ? Math.round(d.camera_fps) + ' fps' : 'no feed running'; }
+        if (m) { m.textContent = d.camera_response_ms > 0 ? Math.round(d.camera_response_ms) + ' ms' : '-'; }
+        if (st) { st.textContent = 'udp h.264, port 5600'; }
+      }).catch(function () {});
+  }
+
   // ---------- PX4's own messages ----------
   // Until 14 Oct 2026 this console never saw one: PX4 withholds STATUSTEXT
   // from a link until a GCS has identified itself on it, and the station

@@ -228,6 +228,22 @@ check("coloured by the worst message, not just counted",
       "worst_level" in PAGE)
 
 
+print("0f. the settings pages carry QGC's names where they mean the same")
+# docs.qgroundcontrol.com lists fifteen settings pages. Most configure real
+# hardware - GNSS receiver, RTK corrections, Remote ID - and mean nothing
+# against a simulated aircraft, so putting up empty pages with QGC's names
+# would be imitation rather than replication. These are the ones we can
+# genuinely fill.
+for name in ("Fly View", "Maps", "Video", "Help"):
+    check("settings has a %s page" % name, ">%s<" % name in PAGE)
+check("Maps reports where the imagery comes from", 'id="map-provider"' in PAGE)
+check("and whether this area has its tiles", 'id="map-cached"' in PAGE)
+check("Video reports the frame rate and response time 5.2(d) asks for",
+      'id="vid-fps"' in PAGE and 'id="vid-ms"' in PAGE)
+# Plan is a view, so it must NOT also be a settings page.
+check("Plan is not among the settings pages", 'data-pane="mission"' not in PAGE)
+
+
 print("1. every instructor control is on the page")
 # Reachable means a button with its id, OR a tool-strip entry that sends it.
 ids = set(re.findall(r'id="btn-([a-z0-9_]+)"', PAGE))

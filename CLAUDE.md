@@ -25,6 +25,22 @@ Say which window a command belongs in. PX4's own commands (`param`,
 `commander check`) only work at its `pxh>` prompt, not at the `$` shell -
 that has caught people out more than once.
 
+## Where the answers come from
+
+Two upstream projects decide most of what this station does, and both are
+readable. **Read them rather than guess** - `docs/reference-sources.md`
+has the exact versions, the commands, and the list of arguments each has
+already settled here.
+
+* QGroundControl - <https://qgroundcontrol.com/>, source at
+  <https://github.com/mavlink/qgroundcontrol> (v5.1.5 is what is
+  installed). Every layout number in the console came from there.
+* PX4 - <https://github.com/px4/px4-autopilot/>, and already cloned at
+  `~/PX4-Autopilot` (v1.15.4), so `grep` answers most questions offline.
+
+The decision log has several entries that exist only because something
+was assumed instead of read.
+
 ## Writing code and comments
 
 Comments say WHY, not what. The decision log in `docs/decision-log/` is the
