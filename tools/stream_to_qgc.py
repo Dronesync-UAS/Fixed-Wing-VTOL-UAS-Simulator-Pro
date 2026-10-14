@@ -46,6 +46,9 @@ import urllib.request
 STATION = "http://127.0.0.1:8080"
 # QGC's default for "UDP h.264 Video Stream". Changing it here means
 # changing it in QGC's settings too.
+# Where QGroundControl is. 127.0.0.1 while the student's QGC and the
+# instructor's station share one machine; the student's IP address once
+# they do not - see --host, and docs/two-machine-setup.md.
 QGC_HOST, QGC_PORT = "127.0.0.1", 5600
 
 # The station's MJPEG endpoints, by the name an instructor would use.
@@ -77,7 +80,7 @@ def _station_up():
         return False
 
 
-def pipeline(view, width, height, bitrate):
+def pipeline(view, width, height, bitrate, host=QGC_HOST):
     path = VIEWS[view][0]
     return [
         "gst-launch-1.0",
@@ -117,7 +120,7 @@ def pipeline(view, width, height, bitrate):
         "key-int-max=30",
         "!", "queue", "max-size-buffers=3", "leaky=downstream",
         "!", "rtph264pay", "config-interval=1", "pt=96",
-        "!", "udpsink", "host=%s" % QGC_HOST, "port=%d" % QGC_PORT,
+        "!", "udpsink", "host=%s" % host, "port=%d" % QGC_PORT,
         "sync=false",
     ]
 
@@ -128,6 +131,10 @@ def main(argv=None):
         formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("view", nargs="?", default=DEFAULT_VIEW,
                         help="which camera (%s)" % ", ".join(VIEWS))
+    parser.add_argument("--host", default=QGC_HOST,
+                        help="where QGroundControl is (default %s). Use the "
+                             "student machine's IP address when QGC runs on "
+                             "a separate computer." % QGC_HOST)
     parser.add_argument("--width", type=int, default=WIDTH)
     parser.add_argument("--height", type=int, default=HEIGHT)
     parser.add_argument("--bitrate", type=int, default=BITRATE_KBPS,
@@ -177,9 +184,10 @@ def main(argv=None):
     if _running():
         subprocess.run(["pkill", "-f", MARKER], capture_output=True)
 
-    command = pipeline(args.view, args.width, args.height, args.bitrate)
+    command = pipeline(args.view, args.width, args.height, args.bitrate,
+                       args.host)
     print("Sending %s to QGroundControl (%s) at %dx%d."
-          % (VIEWS[args.view][1], "udp://%s:%d" % (QGC_HOST, QGC_PORT),
+          % (VIEWS[args.view][1], "udp://%s:%d" % (args.host, QGC_PORT),
              args.width, args.height))
     print("In QGC: Application Settings > Video > UDP h.264 Video Stream, "
           "port %d." % QGC_PORT)
