@@ -183,6 +183,32 @@ check("and the bar is inside the payload view, not loose on the page",
       _pay < PAGE.index('id="qpaybar"') < _end)
 
 
+print("0d. QGC's view model: a view menu, and Plan and Analyze as views")
+# QGC is five screens behind one toolbar, switched from the logo button -
+# SelectViewDropdown.qml lists Fly, Plan, Analyze, Configure, Settings and
+# Close. This console had ONE view and kept mission planning inside
+# Settings, which is why it did not read as QGC however closely the flying
+# screen matched. Reported 14 Oct 2026.
+for what, token in [("a view menu", 'id="viewmenu"'),
+                    ("Fly", 'data-view="fly"'),
+                    ("Plan", 'data-view="plan"'),
+                    ("Analyze", 'data-view="analyze"'),
+                    ("Settings", 'data-view="settings"')]:
+    check("the view menu offers %s" % what, token in PAGE)
+check("Plan is a view, not a settings tab",
+      'id="view-plan"' in PAGE and 'data-pane="mission"' not in PAGE)
+check("and Plan carries a map beside its editor",
+      'id="plan-map"' in PAGE and "planside" in PAGE)
+check("Analyze is a view", 'id="view-analyze"' in PAGE)
+
+# Nothing native and nothing white in Settings: the checkboxes and the
+# view-angle arrows were unstyled browser controls on a dark panel.
+check("settings checkboxes are styled, not the browser's",
+      '#setback input[type="checkbox"]' in PAGE)
+check("and the buttons in settings panes too",
+      "#setback .pane button" in PAGE)
+
+
 print("1. every instructor control is on the page")
 # Reachable means a button with its id, OR a tool-strip entry that sends it.
 ids = set(re.findall(r'id="btn-([a-z0-9_]+)"', PAGE))

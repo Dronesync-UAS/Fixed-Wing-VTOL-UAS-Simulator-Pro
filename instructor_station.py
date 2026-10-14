@@ -1231,6 +1231,14 @@ def render_pro():
     # RIGHT_RAIL, so the failures were not here at all.
     page = page.replace("__INSTRUCTOR__", render_groups(PRO_DRAWER))
 
+    # MISSION PLANNING IS ITS OWN VIEW, not a settings tab. QGC gives Plan
+    # a whole screen off the view menu, and planning a sortie is a job, not
+    # a preference. It was reachable only through Settings > Mission, which
+    # is a large part of why this console did not read as QGC.
+    page = page.replace("__PLAN_CONTROLS__",
+                        render_groups([("Mission", dict(SETTINGS_GROUPS)["Mission"])],
+                                      collapsible=False))
+
     # Anything the drawer now carries must NOT be rendered again in the
     # settings window: a second element with the same id breaks the
     # failure lights. So each settings group is what is left of it.
@@ -1240,6 +1248,11 @@ def render_pro():
         return [i for i in ids if i not in in_drawer]
 
     for heading, _ in SETTINGS_GROUPS:
+        if heading == "Mission":
+            # Rendered into the Plan view above; a second copy here would
+            # mean two elements with the same id.
+            page = page.replace("__SETTINGS_MISSION__", "")
+            continue
         left = _without_drawer(dict(SETTINGS_GROUPS)[heading])
         page = page.replace("__SETTINGS_%s__" % heading.upper(),
                             render_groups([(heading, left)],
@@ -1254,7 +1267,8 @@ def render_pro():
     # boxes, so this is also where the climb height and the loiter radius
     # are actually typed.
     placed = {i for _, ids in (LEFT_RAIL + PRO_DRAWER + SETTINGS_GROUPS)
-              for i in ids}
+              for i in ids}          # SETTINGS_GROUPS still carries Mission,
+                                     # which the Plan view now renders
     spare = [p["id"] for p in plugins if p["id"] not in placed]
     # The left rail's launch controls, minus anything the drawer took. The
     # tool strip shows arm and takeoff as icons and cannot show their

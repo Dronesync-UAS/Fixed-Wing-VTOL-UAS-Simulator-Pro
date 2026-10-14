@@ -276,6 +276,108 @@ TEMPLATE = """<!DOCTYPE html>
   }
   #rose canvas { width: 100%; height: 100%; display: block; }
 
+  /* ---------- settings: nothing native, nothing white ----------
+     The Display pane's checkboxes, the Lock buttons and the view-angle
+     arrows were plain <input> and <button> with no class, so the browser
+     drew them: white buttons and bright blue ticks on a dark panel.
+     Reported 14 Oct 2026 - "too many arrows functions with no meaning or
+     scope, the arrows in the white". The arrows DO mean something (they
+     step the external view angle); they just did not look like part of
+     the application, and sat loose beside the number with nothing tying
+     them to it. */
+  #setback .srow { display: flex; align-items: center; gap: 10px; min-height: 34px; }
+  #setback .srow .lbl { flex: 1 1 auto; }
+  #setback input[type="checkbox"] {
+    appearance: none; -webkit-appearance: none;
+    width: 17px; height: 17px; flex: 0 0 auto; margin: 0;
+    border: 1px solid var(--button-border); border-radius: 3px;
+    background: rgba(255,255,255,0.08); cursor: pointer; position: relative;
+  }
+  #setback input[type="checkbox"]:checked {
+    background: var(--good); border-color: var(--good);
+  }
+  #setback input[type="checkbox"]:checked::after {
+    content: ""; position: absolute; left: 5px; top: 1px;
+    width: 4px; height: 9px; border: solid #06130a;
+    border-width: 0 2px 2px 0; transform: rotate(42deg);
+  }
+  #setback input[type="checkbox"]:focus-visible { outline: 2px solid var(--button-highlight); outline-offset: 2px; }
+  #setback .pane button {
+    background: rgba(255,255,255,0.10); color: var(--ink);
+    border: 1px solid var(--edge); border-radius: var(--radius);
+    padding: 5px 11px; font: inherit; font-size: 12.5px; cursor: pointer;
+  }
+  #setback .pane button:hover { background: rgba(255,255,255,0.18); }
+  /* The angle stepper reads as ONE control: down, value, up, then Lock
+     set apart from it. */
+  #setback .srow > span:last-child { display: flex; align-items: center; gap: 6px; }
+  #setback #angle-down, #setback #angle-up {
+    width: 30px; padding: 5px 0; text-align: center; font-size: 10px;
+  }
+  #setback #angle-read {
+    min-width: 46px; text-align: center; font-variant-numeric: tabular-nums;
+  }
+  #setback #angle-lock, #setback #livery-lock { margin-left: 8px; }
+
+  /* ---------- the view menu, and the views it opens ---------- */
+  #viewmenu {
+    position: fixed; z-index: 60;
+    top: var(--toolbar); left: var(--margin);
+    display: none; flex-direction: column; min-width: 190px;
+    background: var(--window); border: 1px solid var(--edge);
+    border-radius: var(--radius); padding: 5px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.5);
+  }
+  #viewmenu.open { display: flex; }
+  #viewmenu button {
+    background: none; border: 0; color: var(--ink); cursor: pointer;
+    font: inherit; font-size: 15px; text-align: left;
+    padding: 9px 12px; border-radius: var(--radius);
+  }
+  #viewmenu button:hover { background: rgba(255,255,255,0.10); }
+  #viewmenu button.on { color: var(--good); font-weight: 600; }
+  #viewmenu button.danger { color: var(--stop); }
+  #viewmenu .vmrule { height: 1px; background: var(--edge); margin: 5px 8px; }
+
+  /* A whole-window view, the way QGC's Plan and Analyze take the window
+     rather than floating over the flying screen. */
+  .bigview {
+    position: fixed; inset: var(--toolbar) 0 0 0; z-index: 45;
+    display: none; flex-direction: column;
+    background: var(--window);
+  }
+  .bigview.open { display: flex; }
+  .bvhead {
+    display: flex; align-items: baseline; gap: 14px;
+    padding: 14px var(--margin) 12px calc(var(--margin) * 2);
+    border-bottom: 1px solid var(--edge);
+  }
+  .bvhead > span:first-child { font-size: 20px; font-weight: 600; }
+  .bvhead .bvnote { color: var(--dim); font-size: 13px; flex: 1 1 auto; }
+  .bvbody { flex: 1 1 auto; overflow-y: auto; padding: 18px calc(var(--margin) * 2) 40px; }
+  .bvcol { max-width: 760px; }
+  /* Map left, editor right - QGC's proportions: the map takes the room and
+     the editor is a fixed column against it. */
+  .planbody { display: flex; gap: var(--margin); padding: 0; overflow: hidden; }
+  .planmap { flex: 1 1 auto; position: relative; min-width: 0; background: #0b0f14; }
+  /* The map arrives wrapped in its own .surface, which is the element the
+     Fly view sizes. Stretch that, or the canvas keeps the height it had on
+     the stage and leaves the rest of the panel black. */
+  .planmap > .surface { position: absolute; inset: 0; }
+  /* An id selector, because #stage canvas (1,0,1) sets these on the Fly
+     view and a class rule cannot outrank it when the element moves. */
+  #plan-map canvas { width: 100%; height: 100%; display: block; }
+  #plan-map .surface { width: 100%; height: 100%; }
+  .planside {
+    flex: 0 0 var(--planside, 360px); overflow-y: auto;
+    padding: 16px var(--margin) 40px; border-left: 1px solid var(--edge);
+  }
+  @media (max-width: 900px) {
+    .planbody { flex-direction: column; }
+    .planside { flex: 1 1 auto; border-left: 0; border-top: 1px solid var(--edge); }
+    .planmap { min-height: 260px; }
+  }
+
   /* ---------- the payload's own control bar ---------- */
   /* Sits on the payload picture, not beside it: it is the view's own
      controls and has to travel with it between the stage and the PiP. */
@@ -375,6 +477,18 @@ TEMPLATE = """<!DOCTYPE html>
   .stack { display: flex; flex-direction: column; gap: 4px; }
   .stack label, .field label { font-size: 10.5px; color: var(--dim); }
   .field { display: flex; align-items: center; gap: 6px; }
+  /* A number with its up/down pair. Without these the step buttons picked
+     up the full-width .items button rule and stacked underneath the value,
+     which is tolerable in a 352 px drawer and looks broken across a whole
+     Plan view. */
+  .field > span:first-child { flex: 0 0 auto; min-width: 86px; }
+  .num { display: flex; align-items: stretch; gap: 4px; flex: 1 1 auto; max-width: 230px; }
+  .num input { flex: 1 1 auto; width: auto; height: 32px; }
+  .num .step { display: flex; flex-direction: column; gap: 2px; flex: 0 0 auto; }
+  .num .step button {
+    width: 26px; height: 15px; padding: 0; line-height: 1;
+    font-size: 9px; border-radius: 3px;
+  }
   .param-input, select, input[type="number"], input[type="text"] {
     background: rgba(255,255,255,0.08); border: 1px solid var(--edge);
     color: var(--ink); border-radius: 7px; padding: 5px 7px; font-size: 12.5px;
@@ -663,6 +777,48 @@ __EXTRA_STYLE__
   <div class="sheetbody"><div id="log-body"></div></div>
 </div>
 
+<!-- THE VIEW MENU, off the logo button - QGC's own arrangement.
+     SelectViewDropdown.qml at v5.1.5 offers Fly, Plan, Analyze, Configure,
+     Settings and Close from the Q button at the far left. This console had
+     one view and put mission planning inside Settings, which is why it did
+     not read as QGC however closely the flying screen matched.
+     No Configure: there is no real airframe here to calibrate. -->
+<div id="viewmenu">
+  <button data-view="fly" class="on">Fly</button>
+  <button data-view="plan">Plan</button>
+  <button data-view="analyze">Analyze</button>
+  <button data-view="settings">Settings</button>
+  <div class="vmrule"></div>
+  <button data-view="exit" class="danger">Close</button>
+</div>
+
+<!-- PLAN: mission planning as its own view, which is where QGC puts it. -->
+<div class="bigview" id="view-plan">
+  <div class="bvhead"><span>Plan</span>
+    <span class="bvnote">Build a mission, then upload and start it. The track
+      appears on the Fly map.</span>
+    <button class="dclose" data-closeview="plan">&times;</button></div>
+  <!-- QGC's Plan is a MAP with an editor panel beside it, not a form. The
+       map here is the same canvas the Fly view draws, moved across while
+       Plan is open and handed straight back on the way out - one canvas,
+       so the track and the tiles cannot disagree between the two views. -->
+  <div class="bvbody planbody">
+    <div class="planmap" id="plan-map"></div>
+    <div class="planside">__PLAN_CONTROLS__</div>
+  </div>
+</div>
+
+<!-- ANALYZE: the debrief half. QGC's Analyze view is log download, plotting
+     and the MAVLink inspector; ours is the session record, which is the part
+     an assessment actually rests on. -->
+<div class="bigview" id="view-analyze">
+  <div class="bvhead"><span>Analyze</span>
+    <span class="bvnote">What happened this session, in the order it
+      happened.</span>
+    <button class="dclose" data-closeview="analyze">&times;</button></div>
+  <div class="bvbody"><div id="analyze-body"></div></div>
+</div>
+
 <div id="say"></div>
 
 <!-- primary flight actions, QGC's left strip -->
@@ -778,7 +934,6 @@ __EXTRA_STYLE__
         <button data-pane="display" class="on">Display</button>
         <button data-pane="aircraft">Aircraft</button>
         <button data-pane="environment">Environment</button>
-        <button data-pane="mission">Mission</button>
         <button data-pane="session">Session</button>
         <button data-pane="all">All controls</button>
       </div>
@@ -810,7 +965,6 @@ __EXTRA_STYLE__
         </div>
         <div class="pane" data-pane="aircraft">__SETTINGS_AIRCRAFT__</div>
         <div class="pane" data-pane="environment">__SETTINGS_ENVIRONMENT__</div>
-        <div class="pane" data-pane="mission">__SETTINGS_MISSION__</div>
         <div class="pane" data-pane="session">__SETTINGS_SESSION__</div>
         <div class="pane" data-pane="all">__SETTINGS_ALL__</div>
       </div>
@@ -1098,7 +1252,87 @@ SCRIPT = """
 
   // ---------- settings ----------
   function settings(open) { el('setback').classList.toggle('open', open); }
-  el('brand').addEventListener('click', function () { settings(true); });
+  // ---------- the view menu ----------
+  // QGC's logo button opens a view list; it does not jump straight into one
+  // screen. SelectViewDropdown.qml, v5.1.5.
+  function viewMenu(open) {
+    el('viewmenu').classList.toggle('open', open === undefined
+      ? !el('viewmenu').classList.contains('open') : open);
+  }
+
+  function showView(name) {
+    // Only one big view at a time, and Fly means "close them all" - the
+    // flying screen is always underneath, which is how QGC behaves.
+    ['plan', 'analyze'].forEach(function (v) {
+      el('view-' + v).classList.toggle('open', v === name);
+    });
+    settings(name === 'settings');
+    [].forEach.call(el('viewmenu').querySelectorAll('button'), function (b) {
+      b.classList.toggle('on', b.dataset.view === name);
+    });
+    if (name === 'analyze') { loadAnalyze(); }
+    // The map canvas lives in the Fly view's own surface. Plan borrows it
+    // rather than drawing a second one: two canvases would be two tracks
+    // and two tile caches, and they would drift apart the moment one of
+    // them was not visible.
+    var mapSurface = el('v-map'), planMap = el('plan-map');
+    if (name === 'plan') {
+      if (planMap && mapSurface && mapSurface.parentElement !== planMap) {
+        planMap.appendChild(mapSurface);
+      }
+    } else if (mapSurface && mapSurface.parentElement === planMap) {
+      el('viewstore').appendChild(mapSurface);
+      applyViews();                 // put it back wherever Fly wants it
+    }
+    // The canvas only learns its new size on the next tick, so ask for
+    // an immediate refit - otherwise the map draws at the old size.
+    if (window.gcsRedraw) { setTimeout(window.gcsRedraw, 60); }
+    viewMenu(false);
+  }
+
+  el('brand').addEventListener('click', function (e) {
+    e.stopPropagation();
+    viewMenu();
+  });
+  el('viewmenu').addEventListener('click', function (e) {
+    var b = e.target.closest ? e.target.closest('button') : null;
+    if (!b) { return; }
+    if (b.dataset.view === 'exit') { viewMenu(false); askExit(true); return; }
+    showView(b.dataset.view);
+  });
+  document.addEventListener('click', function (e) {
+    if (!el('viewmenu').contains(e.target) && e.target !== el('brand')) {
+      viewMenu(false);
+    }
+  });
+  el('viewmenu').addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { viewMenu(false); el('brand').focus(); }
+  });
+  document.addEventListener('click', function (e) {
+    var c = e.target.closest ? e.target.closest('[data-closeview]') : null;
+    if (c) { showView('fly'); }
+  });
+
+  // The Analyze view shows the same session record the Log sheet does, so
+  // it is fetched the same way rather than kept twice.
+  function loadAnalyze() {
+    fetch('/flight_log').then(function (r) { return r.json(); })
+      .then(function (d) {
+        var box = el('analyze-body');
+        if (!d || !d.entries || !d.entries.length) {
+          box.innerHTML = '<p class="note">Nothing recorded yet this session.</p>';
+          return;
+        }
+        box.innerHTML = d.entries.map(function (e) {
+          return '<div class="logrow"><b>' + (e.when || '') + '</b> '
+               + '<span>' + (e.what || '') + '</span></div>';
+        }).join('');
+      }).catch(function () {
+        el('analyze-body').innerHTML =
+          '<p class="note">The station did not answer.</p>';
+      });
+  }
+
   el('set-close').addEventListener('click', function () { settings(false); });
   el('setback').addEventListener('mousedown', function (e) {
     if (e.target === el('setback')) { settings(false); }
