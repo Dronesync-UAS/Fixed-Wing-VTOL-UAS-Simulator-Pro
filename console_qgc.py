@@ -51,8 +51,16 @@ look for - #flightpath, #fp-backdrop, #fp-alt, #fp-dist, #fp-points,
 class "hud" - so instructor_station's EXTRA_SCRIPT and flight_display
 attach to this page unchanged. Nothing here re-implements them.
 
-The classic page is still at /classic and the current console is still at
-/. This one is served at /pro while it is being judged.
+THIS IS THE DEFAULT PAGE from 14 Oct 2026 - it is what / serves, and so
+what the desktop icon opens. It was served only at /pro from 13 Oct
+"while it is being judged", but the icon opens the station with no path,
+so in ordinary use nobody ever reached it: the station still looked
+exactly as it had before the redesign. That was reported as "the GCS
+still looks the same".
+
+The two it replaces are both still served, and nothing deletes either:
+the previous console at /console, and the original panel grid at
+/classic. /pro still works too, so older links and notes keep working.
 """
 
 # ---------------------------------------------------------------------------

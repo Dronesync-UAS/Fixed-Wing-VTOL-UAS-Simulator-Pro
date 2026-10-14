@@ -2418,7 +2418,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(json.dumps(answer).encode("utf-8"))
 
     def do_GET(self):
-        if self.path in ("/", "/classic", "/pro"):
+        if self.path in ("/", "/classic", "/pro", "/console"):
             self.send_response(200)
             self.send_header("Content-type", "text/html; charset=utf-8")
             self.end_headers()
@@ -2437,13 +2437,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                     + flight_display.STYLE + flight_display.script()
                                     + LAYOUT_STYLE + LAYOUT_SCRIPT + "</body>")
                 self.wfile.write(page.encode("utf-8"))
-            elif self.path == "/pro":
-                # The QGC-shaped console, served alongside the current one
-                # while it is judged - the same thing that was done for the
-                # panel grid at /classic when the current one was new.
-                self.wfile.write(render_pro().encode("utf-8"))
-            else:
+            elif self.path == "/console":
+                # The console the station opened with until 14 Oct 2026.
+                # Kept reachable by name, the way /classic was kept when
+                # this one replaced the panel grid. Nothing has been
+                # removed; it is simply no longer what the icon opens.
                 self.wfile.write(render_console().encode("utf-8"))
+            else:
+                # THE DEFAULT, from 14 Oct 2026: the QGC-shaped console.
+                # It had been served only at /pro since 13 Oct, "while it
+                # is judged" - but the desktop icon opens http://localhost
+                # :PORT with no path, so in ordinary use nobody ever
+                # reached it and the station still looked like its old
+                # self. A redesign nothing opens is not a redesign.
+                # /pro still works, so any link or note that used it keeps
+                # working.
+                self.wfile.write(render_pro().encode("utf-8"))
         elif self.path.startswith("/livery"):
             query = parse_qs(urlparse(self.path).query)
             answer = dict(aircraft_livery.status())

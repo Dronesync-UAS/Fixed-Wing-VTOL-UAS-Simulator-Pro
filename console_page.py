@@ -35,6 +35,8 @@ EXTRA_SCRIPT, reached through the same element ids it has always used
 not re-implement any of it.
 
 The classic page is still served at /classic, and nothing here deletes it.
+This page itself stopped being the default on 14 Oct 2026 - / now serves
+the QGC-shaped console - and is served at /console.
 """
 
 # ---------------------------------------------------------------------------

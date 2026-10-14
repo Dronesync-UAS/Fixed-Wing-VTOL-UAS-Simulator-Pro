@@ -50,6 +50,17 @@ a black screen that the offline check cannot see:
 python3 tools/test_console_browser.py
 ```
 
+The console the station opens by default is the QGC-shaped one
+(`console_qgc.py`, served at `/`). After changing it - or changing which
+page `/` serves - run:
+
+```
+python3 tools/test_pro_console.py
+```
+
+The three consoles are all still served: `/` the QGC-shaped one,
+`/console` the one before it, `/classic` the original panel grid.
+
 After changing the flight display (`flight_display.py`), run its own check
 too - it covers which message is shown in which colour, and exactly when
 the low-altitude warning sounds:

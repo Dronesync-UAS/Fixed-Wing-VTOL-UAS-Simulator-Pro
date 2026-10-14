@@ -67,6 +67,60 @@ station = _g["mod"]
 PAGE = station.render_pro()
 
 
+print("0. the station actually SERVES this page by default")
+# This is the check that was missing, and the reason the redesign sat
+# unseen for a day. The QGC-shaped console was served only at /pro while
+# it was "being judged", but the desktop icon opens http://localhost:PORT
+# with no path - so every ordinary start showed the OLD console and the
+# report came back as "the GCS still looks the same". A page nothing opens
+# is not a redesign.
+#
+# Driven through the station's REAL Handler rather than a stub server,
+# because it was the routing that was wrong, not the page.
+def _serve(path):
+    """GET path through the station's own Handler. Returns the body."""
+    class Fake(station.Handler):
+        def __init__(self, request_path):
+            self.rfile = io.BytesIO(b"")
+            self.wfile = io.BytesIO()
+            self.path = request_path
+            self.requestline = "GET %s HTTP/1.1" % request_path
+            self.client_address = ("127.0.0.1", 0)
+            self.request_version = "HTTP/1.1"
+            self.command = "GET"
+            self.headers = {}
+
+        def log_message(self, *a):
+            pass
+
+        def send_response(self, *a, **k):
+            pass
+
+        def send_header(self, *a, **k):
+            pass
+
+        def end_headers(self):
+            pass
+
+    handler = Fake(path)
+    handler.do_GET()
+    return handler.wfile.getvalue().decode("utf-8", "replace")
+
+
+# The station only serves a console once it believes PX4 is there; without
+# this every path returns the "Connecting to the simulator" holding page.
+station.connection_status["connected"] = True
+default_page = _serve("/")
+check("/ serves the QGC-shaped console, not the old one",
+      'id="tools"' in default_page and "--toolbar: 66px" in default_page)
+check("/pro still works, so older links and notes do not break",
+      'id="tools"' in _serve("/pro"))
+check("the previous console is still reachable at /console",
+      'id="tools"' not in _serve("/console") and len(_serve("/console")) > 1000)
+check("the original panel grid is still reachable at /classic",
+      len(_serve("/classic")) > 1000)
+
+
 print("1. every instructor control is on the page")
 # Reachable means a button with its id, OR a tool-strip entry that sends it.
 ids = set(re.findall(r'id="btn-([a-z0-9_]+)"', PAGE))
