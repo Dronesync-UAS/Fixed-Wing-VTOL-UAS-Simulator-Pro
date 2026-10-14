@@ -254,10 +254,16 @@ def apply(dry_run):
         return 1
 
     indent = lines[close][: len(lines[close]) - len(lines[close].lstrip())] + "  "
-    block = (indent + "<!-- Navigation and anti-collision lights, added by\n"
-             + indent + "     tools/aircraft_lights_apply.py. Red to port, green to\n"
-             + indent + "     starboard, white at the tail, white strobes above and\n"
-             + indent + "     below. Switched from the console. -->\n")
+    # The description has to match what is actually fitted. It said "red to
+    # port, green to starboard, white at the tail" until 14 Oct 2026 -
+    # lights removed on the 13th on instruction - and a student reading the
+    # model, or an instructor reading the console, would have believed it.
+    block = (indent + "<!-- Anti-collision and status lights, added by\n"
+             + indent + "     tools/aircraft_lights_apply.py. White strobes above and\n"
+             + indent + "     below, a red beacon on top while armed, and a tail light\n"
+             + indent + "     that flashes GREEN while the aircraft has GPS and RED\n"
+             + indent + "     when it loses it. No wing lights: removed 13 Oct 2026.\n"
+             + indent + "     Switched from the console. -->\n")
     for name, (r, g, b), (x, y, z), _ in missing:
         block += LIGHT_BLOCK.format(i=indent, name=name, r=r, g=g, b=b,
                                     x=x, y=y, z=z)

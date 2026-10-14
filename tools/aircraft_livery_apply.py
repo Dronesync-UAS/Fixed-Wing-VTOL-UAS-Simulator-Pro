@@ -167,6 +167,35 @@ def add_tip_markers(text):
     return text[:close] + blocks + text[close:], True
 
 
+def remove_tip_markers(text):
+    """Take the two wingtip markers back off.
+
+    --no-tips used to mean only "do not add them", so running it against a
+    model that already had them left them exactly where they were. On
+    14 Oct 2026 that was reported as "wing light out of place": the wing
+    LIGHTS had been removed on the 13th on instruction, but these painted
+    blocks are a separate thing and nothing had taken them off, so a green
+    block still sat on the starboard wingtip. A switch that does not undo
+    what its opposite does is a trap.
+
+    Removes the comment above each block as well, or the file fills up with
+    explanations of parts that are no longer there.
+    """
+    out = text
+    for name in ("tipmark_port", "tipmark_starboard"):
+        found = re.search(
+            r"[ \t]*<!--[^>]*?-->\s*\n[ \t]*<visual\s+name=['\"]%s['\"].*?</visual>\n"
+            % name, out, re.S)
+        if not found:
+            # No comment above it (hand-edited): take just the visual.
+            found = re.search(
+                r"[ \t]*<visual\s+name=['\"]%s['\"].*?</visual>\n" % name,
+                out, re.S)
+        if found:
+            out = out[:found.start()] + out[found.end():]
+    return out, out != text
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description=__doc__,
@@ -212,7 +241,9 @@ def main(argv=None):
                                  args.white_props)
     text_out = "".join(lines)
     tipped = False
-    if not args.no_tips:
+    if args.no_tips:
+        text_out, tipped = remove_tip_markers(text_out)
+    else:
         text_out, tipped = add_tip_markers(text_out)
 
     if not recoloured and not tipped:
@@ -224,8 +255,12 @@ def main(argv=None):
     print("  airframe  -> %s (%s)" % (args.colour, what))
     print("  propellers-> %s" % ("white" if args.white_props
                                  else "near-black, left as they were"))
-    print("  wingtips  -> %s" % ("red to port, green to starboard"
-                                 if tipped else "already there"))
+    if args.no_tips:
+        print("  wingtips  -> %s" % ("markers REMOVED" if tipped
+                                     else "no markers were on it"))
+    else:
+        print("  wingtips  -> %s" % ("red to port, green to starboard"
+                                     if tipped else "already there"))
     if args.dry_run:
         print("\nDry run - nothing written.")
         return 0

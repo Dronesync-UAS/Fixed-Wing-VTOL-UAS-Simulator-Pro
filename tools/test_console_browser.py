@@ -424,10 +424,18 @@ def main():
         # minutes into a sortie it showed a two-kilometre square with the
         # aircraft as a speck - "map view screen is too far". It now
         # follows the aircraft at a span the wheel sets, and Fit is what
-        # shows the whole flight. The floor is 120 m rather than 300.
+        # shows the whole flight.
+        #
+        # 14 Oct 2026: the span at 1x went from 120 m to 600 m - "not
+        # zoomed at suitable height". The follow fix above was the right
+        # answer to "too far", but it had been applied by shrinking the
+        # span as well, and 120 m / 0.25 meant the widest the map could
+        # ever reach was 480 m: the station's own 500 m range limit never
+        # fitted on the screen at all. The range the instructor is judging
+        # the student against has to be visible.
         span = page.inner_text("#fp-range")
-        check("the view follows the aircraft, close in (%s)" % span,
-              "m" in span and 60 <= float(span.split()[0]) <= 400)
+        check("the view follows the aircraft and the 500 m limit fits (%s)"
+              % span, "m" in span and 500 <= float(span.split()[0]) <= 1200)
         check("and says it is following",
               page.evaluate("() => window.gcsMapFollowing && "
                             "window.gcsMapFollowing() === true"))

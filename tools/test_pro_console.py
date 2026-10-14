@@ -251,7 +251,7 @@ def browser_checks():
                          if "=" in kv) if "?" in self.path else {}
             if path.startswith("/tile/"):
                 z, x, y = (int(v) for v in path.strip("/").split("/")[1:4])
-                blob = map_tiles.tile(z, x, y)
+                blob = map_tiles.best_tile(z, x, y)
                 if blob is None:
                     self.send_response(404)
                     self.send_header("Content-Length", "0")
@@ -384,11 +384,18 @@ def browser_checks():
         check("only Yes sends the shutdown", "/exit" in posted)
 
         stats = page.evaluate("() => window.gcsTileStats ? window.gcsTileStats() : null")
-        if cache["present"]:
-            check("the map drew tiles from QGC's cache (%s)" % (stats,),
-                  stats and stats["have"] > 0)
-        else:
-            print("  SKIP  no tile cache on this machine")
+        check("the map drew tiles (%s)" % (stats,), stats and stats["have"] > 0)
+        # NOTHING UPSCALED. fromParent counts tiles drawn by blowing up an
+        # ancestor because the zoom asked for was not available. On
+        # 14 Oct 2026, reading only QGroundControl's cache, 34 of 54 tiles
+        # came that way and the map was reported as poor quality. Tiles are
+        # now fetched for the zoom actually wanted, so this must be zero -
+        # a non-zero value means the fetch is failing and the map has
+        # quietly gone back to looking blurry.
+        check("no tile is an upscaled ancestor (fromParent=%s)"
+              % stats.get("fromParent", 0), not stats.get("fromParent"))
+        check("no tile is missing (missing=%s)" % stats.get("missing"),
+              not stats.get("missing"))
         browser.close()
     server.shutdown()
 

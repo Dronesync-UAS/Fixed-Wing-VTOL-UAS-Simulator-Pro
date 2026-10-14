@@ -54,6 +54,7 @@ corrupt an instructor's map cache.
 
 import math
 import os
+import urllib.request
 import sqlite3
 import threading
 
@@ -108,6 +109,156 @@ def tile(z, x, y, provider=DEFAULT_PROVIDER):
     except sqlite3.Error:
         return None
     return bytes(row[0]) if row else None
+
+
+# ---------------------------------------------------------------------------
+# Our own tiles, from Mapbox, cached on disk.
+#
+# WHY THIS EXISTS. Reading QGroundControl's cache gets the map for free and
+# costs no extra traffic, but it only has what QGC has already looked at.
+# Measured on the coast area, 14 Oct 2026: the canvas wanted zoom 20 and 34
+# of its 54 tiles had to be drawn by blowing up an ancestor, so two thirds
+# of the picture was an upscaled lower-zoom tile. That is what "the
+# satellite map is of poor quality" was looking at, and no amount of
+# drawing cleverness fixes a tile that was never downloaded.
+#
+# This project ALREADY fetches Mapbox satellite imagery for the world
+# ground textures - tools/fetch_satellite.py, same token, same terms - so
+# fetching map tiles the same way is not a new decision about imagery
+# rights, it is the one already taken.
+#
+# @2x asks for 512 px tiles, which is twice the detail per tile that QGC's
+# 256 px Google tiles carry.
+#
+# ORDER OF PREFERENCE, and it matters:
+#   1. our own disk cache  - instant, works offline
+#   2. Mapbox             - only when a token exists and the network is up
+#   3. QGC's cache        - the old behaviour, so nothing got worse for
+#                           anyone without a token
+TILE_DIR = os.path.expanduser("~/.cache/uav_academy_gcs/tiles")
+TOKEN_FILE = os.path.expanduser("~/.mapbox_token")
+
+# WHERE OUR OWN TILES COME FROM.
+#
+# Esri World Imagery, which is what tools/fetch_satellite.py already uses
+# for the world ground textures when no token is set. It needs NO token,
+# serves every zoom everywhere, and returns ordinary 256 px tiles - which
+# is exactly what the map draws in.
+#
+# NOTE THE URL ORDER: ArcGIS puts the ROW before the COLUMN, so it is
+# {z}/{y}/{x}, not {z}/{x}/{y}. Getting that the wrong way round returns
+# a perfectly valid tile of entirely the wrong place, which is the sort of
+# wrong that looks like a map until somebody checks it against a coastline.
+ESRI_URL = ("https://server.arcgisonline.com/ArcGIS/rest/services/"
+            "World_Imagery/MapServer/tile/{z}/{y}/{x}")
+ESRI_CREDIT = "Esri World Imagery - check Esri's terms of use"
+ESRI_MAX_ZOOM = 21
+
+# Mapbox is better again where it is licensed, but needs a working token.
+# The one on this machine returned 401 Not Authorized when this was built
+# on 14 Oct 2026, which is why it is not the default - and why anything
+# relying on it should check rather than assume a token file means a
+# working token.
+MAPBOX_URL = ("https://api.mapbox.com/v4/mapbox.satellite/"
+              "{z}/{x}/{y}@2x.jpg90?access_token={token}")
+MAPBOX_MAX_ZOOM = 22
+
+_token_cache = {"read": False, "value": None}
+
+
+def mapbox_token():
+    """The token, from the environment or ~/.mapbox_token. None if absent.
+
+    Present is not the same as valid - see MAPBOX_URL above.
+    """
+    if _token_cache["read"]:
+        return _token_cache["value"]
+    value = os.environ.get("MAPBOX_TOKEN")
+    if not value:
+        try:
+            with open(TOKEN_FILE) as handle:
+                value = handle.read().strip()
+        except OSError:
+            value = None
+    _token_cache["read"] = True
+    _token_cache["value"] = value or None
+    return _token_cache["value"]
+
+
+def _disk_path(z, x, y):
+    return os.path.join(TILE_DIR, str(z), str(x), "%d.jpg" % y)
+
+
+def _from_disk(z, x, y):
+    try:
+        with open(_disk_path(z, x, y), "rb") as handle:
+            return handle.read()
+    except OSError:
+        return None
+
+
+def _to_disk(z, x, y, blob):
+    path = _disk_path(z, x, y)
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        # Written under a temporary name first: a half-written tile that a
+        # later run reads as complete is a corrupt picture nobody can
+        # explain afterwards.
+        temporary = path + ".part"
+        with open(temporary, "wb") as handle:
+            handle.write(blob)
+        os.replace(temporary, path)
+    except OSError:
+        pass
+
+
+def _download(url, timeout):
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as response:
+            if response.status != 200:
+                return None
+            return response.read() or None
+    except Exception:
+        # Offline, rate-limited, bad token, 404 over the sea - all the same
+        # answer here, and none of them should take the console down.
+        return None
+
+
+def fetch_tile(z, x, y, timeout=8.0):
+    """One satellite tile for (z, x, y) from our own source, or None.
+
+    Disk first, so a tile is fetched once and then costs nothing and works
+    offline. Then Esri. Then Mapbox, but only if a token is set - and a
+    401 simply means None, same as being offline.
+    """
+    if z < 0 or z > MAPBOX_MAX_ZOOM:
+        return None
+    blob = _from_disk(z, x, y)
+    if blob is not None:
+        return blob
+    if z <= ESRI_MAX_ZOOM:
+        blob = _download(ESRI_URL.format(z=z, y=y, x=x), timeout)
+    if blob is None and mapbox_token():
+        blob = _download(
+            MAPBOX_URL.format(z=z, x=x, y=y, token=mapbox_token()), timeout)
+    if blob is not None:
+        _to_disk(z, x, y, blob)
+    return blob
+
+
+def best_tile(z, x, y, provider=DEFAULT_PROVIDER):
+    """The sharpest tile available for (z, x, y), or None.
+
+    Ours first, because it has every zoom everywhere; QGroundControl's
+    cache second, so a machine with no network behaves as it did before
+    this was added. Reading QGC's cache alone was the whole supply until
+    14 Oct 2026, and it only ever held what QGC had happened to look at -
+    measured on the coast area, 34 of the 54 tiles the map wanted had to
+    be drawn by blowing up an ancestor, so two thirds of the picture was
+    an upscaled lower-zoom tile. No amount of drawing cleverness fixes a
+    tile that was never downloaded.
+    """
+    return fetch_tile(z, x, y) or tile(z, x, y, provider)
 
 
 def available(provider=None):

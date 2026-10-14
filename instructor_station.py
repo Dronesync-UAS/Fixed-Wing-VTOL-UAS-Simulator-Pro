@@ -1725,7 +1725,20 @@ EXTRA_SCRIPT = """
   // speck. 120 m is the new floor, and followAircraft below is what
   // makes it adaptable: the view centres on the aircraft at a span the
   // wheel sets, rather than trying to hold every place it has been.
-  var MAP_MIN_SPAN_M = 120;
+  // 14 Oct 2026: "not zoomed at suitable height". It was 120 m, and
+  // because the following view is MAP_SPAN_M / mapZoom, the widest the
+  // map could ever go was 120 / 0.25 = 480 m - so the station's own 500 m
+  // range limit NEVER fitted on the screen. An instructor could not see
+  // the edge of the area the student had to stay inside.
+  //
+  // 600 m at 1x contains the 500 m limit with room around it, and the
+  // wheel still reaches 37 m at full zoom (600/16) for close work and
+  // 2400 m at the widest. The earlier 120 m came from "make it closer"
+  // on 12 Oct, which was right about the fault - the view was auto-
+  // fitting the whole track and retreating all sortie - but the fix
+  // belonged in followAircraft, which is where it now is, not in the
+  // span.
+  var MAP_SPAN_M = 600;
   var mapZoom = 1;
   function setMapZoom(z) {
     mapZoom = Math.max(0.25, Math.min(16, z));
@@ -1856,16 +1869,16 @@ EXTRA_SCRIPT = """
       // A parked aircraft has a track a few metres across, so auto-fit alone
       // zoomed to a 50 m square of blank ground with the aircraft and home on
       // top of each other and nothing around them to read. Never show less
-      // than MAP_MIN_SPAN_M across, and let the instructor zoom from there.
+      // than MAP_SPAN_M across, and let the instructor zoom from there.
       if (followAircraft) {
         // Following: the span is whatever the wheel says, and the whole
         // track is deliberately NOT fitted - that is what made the view
         // retreat further and further as the sortie went on.
-        maxAbs = (MAP_MIN_SPAN_M / 2) / mapZoom;
+        maxAbs = (MAP_SPAN_M / 2) / mapZoom;
       } else {
         // Fit everything flown, with the same floor as before so a
         // parked aircraft does not zoom to a blank 50 m square.
-        maxAbs = Math.max(maxAbs, MAP_MIN_SPAN_M / 2) / mapZoom;
+        maxAbs = Math.max(maxAbs, MAP_SPAN_M / 2) / mapZoom;
       }
       var scale = Math.min(W, H) / (2 * maxAbs);
       // ox/oy is where HOME lands on the canvas. Metres east are +x and
@@ -2541,9 +2554,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps(answer).encode("utf-8"))
         elif self.path.startswith("/tile/"):
-            # /tile/<z>/<x>/<y> - one 256 px tile out of QGroundControl's
-            # own cache. See map_tiles.py for why it reads QGC's rather
-            # than fetching its own.
+            # /tile/<z>/<x>/<y> - one 256 px satellite tile. Fetched from
+            # Esri (no token needed) and cached on disk, falling back to
+            # QGroundControl's own cache. It read ONLY QGC's cache until
+            # 14 Oct 2026, which meant whatever QGC had happened to look
+            # at: on the coast area two thirds of the map was an upscaled
+            # lower-zoom tile, reported as "the satellite map is of poor
+            # quality". See map_tiles.best_tile.
             parts = urlparse(self.path).path.strip("/").split("/")
             query = parse_qs(urlparse(self.path).query)
             try:
@@ -2553,7 +2570,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.send_response(400)
                 self.end_headers()
                 return
-            blob = map_tiles.tile(z, x, y, provider)
+            blob = map_tiles.best_tile(z, x, y, provider)
             if blob is None:
                 # 404 rather than a blank tile: the page counts misses so it
                 # can say the area has not been downloaded in QGC yet.
