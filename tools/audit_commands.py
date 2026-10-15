@@ -18,6 +18,7 @@ Exit code 0 if every control is honest, 1 otherwise.
 import importlib.util
 import os
 import sys
+import tempfile
 import types
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -66,6 +67,33 @@ def _install_stubs():
         mav = _Mav()
     sl.master = _Master()
     sys.modules["simulator_link"] = sl
+
+    # --- stub event_logger so this check never writes to the real compliance CSV ---
+    # Added 16 Oct 2026. Stubbing simulator_link does not cover event_logger:
+    # plugins and the modules they import (preflight.py, behind NEW SESSION,
+    # for one) import it directly, and three tests wrote rows into
+    # ~/uas_sim_logs/instructor_events.csv - the CAP722B assessment record -
+    # that way. Measured the same day, this script made NO log_event calls
+    # (no handler it calls reaches one today), so this is a guard, not a fix
+    # for rows already written: it keeps the record safe if a handler starts
+    # logging.
+    el = types.ModuleType("event_logger")
+    el.log_event = lambda *a, **k: None
+    el.read_events = lambda: []
+    el.SESSION_ID = "TEST"
+    sys.modules["event_logger"] = el
+
+    # --- keep the operating envelope this check picks off the saved one ---
+    # Added 16 Oct 2026: the envelope controls save their choice to
+    # ~/uas_sim_logs/range_profile.json. Measured that day, a run of this
+    # check wrote {"profile": "caa"} there, so running it on a station set to
+    # the extended envelope silently put it back on the CAA one. The plugins
+    # import range_profile by name, so pointing this one module object at a
+    # throwaway file covers every handler. test_range_profile.py does the
+    # same.
+    import range_profile
+    range_profile.STATE_FILE = os.path.join(tempfile.mkdtemp(),
+                                            "range_profile.json")
 
     video = types.ModuleType("video_feed")
     video.resubscribe = lambda: None
