@@ -33,13 +33,32 @@ sys.path.insert(0, os.path.join(REPO, "tools"))
 # instructor_station, below), which logs session_start through the real
 # event_logger whenever a running PX4 answers - so a run with the simulator up
 # wrote a session_start row into ~/uas_sim_logs/instructor_events.csv, the
-# CAP722B assessment record. This stops the write only: simulator_link still
-# binds UDP 14540 and sends heartbeats to any PX4 that is running.
+# CAP722B assessment record.
 el = types.ModuleType("event_logger")
 el.log_event = lambda *a, **k: None
 el.read_events = lambda: []
 el.SESSION_ID = "TEST"
 sys.modules["event_logger"] = el
+
+# --- keep the real simulator_link off the station's MAVLink port ---
+# Added 16 Oct 2026: simulator_link opens udpin:localhost:14540 when it is
+# imported, which is the port a running instructor station holds. A run of
+# this test with the simulator up shared that port with the live station for
+# its whole length and sent GCS heartbeats to the live PX4. Its link now goes
+# to a free port the OS picks, where no PX4 is listening - the same situation
+# as running this test with no simulator at all, which is how it is meant to
+# run. The real simulator_link is still what gets tested.
+from pymavlink import mavutil                               # noqa: E402
+_mavlink_connection = mavutil.mavlink_connection
+
+
+def _away_from_station_port(device, *args, **kwargs):
+    if device == "udpin:localhost:14540":
+        device = "udpin:localhost:0"
+    return _mavlink_connection(device, *args, **kwargs)
+
+
+mavutil.mavlink_connection = _away_from_station_port
 
 fails = []
 
