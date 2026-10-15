@@ -29,6 +29,18 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
 sys.path.insert(0, os.path.join(REPO, "tools"))
 
+# --- stub event_logger so this check never writes to the real compliance CSV ---
+# Added 16 Oct 2026: range_profile logs its envelope changes through the real
+# event_logger, so every run of this test wrote three range_profile rows into
+# ~/uas_sim_logs/instructor_events.csv, the CAP722B assessment record - 38
+# such sessions from 12 Oct 2026 onwards, most of them via verify_install.py.
+import types                                                # noqa: E402
+el = types.ModuleType("event_logger")
+el.log_event = lambda *a, **k: None
+el.read_events = lambda: []
+el.SESSION_ID = "TEST"
+sys.modules["event_logger"] = el
+
 fails = []
 
 

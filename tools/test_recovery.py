@@ -64,6 +64,17 @@ st.service = lambda name: f"/world/{st.WORLD}/{name}"
 st.environment = lambda: {"key": "blackrock", "spawn_z": 1.3}
 sys.modules["sim_target"] = st
 
+# --- stub event_logger so this check never writes to the real compliance CSV ---
+# Added 16 Oct 2026: without it, NEW SESSION reached preflight.py, which logs
+# through the real event_logger - a run of this test on 16 Oct 2026 wrote two
+# preflight_reset rows (session_id=20261015T231622Z) into
+# ~/uas_sim_logs/instructor_events.csv, the CAP722B assessment record.
+el = types.ModuleType("event_logger")
+el.log_event = lambda *a, **k: None
+el.read_events = lambda: []
+el.SESSION_ID = "TEST"
+sys.modules["event_logger"] = el
+
 import subprocess
 subprocess.run = lambda *a, **k: poses.append(a[0]) or types.SimpleNamespace(returncode=0)
 

@@ -28,6 +28,19 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
 sys.path.insert(0, os.path.join(REPO, "tools"))
 
+# --- stub event_logger so this check never writes to the real compliance CSV ---
+# Added 16 Oct 2026: this test imports the real simulator_link (through
+# instructor_station, below), which logs session_start through the real
+# event_logger whenever a running PX4 answers - so a run with the simulator up
+# wrote a session_start row into ~/uas_sim_logs/instructor_events.csv, the
+# CAP722B assessment record. This stops the write only: simulator_link still
+# binds UDP 14540 and sends heartbeats to any PX4 that is running.
+el = types.ModuleType("event_logger")
+el.log_event = lambda *a, **k: None
+el.read_events = lambda: []
+el.SESSION_ID = "TEST"
+sys.modules["event_logger"] = el
+
 fails = []
 
 
