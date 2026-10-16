@@ -12,8 +12,10 @@ answers.
 """
 
 import math
+import os
 import threading
 import subprocess
+import sys
 import time
 from pymavlink import mavutil
 
@@ -24,12 +26,54 @@ import event_logger
 running_processes = {}
 
 
+# Where a background script's own output goes, so a script that dies on
+# startup can say why instead of vanishing.
+_SCRIPT_LOG_DIR = os.path.join(os.path.expanduser("~"), "uas_sim_logs")
+
+
 def start_background_script(name, command_list):
+    """Launch a helper script and say honestly whether it is running.
+
+    FIXED 12 Oct 2026: this said "<name> started." whatever happened. The
+    scripts are launched as `python3 <path>`, so a path that does not exist
+    still launches python3 successfully - python3 then exits with an error
+    nobody saw, and the button looked like it had worked. That is how the
+    GPS failure control could report an injection it had not made.
+    """
     proc = running_processes.get(name)
     if proc is not None and proc.poll() is None:
         return f"{name} is already running."
-    running_processes[name] = subprocess.Popen(command_list)
-    return f"{name} started."
+
+    # The script itself is the argument after the interpreter.
+    script = next((a for a in command_list[1:]
+                   if a.endswith((".py", ".sh"))), None)
+    if script and not os.path.isfile(script):
+        return (f"{name} not started - {script} is not there. "
+                "Check the path in the plugin that launches it.")
+
+    os.makedirs(_SCRIPT_LOG_DIR, exist_ok=True)
+    log_path = os.path.join(_SCRIPT_LOG_DIR, f"{name}.log")
+    try:
+        handle = open(log_path, "wb")
+        proc = subprocess.Popen(command_list, stdout=handle,
+                                stderr=subprocess.STDOUT)
+    except OSError as exc:
+        return f"{name} not started - {exc}."
+    running_processes[name] = proc
+
+    # Give it a moment: a script that is going to fail on its imports fails
+    # straight away, and saying so now is worth the pause.
+    time.sleep(0.5)
+    if proc.poll() is not None:
+        try:
+            with open(log_path, "r", errors="replace") as handle:
+                tail = handle.read().strip().splitlines()[-1:]
+        except OSError:
+            tail = []
+        reason = tail[0][:160] if tail else f"exit code {proc.returncode}"
+        running_processes.pop(name, None)
+        return f"{name} started and immediately stopped - {reason}"
+    return f"{name} started. Its output is in {log_path}."
 
 
 def stop_background_script(name):
@@ -49,6 +93,16 @@ PX4_MODES = {
     (7, 0): "Stabilized", (8, 0): "Rattitude",
 }
 
+# Heartbeat senders that are NOT the aircraft. A heartbeat carries no "I am
+# the vehicle" flag, so without this the station decodes a ground station's
+# or a gimbal's heartbeat as a flight mode. See _read_one_message.
+NOT_A_VEHICLE = (
+    mavutil.mavlink.MAV_TYPE_GCS,                  # 6
+    mavutil.mavlink.MAV_TYPE_ONBOARD_CONTROLLER,   # 18
+    mavutil.mavlink.MAV_TYPE_GIMBAL,               # 26
+    mavutil.mavlink.MAV_TYPE_ADSB,                 # 27
+)
+
 telemetry = {
     "armed": False, "mode": "Unknown", "altitude_m": 0.0,
     "altitude_amsl_m": None,
@@ -58,10 +112,126 @@ telemetry = {
     # drive the FPV camera's artificial-horizon / gyro overlay.
     "roll_deg": 0.0, "pitch_deg": 0.0, "yaw_deg": 0.0,
     "airspeed_ms": 0.0,
+    # How hard the motors are working, 0-100. Added 12 Oct 2026 to drive the
+    # console's motor sound: a rotor note that does not follow the throttle
+    # is a drone, not an aircraft. It is PX4's own operator-feedback figure
+    # out of VFR_HUD - streams/VFR_HUD.hpp lines 92-110 fill it with
+    # 100 * max(|thrust_setpoint_0|, |thrust_setpoint_1|) while armed and
+    # 0.0 while disarmed, and PX4's own comment there says a VTOL has no
+    # single throttle during a transition so this is a heuristic. Good
+    # enough to drive a sound; not a figure to teach from.
+    "throttle_pct": 0.0,
     # Straight-line distance from the home/launch point, metres. Added
     # 6 Sep 2026 for the operational-limit checks (CAP722B 5.3(c)).
     "range_from_home_m": 0.0,
+    # Arming readiness, read straight out of HEARTBEAT.system_status.
+    # Added 11 Oct 2026: the console said "Disarmed" but never why PX4 was
+    # refusing to arm, so the instructor pressed ARM over and over while the
+    # EKF was still converging. See _ARM_STATES for where the values come from.
+    "arm_ready": None,                  # True / False / None (no heartbeat yet)
+    "arm_state": "Waiting for PX4",     # short label for the console
+    "arm_blocker": None,                # PX4's own words, out of STATUSTEXT
+    # Where the aircraft is. Added 12 Oct 2026: LOITER has to hand PX4 a
+    # centre for its orbit, and that centre is worked out from the
+    # aircraft's own position - see plugins/loiter_orbit.py for why NaN
+    # (meaning "here") sends it off in a straight line instead.
+    "latitude": None, "longitude": None,
+    # MAV_VTOL_STATE and MAV_LANDED_STATE out of EXTENDED_SYS_STATE: which
+    # half of the VTOL is flying, and whether it is flying at all.
+    "vtol_state": None,                 # "Hover", "Fixed wing", "Transitioning..."
+    "in_air": None,                     # True / False / None (not reported yet)
+    # What a multi-step manoeuvre is doing right now, for the console.
+    "sequence": None,
 }
+
+VTOL_STATES = {0: None, 1: "Transitioning to fixed wing",
+               2: "Transitioning to hover", 3: "Hover", 4: "Fixed wing"}
+
+# HEARTBEAT.system_status (the MAVLink MAV_STATE enum), as PX4 v1.15.4 fills
+# it in - src/modules/mavlink/streams/HEARTBEAT.hpp lines 107-127:
+#
+#     uint8_t system_status = MAV_STATE_UNINIT;
+#     if (arming_state == ARMING_STATE_ARMED)   -> ACTIVE, or CRITICAL in failsafe
+#     else if (calibration in progress)         -> CALIBRATING
+#     else if (pre_flight_checks_pass)          -> STANDBY
+#
+# Note the first line. When the aircraft is disarmed and its preflight checks
+# are NOT passing, nothing overwrites the initial value, so PX4 reports
+# MAV_STATE_UNINIT. That is the "ARM will be refused" case - it does not mean
+# PX4 is still booting, which is what the name suggests. This readout exists
+# precisely to make that state visible.
+#
+# Written as plain integers (minimal.xml, MAV_STATE) rather than
+# mavutil.mavlink.MAV_STATE_* so an older pymavlink missing one of the names
+# still imports.
+_ARM_STATES = {
+    0: (False, "Not ready"),           # MAV_STATE_UNINIT
+    1: (False, "Booting"),             # MAV_STATE_BOOT
+    2: (False, "Calibrating"),         # MAV_STATE_CALIBRATING
+    3: (True,  "Ready to arm"),        # MAV_STATE_STANDBY
+    4: (True,  "Armed"),               # MAV_STATE_ACTIVE
+    5: (True,  "Armed - failsafe"),    # MAV_STATE_CRITICAL
+    6: (False, "Emergency"),           # MAV_STATE_EMERGENCY
+    7: (False, "Powering off"),        # MAV_STATE_POWEROFF
+    8: (False, "Flight termination"),  # MAV_STATE_FLIGHT_TERMINATION
+}
+
+# STATUSTEXT lines that say WHY arming is being refused, e.g.
+#   "Preflight Fail: Yaw estimate error"
+#   "Preflight: GPS Vertical Pos Drift too high"
+# PX4 repeats these for as long as the condition holds, so a recent one is the
+# live reason and an older one is history - hence the age check.
+_ARM_BLOCKER_PREFIXES = ("preflight", "arming denied", "arm denied")
+_ARM_BLOCKER_MAX_AGE_S = 15.0
+_arm_blocker = {"text": None, "t": None}
+
+# Every STATUSTEXT PX4 sends, with the time it arrived, so a command can
+# report PX4's own words rather than only its COMMAND_ACK. A takeoff is the
+# case that needs it: PX4 accepts the command and THEN says what it is
+# really doing - "Using default takeoff altitude: 2.5 m", "Already higher
+# than takeoff altitude" - and none of that reaches the instructor through
+# the ack alone. Capped so a long session cannot grow it without bound.
+_STATUS_LOG_MAX = 60
+status_log = []
+
+# MAV_SEVERITY, which is what QGroundControl colours its message list by:
+# anything at WARNING or worse is worth an instructor's eye, and the three
+# above it mean the aircraft is in trouble. Added 14 Oct 2026 - the text
+# was being kept and the severity thrown away, so every message looked as
+# important as every other.
+SEVERITY_NAMES = {
+    0: "emergency", 1: "alert", 2: "critical", 3: "error",
+    4: "warning", 5: "notice", 6: "info", 7: "debug",
+}
+SEVERITY_WARNING = 4
+
+# Set by the station at start-up to aircraft_lights.set_armed. Kept as a
+# hook rather than an import so this module stays free of the Gazebo
+# bindings - it has to run on machines where they are not installed.
+_beacon_follows_armed = None
+
+
+def on_armed_change(callback):
+    global _beacon_follows_armed
+    _beacon_follows_armed = callback
+
+
+# Set by the station to aircraft_lights.set_gps. Same hook-not-import
+# reason as the beacon above: this module has to run where the Gazebo
+# bindings are not installed.
+_tail_follows_gps = None
+
+# How many satellites count as having a fix. PX4 will not hold position on
+# fewer, and the GPS dropout proxy the gps_failure plugin starts takes the
+# count down - so this is the figure the aircraft itself reports, not the
+# state of the instructor's switch. A real loss from any cause shows.
+GPS_FIX_SATELLITES = 6
+
+
+def on_gps_change(callback):
+    global _tail_follows_gps
+    _tail_follows_gps = callback
+
 
 # Link health, for the "how fresh is this data" readout (CAP722B 5.2(d)).
 # `last_msg_t` is a time.monotonic() stamp updated every time ANY MAVLink
@@ -74,6 +244,29 @@ link_health = {"last_msg_t": None}
 # grow this without bound.
 flight_path = []
 _MAX_PATH_POINTS = 4000
+
+
+def _trim_flight_path():
+    """Keep the whole flight, at coarser spacing, rather than the last
+    4000 points of it.
+
+    FIXED 12 Oct 2026: this used to `del flight_path[0]` once the cap was
+    reached, so on a long lesson the start of the track quietly ate itself
+    while the end kept drawing - the instructor watched the beginning of
+    the flight disappear. A track that loses its own beginning is no use as
+    a record of where the aircraft went.
+
+    Instead, when the buffer fills, every second point of the OLDER HALF is
+    dropped. The oldest part of the flight ends up at half, then a quarter,
+    of the resolution of the newest - which is the right trade, because
+    recent flying is what an instructor is watching - but the first point
+    of the flight is still the first point of the flight, and the shape of
+    the whole track survives.
+    """
+    if len(flight_path) <= _MAX_PATH_POINTS:
+        return
+    half = len(flight_path) // 2
+    flight_path[:half] = flight_path[0:half:2]
 home_latlon = {"lat": None, "lon": None}
 
 # Last COMMAND_ACK seen for each command id, so a plugin can send a
@@ -147,6 +340,17 @@ RESPONSE_TIMEOUT_S = 45
 _active_failures = {}  # component name -> {"start", "start_mode", "start_alt"}
 _failure_lock = threading.Lock()
 
+# Set by the station to flight_log's note_failure, so an injected failure
+# lands in the flight record as well as in the event log. A hook rather
+# than an import, for the same reason the armed-state one is: this module
+# is imported by the plugins and must not reach back up into the station.
+_failure_watchers = []
+
+
+def on_failure(callback):
+    _failure_watchers.append(callback)
+    return callback
+
 
 def mark_failure_injected(component, extra=""):
     """Call right after an instructor plugin injects a failure, so the
@@ -162,6 +366,13 @@ def mark_failure_injected(component, extra=""):
     if extra:
         details += f" {extra}"
     event_logger.log_event("failure_injected", details)
+    for watcher in _failure_watchers:
+        try:
+            watcher(component)
+        except Exception:                                  # noqa: BLE001
+            # A flight log that cannot record this must not stop the
+            # failure from being injected.
+            pass
 
 
 def mark_failure_cleared(component):
@@ -259,6 +470,234 @@ def send_command_and_wait(command, *params, timeout=2.0):
     return None, "no acknowledgement from PX4"
 
 
+# MAV_CMD_INJECT_FAILURE's unit numbers, taken from PX4 v1.15.4's own
+# msg/VehicleCommand.msg lines 130-144 (identical to MAVLink's FAILURE_UNIT
+# enum). They are NOT a dense 0..n list, which is how the station came to be
+# sending 10, 13 and 14 - none of which is a defined value.
+FAILURE_UNIT_SYSTEM_MOTOR = 101
+FAILURE_UNIT_SYSTEM_SERVO = 102
+FAILURE_UNIT_SYSTEM_RC_SIGNAL = 104
+FAILURE_UNIT_SYSTEM_MAVLINK_SIGNAL = 105
+FAILURE_TYPE_OK = 0
+FAILURE_TYPE_OFF = 1
+
+MAV_CMD_INJECT_FAILURE = 420
+
+# PX4 refuses every injection unless this parameter is 1 - see its own
+# failure command, src/systemcmds/failure/failure.cpp lines 163-171:
+#     if (param != 1) { PX4_ERR("Failure injection disabled by
+#                               SYS_FAILURE_EN param."); return 1; }
+# Without the check here, a failure button is simply inert and says nothing.
+FAILURE_ENABLE_PARAM = "SYS_FAILURE_EN"
+
+_param_values = {}
+
+
+def read_param(name, timeout=2.0):
+    """Ask PX4 for one parameter and wait briefly for its value.
+
+    Returns a float, or None if PX4 did not answer. The telemetry thread is
+    the only reader of the socket, so this asks and then polls what that
+    thread stored, the same way send_command_and_wait does."""
+    _param_values.pop(name, None)
+    try:
+        master.mav.param_request_read_send(
+            master.target_system, master.target_component,
+            name.encode("ascii"), -1)
+    except Exception:                                      # noqa: BLE001
+        return None
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if name in _param_values:
+            return _param_values[name]
+        time.sleep(0.05)
+    return None
+
+
+def set_param(name, value, integer=True, timeout=2.0):
+    """Set one PX4 parameter and confirm it took. Returns None, or why not.
+
+    PX4 answers a PARAM_SET with a PARAM_VALUE carrying what the
+    parameter actually ended up as, so this reads it back rather than
+    assuming. A parameter that silently clamped to its own limit looks
+    exactly like one that was set, and this station has been caught by
+    that kind of thing before.
+
+    Nothing is saved to PX4's parameter file: the setting lasts for this
+    run of the simulator, and the station re-applies it next time. That
+    is deliberate - a station that quietly rewrote the autopilot's saved
+    configuration would be a nasty surprise to anyone who later flew the
+    same build without it.
+    """
+    _param_values.pop(name, None)
+    kind = (mavutil.mavlink.MAV_PARAM_TYPE_INT32 if integer
+            else mavutil.mavlink.MAV_PARAM_TYPE_REAL32)
+    try:
+        master.mav.param_set_send(
+            master.target_system, master.target_component,
+            name.encode("ascii"), float(value), kind)
+    except Exception as exc:                               # noqa: BLE001
+        return f"could not send {name} ({exc})"
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if name in _param_values:
+            got = _param_values[name]
+            if abs(got - float(value)) > 0.51:
+                return (f"{name} came back as {got:g}, not {float(value):g} - "
+                        "PX4 clamped it to its own limit")
+            return None
+        time.sleep(0.05)
+    return f"{name} was sent but PX4 did not confirm it"
+
+
+def failure_injection_blocked():
+    """A sentence explaining why injection will not work, or None.
+
+    Checked once and remembered: the answer cannot change without someone
+    setting the parameter, and asking on every button press would add a
+    two-second wait to every failure."""
+    if _failure_enable.get("checked"):
+        return _failure_enable["reason"]
+    value = read_param(FAILURE_ENABLE_PARAM)
+    _failure_enable["checked"] = True
+    if value is None:
+        _failure_enable["reason"] = None       # could not ask; do not block
+    elif int(value) != 1:
+        _failure_enable["reason"] = (
+            f"{FAILURE_ENABLE_PARAM} is {int(value)}, so PX4 ignores every "
+            "failure injection. In the PX4 window, at its pxh> prompt, type: "
+            f"param set {FAILURE_ENABLE_PARAM} 1")
+    else:
+        _failure_enable["reason"] = None
+    return _failure_enable["reason"]
+
+
+_failure_enable = {"checked": False, "reason": None}
+
+
+def home_amsl():
+    """Height of the home point above sea level, metres, or None.
+
+    PX4 reports both an absolute height and a height relative to home in the
+    same message, so the difference is exact rather than a guess - and every
+    altitude command PX4 takes is absolute, while every altitude an
+    instructor thinks in is above the ground they are standing on."""
+    amsl = telemetry.get("altitude_amsl_m")
+    rel = telemetry.get("altitude_m")
+    if amsl is None or rel is None:
+        return None
+    return amsl - rel
+
+
+def offset_latlon(lat, lon, bearing_deg, distance_m):
+    """A point `distance_m` away on a given compass bearing.
+
+    Equirectangular, like _range_from_home - exact enough over the few
+    hundred metres these controls work in, and it inverts that function so
+    the two agree."""
+    bearing = math.radians(bearing_deg)
+    north = distance_m * math.cos(bearing)
+    east = distance_m * math.sin(bearing)
+    return (lat + north / 110540.0,
+            lon + east / (111320.0 * math.cos(math.radians(lat))))
+
+
+# ---- multi-step manoeuvres -------------------------------------------
+# A VTOL departure is three commands with waits between them: climb, then
+# transition once high enough, then climb away. A button handler has to
+# return a sentence straight away, so the steps run on their own thread and
+# report where they are through telemetry["sequence"], which the console
+# already polls.
+_sequence_lock = threading.Lock()
+_sequence = {"thread": None, "cancel": False}
+
+
+def sequence_running():
+    thread = _sequence["thread"]
+    return thread is not None and thread.is_alive()
+
+
+def cancel_sequence():
+    _sequence["cancel"] = True
+
+
+def say_step(text):
+    telemetry["sequence"] = text
+
+
+def wait_until(predicate, timeout, poll=0.25):
+    """True once the predicate holds, False on timeout or cancellation."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if _sequence["cancel"]:
+            return False
+        if predicate():
+            return True
+        time.sleep(poll)
+    return False
+
+
+def start_sequence(name, steps):
+    """Run `steps` - a list of no-argument callables - on a background
+    thread. A step returning a string ends the sequence with that message
+    (a failure); returning None carries on. Only one runs at a time."""
+    with _sequence_lock:
+        if sequence_running():
+            return False
+        _sequence["cancel"] = False
+
+        def run():
+            try:
+                for step in steps:
+                    if _sequence["cancel"]:
+                        say_step(f"{name}: stopped.")
+                        return
+                    problem = step()
+                    if problem:
+                        say_step(problem)
+                        log_instructor_action(name, f"stopped: {problem}")
+                        return
+                say_step(None)
+            except Exception as exc:                       # noqa: BLE001
+                say_step(f"{name} failed: {exc}")
+                log_instructor_action(name, f"exception: {exc!r}")
+
+        _sequence["thread"] = threading.Thread(target=run, daemon=True)
+        _sequence["thread"].start()
+        return True
+
+
+def status_since(since_t, contains=()):
+    """PX4's STATUSTEXT lines since a given time.monotonic() stamp.
+
+    `contains` narrows it to lines holding one of those words (lower case),
+    so a command can quote the messages that belong to it rather than
+    whatever else PX4 happened to say."""
+    out = []
+    for entry in list(status_log):
+        if entry["t"] < since_t:
+            continue
+        low = entry["text"].lower()
+        if contains and not any(word in low for word in contains):
+            continue
+        out.append(entry["text"])
+    return out
+
+
+def wait_for_armed(timeout=4.0):
+    """Block until PX4's heartbeat says the aircraft is armed, or give up.
+
+    The arming state comes from HEARTBEAT, which arrives at 1 Hz, so a
+    command sent the instant after an ARM ack would otherwise still see
+    the old value."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if telemetry.get("armed"):
+            return True
+        time.sleep(0.05)
+    return bool(telemetry.get("armed"))
+
+
 def set_mode(main_mode, sub_mode=0, name=None):
     """Switch PX4 flight mode via MAV_CMD_DO_SET_MODE and report back what
     PX4 actually did. param2/param3 carry the PX4 custom main/sub mode
@@ -286,30 +725,111 @@ def _range_from_home(lat, lon):
     return round(math.hypot(x, y), 1)
 
 
+def reset_flight_state():
+    """Forget everything tied to the world that was running.
+
+    Added 11 Oct 2026 with the environment selector. Without this, switching
+    environment left the previous world's track on the plan view and its home
+    position in place - so the track showed two worlds at once, and range from
+    home was computed against a point thousands of kilometres away, which also
+    drives the CAP722B range limit. The telemetry loop re-learns home from the
+    next HOME_POSITION or position message.
+    """
+    flight_path.clear()
+    home_latlon["lat"] = None
+    home_latlon["lon"] = None
+    command_acks.clear()
+    telemetry["range_from_home_m"] = 0.0
+    telemetry["arm_ready"] = None
+    telemetry["arm_state"] = "Waiting for PX4"
+    telemetry["arm_blocker"] = None
+    _arm_blocker["text"] = None
+    _arm_blocker["t"] = None
+    link_health["last_msg_t"] = None
+
+
+def _update_arm_readiness(system_status):
+    """Turn HEARTBEAT.system_status into the console's arming readout.
+
+    Kept separate from the HEARTBEAT branch because the interesting part is
+    not the lookup, it is deciding when PX4's last complaint has stopped
+    being the reason for anything.
+    """
+    ready, label = _ARM_STATES.get(
+        system_status, (False, "Unknown state %s" % system_status))
+    telemetry["arm_ready"] = ready
+    telemetry["arm_state"] = label
+    stale = (_arm_blocker["t"] is None
+             or time.monotonic() - _arm_blocker["t"] > _ARM_BLOCKER_MAX_AGE_S)
+    # Once PX4 says the checks pass, whatever it was complaining about a
+    # moment ago is no longer blocking anything, so don't keep showing it.
+    telemetry["arm_blocker"] = None if (ready or stale) else _arm_blocker["text"]
+
+
 def _telemetry_loop():
     while True:
+        try:
+            _read_one_message()
+        except Exception as exc:
+            # This loop is the station's only reader of the MAVLink socket.
+            # Any escaping exception - a field missing on a message variant, a
+            # log write failing on a full disk - used to end the thread, and
+            # the console then froze on its last values with no indication
+            # why. Keep reading, and say what happened.
+            print(f"[telemetry] ignored a bad message: {exc!r}", file=sys.stderr)
+            time.sleep(0.1)
+
+
+def _read_one_message():
         msg = master.recv_match(blocking=True, timeout=1)
         if msg is None:
-            continue
+            return
         link_health["last_msg_t"] = time.monotonic()
         t = msg.get_type()
         if t == "HEARTBEAT":
+            # ONLY THE AIRCRAFT'S OWN HEARTBEAT DRIVES THIS DISPLAY.
+            # Anything else that speaks MAVLink on this link - a second
+            # ground station, a companion computer, a gimbal - also sends
+            # heartbeats, and they carry custom_mode 0 and no ARMED flag.
+            # Decoded as if they came from the aircraft that reads as mode
+            # "Mode 0.0" and DISARMED, which is what the instructor's screen
+            # showed for one frame on 14 Oct 2026 while the aircraft was
+            # flying normally. On a training device a spurious "disarmed" is
+            # about the worst thing the screen can say.
+            # Measured the same day: PX4 here is system 1, component 1.
+            # QGroundControl v5.1.5 filters the same two ways in
+            # MultiVehicleManager::_vehicleHeartbeatInfo - it ignores any
+            # component that is not MAV_COMP_ID_AUTOPILOT1, and ignores the
+            # GCS, ONBOARD_CONTROLLER, GIMBAL and ADSB vehicle types.
+            if (msg.get_srcComponent() != mavutil.mavlink.MAV_COMP_ID_AUTOPILOT1
+                    or msg.type in NOT_A_VEHICLE):
+                return
             telemetry["armed"] = bool(msg.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED)
+            # The aircraft's red beacon flashes while it is armed, the way
+            # a real one flashes while the engines are running.
+            if _beacon_follows_armed is not None:
+                _beacon_follows_armed(telemetry["armed"])
+            _update_arm_readiness(msg.system_status)
             new_mode = _decode_mode(msg.custom_mode)
             _check_failure_response(new_mode)
             telemetry["mode"] = new_mode
+        elif t == "EXTENDED_SYS_STATE":
+            telemetry["vtol_state"] = VTOL_STATES.get(msg.vtol_state)
+            # MAV_LANDED_STATE: 1 on ground, 2 in air, 3 taking off, 4 landing
+            telemetry["in_air"] = (msg.landed_state in (2, 3, 4)
+                                   if msg.landed_state else None)
         elif t == "GLOBAL_POSITION_INT":
             telemetry["altitude_m"] = round(msg.relative_alt / 1000.0, 1)
             telemetry["altitude_amsl_m"] = round(msg.alt / 1000.0, 1)
             lat, lon = msg.lat / 1e7, msg.lon / 1e7
+            telemetry["latitude"], telemetry["longitude"] = lat, lon
             if lat or lon:
                 if home_latlon["lat"] is None:
                     home_latlon["lat"], home_latlon["lon"] = lat, lon
                 telemetry["range_from_home_m"] = _range_from_home(lat, lon)
                 if not flight_path or abs(flight_path[-1][0] - lat) + abs(flight_path[-1][1] - lon) > 1e-6:
                     flight_path.append((lat, lon, telemetry["altitude_m"], time.monotonic()))
-                    if len(flight_path) > _MAX_PATH_POINTS:
-                        del flight_path[0]
+                    _trim_flight_path()
         elif t == "HOME_POSITION":
             home_latlon["lat"] = msg.latitude / 1e7
             home_latlon["lon"] = msg.longitude / 1e7
@@ -324,11 +844,41 @@ def _telemetry_loop():
             telemetry["groundspeed_ms"] = round(msg.groundspeed, 1) if math.isfinite(msg.groundspeed) else 0.0
             telemetry["airspeed_ms"] = round(msg.airspeed, 1) if math.isfinite(msg.airspeed) else 0.0
             telemetry["heading_deg"] = msg.heading
+            telemetry["throttle_pct"] = (
+                round(float(msg.throttle), 1) if math.isfinite(msg.throttle) else 0.0)
         elif t == "GPS_RAW_INT":
             telemetry["satellites"] = msg.satellites_visible
+            if _tail_follows_gps is not None:
+                _tail_follows_gps(
+                    msg.satellites_visible >= GPS_FIX_SATELLITES)
         elif t == "BATTERY_STATUS":
             if msg.battery_remaining >= 0:
                 telemetry["battery_pct"] = msg.battery_remaining
+        elif t == "STATUSTEXT":
+            text = msg.text
+            if isinstance(text, bytes):
+                text = text.decode("utf-8", "replace")
+            text = text.strip()
+            severity = getattr(msg, "severity", 6)
+            status_log.append({
+                "text": text,
+                "t": time.monotonic(),
+                # Wall clock as well as monotonic: the console shows a time
+                # of day and monotonic is seconds since boot, which is not
+                # a thing to put in front of an instructor.
+                "at": time.strftime("%H:%M:%S"),
+                "severity": severity,
+                "level": SEVERITY_NAMES.get(severity, "info"),
+            })
+            del status_log[:-_STATUS_LOG_MAX]
+            if text.lower().startswith(_ARM_BLOCKER_PREFIXES):
+                _arm_blocker["text"] = text
+                _arm_blocker["t"] = time.monotonic()
+        elif t == "PARAM_VALUE":
+            name = msg.param_id
+            if isinstance(name, bytes):
+                name = name.decode("ascii", "replace")
+            _param_values[name.rstrip("\x00")] = msg.param_value
         elif t == "COMMAND_ACK":
             command_acks[msg.command] = {"result": msg.result, "t": time.monotonic()}
 
@@ -349,7 +899,57 @@ def _connect_then_start_telemetry():
     connection_status["message"] = "Connected."
     print("Connected.")
     event_logger.log_event("session_start")
+    threading.Thread(target=_say_hello_forever, daemon=True).start()
     _telemetry_loop()
+
+
+def _say_hello_forever():
+    """Tell PX4 a ground station is here, once a second, for ever.
+
+    WHY THIS MATTERS, and it is not politeness.
+
+    PX4 withholds STATUSTEXT from a link until a GCS has identified itself
+    on it. streams/STATUSTEXT.hpp:
+
+        bool send() override
+        {
+            if (_mavlink->is_gcs_connected()) {
+
+    and is_gcs_connected is true only once mavlink_receiver has seen a
+    HEARTBEAT whose type is MAV_TYPE_GCS on that link - mavlink_receiver
+    .cpp sets _heartbeat_type_gcs in exactly that case.
+
+    THIS STATION HAS NEVER SENT A HEARTBEAT. So PX4 has never regarded a
+    ground station as present on port 14540, and has silently withheld
+    every message it ever had for us. Measured 14 Oct 2026: a complete
+    arm - takeoff - land sortie with the station listening throughout
+    produced ZERO STATUSTEXT, while feeding the same station a synthetic
+    one from outside stored it correctly. The station was fine; PX4 was
+    not being asked.
+
+    What was lost with them: "Takeoff detected", "Landing detected", what
+    PX4 substituted for a command it did not like, and - the one that
+    matters - the Preflight Fail lines that say WHY arming is refused.
+    The console has had an arm-blocker readout since 11 Oct that could
+    only ever have shown PX4's reason if PX4 sent one, and it never did.
+    That feature passed its test because the test feeds it messages
+    directly.
+
+    Sending a heartbeat is also simply what a ground station does. QGC
+    sends one; that is the very heartbeat that was corrupting this
+    console's own display until it was filtered on 14 Oct.
+    """
+    while True:
+        try:
+            master.mav.heartbeat_send(
+                mavutil.mavlink.MAV_TYPE_GCS,
+                mavutil.mavlink.MAV_AUTOPILOT_INVALID,
+                0, 0, mavutil.mavlink.MAV_STATE_ACTIVE)
+        except Exception as exc:
+            # A failed heartbeat must never take the telemetry down with
+            # it; the link coming back is handled elsewhere.
+            print(f"[mavlink] heartbeat not sent: {exc!r}", file=sys.stderr)
+        time.sleep(1.0)
 
 
 threading.Thread(target=_connect_then_start_telemetry, daemon=True).start()

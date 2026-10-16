@@ -1,38 +1,144 @@
 """
-GPS failure toggle. This uses the GPS dropout proxy already built and
-confirmed working earlier in this project. This plugin just starts/stops
-that existing, proven tool - it doesn't reimplement it, to avoid
-duplicating a working solution.
+GPS failure, injected into PX4 itself.
 
-PATH UPDATED 5 Sep 2026: instructor_panel (the standalone prototype this
-proxy script came from) was archived to
-~/UAS-Academy/Archive/instructor_panel/ during a home-directory cleanup -
-it's superseded by gcs_app but gps_dropout_proxy.py itself is still the
-live, in-use tool, just relocated. Update PROXY_PATH again if it moves.
+WHAT THIS REPLACES, AND WHY
+---------------------------
+This control used to start gps_dropout_proxy.py, a prototype that sits
+BETWEEN PX4 and QGroundControl and rewrites the GPS fields in the stream
+going to QGC. Tested end to end on 14 Oct 2026 with the simulator running,
+and it does not work in this setup:
+
+  * it only ever fooled QGroundControl. The instructor station reads PX4
+    on its own MAVLink link, so the station's satellite count never moved
+    - and neither did PX4's own navigation, which is the thing a student
+    is supposed to be learning to handle;
+  * it needs PX4 told to send telemetry to the proxy and QGC told to
+    connect to the proxy's port instead of to PX4. Neither is done by the
+    launcher, so the proxy sat in the middle of nothing;
+  * it takes its commands by TYPING "fail" at a prompt. Started as a
+    background script it has no stdin, so its command thread died with
+    EOFError at once - the measured log line was
+
+        File ".../gps_dropout_proxy.py", line 46, in command_listener
+            cmd = input().strip().lower()
+        EOFError: EOF when reading a line
+
+    while the station reported "GPS failure injected."
+
+So the button said it had injected a failure, and nothing had happened.
+For a training device that is worse than having no button.
+
+WHAT IT DOES NOW
+----------------
+Sets PX4's own SIM_GPS_USED parameter to 0, and back to 10 to clear.
+
+src/modules/simulation/sensor_gps_sim/SensorGpsSim.cpp:
+
+    if (_sim_gps_used.get() >= 4) {
+        sensor_gps.fix_type = 3;    // 3D fix
+    } else {
+        sensor_gps.fix_type = 0;    // No fix
+    }
+    ...
+    sensor_gps.satellites_used = _sim_gps_used.get();
+
+so 0 means no fix and no satellites, inside PX4's own sensor pipeline.
+The EKF loses its GPS, the aircraft behaves as it would, and EVERY ground
+station sees it: this console, QGroundControl, and the aircraft's own
+GPS status light, which turns red.
+
+MEASURED on 14 Oct 2026 against the running simulator:
+
+    SIM_GPS_USED = 10   GPS_RAW_INT  satellites 10, fix_type 3
+    SIM_GPS_USED = 0    GPS_RAW_INT  satellites  0, fix_type 0
+    SIM_GPS_USED = 10   GPS_RAW_INT  satellites 10, fix_type 3
+
+WHY NOT MAV_CMD_INJECT_FAILURE, which is the obvious answer: this PX4
+cannot do it. The command is handled by simulator_mavlink, the module
+used with the OLD jMAVSim and Gazebo-classic back ends. These worlds run
+Gazebo Harmonic through gz_bridge, and gz_bridge in PX4 v1.15.4 - the
+version pinned here - has no GPS failure handling at all. Tried first and
+measured: PX4 never acknowledged the command and the satellite count did
+not move.
+
+That is a known PX4 bug, not a local mistake: PX4 issue #22296, "System
+Failure Injection (gps) not working", reported exactly this for gz and was
+closed by PR #28398 in August 2026 - AFTER v1.15.4. So on a newer PX4 the
+command would work and would be the tidier answer; on this one it does
+nothing, and SIM_GPS_USED is the mechanism that does.
+
+The gps_dropout_proxy this replaces was written to work around that same
+PX4 bug, which was sound reasoning - it was the integration that never
+landed.
+
+PARAMETERS RESET WHEN PX4 RESTARTS, so a NEW SESSION or a change of
+training area clears the failure by itself. That is the right behaviour -
+a fresh exercise should not start with a hidden failure still in - and
+the state here is re-checked from the aircraft rather than remembered.
 """
 
-from simulator_link import start_background_script, stop_background_script, mark_failure_injected, mark_failure_cleared
-import os
+import struct
+import time
 
-PROXY_PATH = os.path.expanduser("~/UAS-Academy/Archive/instructor_panel/gps_dropout_proxy.py")
+from simulator_link import (master, telemetry, mark_failure_injected,
+                            mark_failure_cleared)
+
+MAV_PARAM_TYPE_INT32 = 6
+PARAM = b"SIM_GPS_USED"
+# SensorGpsSim calls it a 3D fix at 4 or more. 10 is PX4's own default,
+# which is what the aircraft comes up with.
+SATELLITES_OK = 10
+SATELLITES_NONE = 0
 
 state = {"active": False}
 
 
+def _as_int32(value):
+    """PX4 reads PARAM_SET's float field as the raw bits of an int32."""
+    return struct.unpack("<f", struct.pack("<i", int(value)))[0]
+
+
+def _set(satellites):
+    master.mav.param_set_send(master.target_system, master.target_component,
+                              PARAM, _as_int32(satellites), MAV_PARAM_TYPE_INT32)
+
+
 def toggle_gps_failure():
-    if state["active"]:
-        msg = stop_background_script("gps_proxy")
-        state["active"] = False
-        mark_failure_cleared("gps")
-        return f"GPS failure cleared. ({msg})"
-    else:
-        msg = start_background_script("gps_proxy", ["python3", PROXY_PATH, "fail"])
-        state["active"] = True
-        mark_failure_injected("gps")
-        return f"GPS failure injected. ({msg})"
+    want_off = not state["active"]
+    _set(SATELLITES_NONE if want_off else SATELLITES_OK)
+
+    # SAY WHAT THE AIRCRAFT ACTUALLY DID, not what was sent. A PARAM_SET is
+    # not acknowledged, so the honest check is the satellite count coming
+    # back in the telemetry - which is the same number the console and
+    # QGroundControl show.
+    deadline = time.monotonic() + 4.0
+    while time.monotonic() < deadline:
+        sats = telemetry.get("satellites")
+        if sats is not None:
+            if want_off and sats == 0:
+                state["active"] = True
+                mark_failure_injected("gps")
+                return ("GPS failure injected - the aircraft reports 0 "
+                        "satellites and no fix. The tail light is red, and "
+                        "QGroundControl sees the loss too.")
+            if not want_off and sats >= 4:
+                state["active"] = False
+                mark_failure_cleared("gps")
+                return ("GPS failure cleared - the aircraft reports %d "
+                        "satellites again." % sats)
+        time.sleep(0.25)
+
+    # It may still take effect a moment later, so the state follows the
+    # request; the console's own satellite readout is the thing to watch.
+    state["active"] = want_off
+    return ("GPS %s sent, but the aircraft has not reported the change yet "
+            "(satellites: %s). Watch the satellite count."
+            % ("failure" if want_off else "restore",
+               telemetry.get("satellites")))
 
 
 PLUGIN = {
-    "id": "gps_failure", "label": "Toggle GPS Failure", "category": "Failure Injection",
+    "id": "gps_failure", "label": "Toggle GPS Failure",
+    "category": "Failure Injection",
     "style": "warning", "handler": toggle_gps_failure,
 }

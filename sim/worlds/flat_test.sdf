@@ -1,0 +1,393 @@
+<?xml version="1.0" ?>
+<!-- ================================================================
+     FLAT TEST WORLD - added 11 Oct 2026.
+
+     A clear, genuinely flat environment for testing the aircraft at
+     real ground level, with nothing to fly into and no terrain
+     alignment to doubt.
+
+     Why it exists: in training_area.sdf the aircraft spawns at world
+     (0, 0, 615.5) while the terrain model is shifted by -779.7 m in X
+     to bring its carved clearing to the origin. When that alignment is
+     wrong the aircraft spawns inside a mountain, which makes every
+     other test unreadable - you cannot tell a flight-control problem
+     from a terrain problem. This world removes that variable.
+
+     Deliberately identical to training_area.sdf in everything that
+     affects how the aircraft flies:
+       * same physics step and real-time factor
+       * same gravity, magnetic field and atmosphere
+       * same spherical coordinates, so QGroundControl's map and the
+         simulated GPS position agree as they do in the training world
+       * the same eleven world systems, in the same order
+       * the same wind element and WindEffects plugin, so wind tests
+         behave the same here
+     The only difference is the ground: an infinite flat plane at Z=0
+     with the <surface> block copied from Gazebo's own stock
+     ground_plane, which the 23 Aug entry proved settles the aircraft
+     to an exact zero resting speed.
+
+     No media files needed - the ground is a plain material, not a
+     textured heightmap - so this world can be dropped into any PX4
+     checkout on its own.
+
+     Spawn at Z=0.3, just clear of the ground:
+       PX4_GZ_MODEL_POSE="0,0,0.3,0,0,0" PX4_GZ_WORLD=flat_test \
+         make px4_sitl gz_standard_vtol
+     and point the station at it with GCS_WORLD=flat_test.
+     ================================================================ -->
+<sdf version="1.9">
+  <world name="flat_test">
+
+    <physics name="1ms" type="ignore">
+      <max_step_size>0.004</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+    <gravity>0 0 -9.8</gravity>
+    <!-- IGRF field at this world's own coordinates (23.2667N, 5.6333E,
+         1400 m) for 2026-10-11, in tesla ENU per the SDF spec. NOT
+         sdformat's default placeholder, which is ~48 uT at 60 deg
+         inclination and would be 32 deg wrong here - enough to stop
+         PX4's EKF converging on a heading once a magnetometer exists. -->
+    <magnetic_field>9.01e-07 3.375e-05 -1.801e-05</magnetic_field>
+    <atmosphere type="adiabatic"/>
+    <spherical_coordinates>
+      <surface_model>EARTH_WGS84</surface_model>
+      <world_frame_orientation>ENU</world_frame_orientation>
+      <latitude_deg>23.2667</latitude_deg>
+      <longitude_deg>5.6333</longitude_deg>
+      <elevation>1400</elevation>
+      <heading_deg>0</heading_deg>
+    </spherical_coordinates>
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"></plugin>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"></plugin>
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"></plugin>
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"></plugin>
+    <plugin filename="gz-sim-air-pressure-system" name="gz::sim::systems::AirPressure"></plugin>
+    <plugin filename="gz-sim-navsat-system" name="gz::sim::systems::NavSat"></plugin>
+    <plugin filename="gz-sim-contact-system" name="gz::sim::systems::Contact"></plugin>
+    <plugin filename="gz-sim-air-speed-system" name="gz::sim::systems::AirSpeed"></plugin>
+    <plugin filename="gz-sim-magnetometer-system" name="gz::sim::systems::Magnetometer"></plugin>
+    <plugin filename="gz-sim-apply-link-wrench-system" name="gz::sim::systems::ApplyLinkWrench"></plugin>
+
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 100 0 0 0</pose>
+      <diffuse>1.0 0.97 0.90 1</diffuse>
+      <specular>0.35 0.35 0.33 1</specular>
+      <direction>-0.55 0.35 -0.62</direction>
+    </light>
+
+    <scene>
+      <ambient>0.26 0.28 0.32 1</ambient>
+      <background>0.52 0.66 0.84 1</background>
+      <shadows>true</shadows>
+      <!-- A real skybox instead of one flat colour. gz-rendering8
+           applies it to every sensor camera too, so the chase and
+           nose feeds get it, not only the Gazebo window. Its
+           sdformat sub-elements (time, clouds, humidity) are
+           ignored by this renderer - it is on or off. -->
+      <!-- The built-in sky was removed 12 Oct 2026: it is one
+           bit in this renderer, with no gradient and no cloud. The
+           sky_dome model at the end of this file replaces it. -->
+    </scene>
+
+    <!-- Flat ground with its top surface at Z=0.
+
+         The collision is a very large BOX sunk 5 m, not a plane. PX4's own
+         working default.sdf does exactly this (box 100000 x 100000 x 10 at
+         pose 0 0 -5), and training_area's safety floor is a box too. A
+         <plane> collision was tried here first and the aircraft fell straight
+         through it - it appeared in the entity tree and in the model list
+         reported by gz, but was nowhere to be seen, because it was still
+         falling. Follow the
+         working reference rather than the tidier-looking geometry.
+
+         The visual stays a plane - widened from 8 km to 220 km square
+         on 12 Oct 2026 by tools/far_ground_apply.py, so the 100 km
+         instructor envelope is not flown over a void. A plane carries
+         flat colour rather than a tiled texture, so the width costs
+         nothing to render. The collision box was widened to match:
+         it used to stop 50 km from home, half the envelope. -->
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="ground_link">
+        <collision name="ground_collision">
+          <pose>0 0 -5 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>220000 220000 10</size>
+            </box>
+          </geometry>
+          <surface>
+            <friction>
+              <ode/>
+            </friction>
+            <bounce/>
+            <contact/>
+          </surface>
+        </collision>
+        <visual name="ground_visual">
+          <pose>0 0 -1.000 0 0 0</pose>
+          <geometry>
+            <box><size>220000 220000 2</size></box>
+          </geometry>
+          <material>
+            <ambient>0.33 0.40 0.26 1</ambient>
+            <diffuse>0.40 0.48 0.31 1</diffuse>
+            <specular>0.05 0.05 0.05 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- A grid of markers every 100 m, so drift and distance are visible by
+         eye rather than only on the instruments. Collision-free. -->
+    <model name="distance_markers">
+      <static>true</static>
+      <link name="markers_link">
+        <visual name="marker_n100"><pose>100 0 0.5 0 0 0</pose>
+          <geometry><box><size>2 0.4 1</size></box></geometry>
+          <material><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="marker_n200"><pose>200 0 0.5 0 0 0</pose>
+          <geometry><box><size>2 0.4 1</size></box></geometry>
+          <material><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="marker_e100"><pose>0 100 0.5 0 0 0</pose>
+          <geometry><box><size>0.4 2 1</size></box></geometry>
+          <material><diffuse>0.9 0.6 0.2 1</diffuse></material></visual>
+        <visual name="marker_e200"><pose>0 200 0.5 0 0 0</pose>
+          <geometry><box><size>0.4 2 1</size></box></geometry>
+          <material><diffuse>0.9 0.6 0.2 1</diffuse></material></visual>
+      </link>
+    </model>
+
+    <!-- Wind: speed/direction are set at runtime by the instructor station over
+         /world/NAME/wind (gz.msgs.Wind). Zero here so an untouched sim
+         flies exactly as it did before wind was added. -->
+    <wind>
+      <linear_velocity>0 0 0</linear_velocity>
+    </wind>
+    <plugin filename="gz-sim-wind-effects-system" name="gz::sim::systems::WindEffects">
+      <force_approximation_scaling_factor>1</force_approximation_scaling_factor>
+      <horizontal>
+        <magnitude>
+          <time_for_rise>10</time_for_rise>
+          <sin>
+            <amplitude_percent>0.05</amplitude_percent>
+            <period>60</period>
+          </sin>
+          <noise type="gaussian">
+            <mean>0</mean>
+            <stddev>0.0002</stddev>
+          </noise>
+        </magnitude>
+        <direction>
+          <time_for_rise>30</time_for_rise>
+          <sin>
+            <amplitude>5</amplitude>
+            <period>20</period>
+          </sin>
+          <noise type="gaussian">
+            <mean>0</mean>
+            <stddev>0.03</stddev>
+          </noise>
+        </direction>
+      </horizontal>
+      <vertical>
+        <noise type="gaussian">
+          <mean>0</mean>
+          <stddev>0.03</stddev>
+        </noise>
+      </vertical>
+    </plugin>
+    <!-- Weather cell. Switched on at runtime by the instructor station over
+         /weather/fog and /weather/rain (gz.msgs.ParticleEmitter);
+         both start off, so an untouched sim looks exactly as it did before.
+         Rendering only - this does not change how the aircraft flies.
+         Added by tools/weather_apply.py. -->
+    <plugin filename="gz-sim-particle-emitter-system"
+            name="gz::sim::systems::ParticleEmitter">
+    </plugin>
+    <model name="weather_cell">
+      <static>true</static>
+      <!-- At this world's own ground height; emitter heights below are
+           relative to it, so the cell sits over the ground in every world. -->
+      <pose>0 0 0.3 0 0 0</pose>
+      <link name="weather_link">
+        <particle_emitter name="fog" type="box">
+          <topic>/weather/fog</topic>
+          <emitting>false</emitting>
+          <!-- Tighter than the first attempt (was 240 x 240): the same
+               particle budget spread over a quarter of the area is four times
+               the obscuration. -->
+          <pose>0 0 45 0 0 0</pose>
+          <size>120 120 30</size>
+          <!-- X and Y only; Z is ignored (see the rain emitter below). -->
+          <particle_size>18 18 0</particle_size>
+          <lifetime>25</lifetime>
+          <min_velocity>0.1</min_velocity>
+          <max_velocity>0.5</max_velocity>
+          <scale_rate>0.5</scale_rate>
+          <rate>160</rate>
+          <particle_scatter_ratio>0.9</particle_scatter_ratio>
+          <!-- The texture is what makes a particle a shape rather than a
+               square. Without an albedo map Ogre draws a flat, hard-edged
+               quad, which is what the first fog test looked like: pale
+               rectangles stacked in the sky. -->
+          <material>
+            <diffuse>0.85 0.87 0.90</diffuse>
+            <specular>0.85 0.87 0.90</specular>
+            <pbr>
+              <metal>
+                <albedo_map>file://media/particle_soft.png</albedo_map>
+              </metal>
+            </pbr>
+          </material>
+        </particle_emitter>
+        <!-- Pitched 90 degrees about Y so the emitter's local +X, which is the
+             only direction Ogre2ParticleEmitter ever emits along, points at
+             world -Z. Without this, rain falls sideways. -->
+        <particle_emitter name="rain" type="box">
+          <topic>/weather/rain</topic>
+          <emitting>false</emitting>
+          <!-- 45 m, not 95: the fall time sets the lifetime, the lifetime sets
+               the rate ceiling (quota/lifetime), and the rate sets how much
+               rain you can actually see. Halving the drop roughly trebles the
+               rain. 45 m at 12-16 m/s is ~3.2 s, inside the 4 s lifetime. -->
+          <pose>0 0 45 0 1.5707963 0</pose>
+          <size>70 70 0</size>
+          <!-- Only X and Y are read - Ogre2ParticleEmitter passes them to
+               setDefaultDimensions(width, height) and ignores Z. 0.12 x 2.0 is
+               a falling streak; the first attempt put the length in Z and so
+               rendered 8 cm squares, which is why heavy rain looked like
+               almost nothing. -->
+          <particle_size>0.12 2.0 0</particle_size>
+          <lifetime>4</lifetime>
+          <min_velocity>12</min_velocity>
+          <max_velocity>16</max_velocity>
+          <scale_rate>0</scale_rate>
+          <rate>450</rate>
+          <particle_scatter_ratio>0.4</particle_scatter_ratio>
+          <material>
+            <diffuse>0.60 0.68 0.78</diffuse>
+            <specular>0.60 0.68 0.78</specular>
+            <pbr>
+              <metal>
+                <albedo_map>file://media/particle_streak.png</albedo_map>
+              </metal>
+            </pbr>
+          </material>
+        </particle_emitter>
+      </link>
+    </model>
+    <!-- GROUND WITHIN THE TRAINING AREA, added 12 Oct 2026 by
+         tools/plane_ground_texture.py.
+    
+         A MESH, from tools/make_ground_mesh.py, carrying UV coordinates
+         that repeat the texture every 16 m. A <plane> visual cannot tile -
+         it stretches one image across its whole size - which is why this
+         world used to stand on one flat colour.
+    
+         IT WAS A FLAT HEIGHTMAP FIRST, AND THAT DID NOT WORK. SDF's only
+         built-in way to tile is <heightmap><texture><size>, so a dead-flat
+         heightmap was tried on 12 Oct 2026. Loaded in Gazebo on 13 Oct it
+         rendered with no texture at all and a different colour from every
+         camera - white from the payload, near-black from the chase - while
+         the valley world's heightmap, same <texture> block but 240 m of
+         relief, rendered correctly. Giving the image a real height range
+         and adding an explicit material both changed nothing. A mesh needs
+         no terrain code and is exactly flat, which matters: the collision
+         is a separate box at z=0, and relief in the visual would show the
+         aircraft sunk into the ground or hovering over it.
+    
+         VISUAL ONLY. The 220 km collision box in ground_plane still
+         carries every landing; a second collision here would be two
+         surfaces arguing over the same contact.
+    
+         Eight kilometres covers the 500 m student envelope many times
+         over. Beyond it the far plane takes over, which at that distance
+         is what haze does anyway. -->
+    <model name="ground_near">
+      <static>true</static>
+      <pose>0 0 0.02 0 0 0</pose>
+      <link name="ground_near_link">
+        <visual name="ground_near_visual">
+          <geometry>
+            <mesh>
+              <uri>file://media/ground_tile.obj</uri>
+            </mesh>
+          </geometry>
+          <!-- PLAIN COLOUR, NO TEXTURE MAPS. Measured in Gazebo on 13 Oct
+               2026, by spawning boxes side by side into the running world -
+               same light, same texture file, one variable each:
+    
+                 plain <diffuse> colour        lit and shaded, correct
+                 <albedo_map>                  near-black
+                 <albedo_map> + normal + rough near-black
+                 <albedo_map>, absolute path   near-black
+                 <emissive_map>, same file     renders the texture
+    
+               PBR albedo_map does not render in this Gazebo Harmonic /
+               ogre2 build. That is why the flat heightmap, the height
+               range, the mesh and the material were each blamed in turn and
+               no change made any difference: every one of them ended on the
+               same broken path.
+    
+               This is the one configuration proven to render, and it is
+               what the 220 km far plane has always used. The cost is no
+               surface detail. The alternative is a ground that is black. -->
+          <material>
+            <ambient>0.30 0.34 0.24 1</ambient>
+            <diffuse>0.42 0.50 0.30 1</diffuse>
+            <specular>0.04 0.04 0.04 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <!-- THE SKY, added 12 Oct 2026 by tools/sky_dome_apply.py.
+    
+         An inside-out dome at 7000 m - inside the cameras' 8000 m clip
+         plane - carrying the sky image from tools/make_sky_dome.py. It
+         replaces <sky></sky>, which in this renderer is a flat near-white
+         ceiling with no gradient and no cloud.
+    
+         EMISSIVE, ALBEDO BLACK. A sky is not a surface the sun falls on.
+         The image is the emissive map and nothing else lights the dome, so
+         it shows exactly what was painted. plugins/time_of_day.py dims it
+         for dusk and night over /world/NAME/material_color.
+    
+         NO SHADOWS, NO COLLISION. It is 7 km of geometry around everything;
+         either one would be a disaster. -->
+    <model name="sky_dome">
+      <static>true</static>
+      <pose>0 0 0 0 0 0</pose>
+      <link name="sky_dome_link">
+        <visual name="sky_dome_visual">
+          <cast_shadows>false</cast_shadows>
+          <geometry>
+            <mesh>
+              <uri>file://media/sky_dome.obj</uri>
+              <scale>7000 7000 7000</scale>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0 0 0 1</ambient>
+            <diffuse>0 0 0 1</diffuse>
+            <specular>0 0 0 1</specular>
+            <emissive>1 1 1 1</emissive>
+            <pbr>
+              <metal>
+                <roughness>1.0</roughness>
+                <metalness>0.0</metalness>
+                <emissive_map>file://media/sky_day.png</emissive_map>
+              </metal>
+            </pbr>
+          </material>
+        </visual>
+      </link>
+    </model>
+</world>
+</sdf>

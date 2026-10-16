@@ -10,6 +10,12 @@ across locations — each item below has exactly one home.
   `~/PX4-Autopilot/gcs_app/` — its own git repo, remote:
   `https://github.com/Dronesync-UAS/Fixed-Wing-VTOL-UAS-Simulator-Pro`
   (renamed from `uas-instructor-station` ~5 Sep 2026).
+- **Starting a session:** the **UAV Academy Simulator** desktop icon, or
+  `python3 gcs_app/tools/uas_launcher.py`. It starts Gazebo, PX4 and the
+  station together in one chosen training area, so the simulator and the
+  console can no longer be pointed at different worlds. Install the icons
+  with `gcs_app/tools/install_launcher.sh`. Logs land in
+  `~/uas_sim_logs/sim_launch.log` and `~/uas_sim_logs/gcs.log`.
 - **Live flight-event log (CSV):** `~/uas_sim_logs/instructor_events.csv` —
   path is hardcoded into `gcs_app/event_logger.py`; don't move without
   updating that code. Backed up daily to `Flight-Logs/instructor-events/`

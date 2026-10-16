@@ -1,0 +1,13 @@
+{
+  "centre": [
+    52.97,
+    0.81
+  ],
+  "dem": "AWS Terrain Tiles (Terrarium)",
+  "highest_m": 77.47265625,
+  "lowest_m": -8.09765625,
+  "provider": "terrarium",
+  "relief_within_500m": 24.7890625,
+  "span_m": 8000.0,
+  "world": "training_area_coast"
+}

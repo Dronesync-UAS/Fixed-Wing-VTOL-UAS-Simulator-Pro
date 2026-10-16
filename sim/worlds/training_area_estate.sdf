@@ -1,0 +1,1013 @@
+<?xml version="1.0" ?>
+<!-- ================================================================
+     INDUSTRIAL ESTATE - Thames estuary. Added 12 Oct 2026.
+
+     WHY THIS WORLD EXISTS. It is the hardest environment in the set for
+     a sensor operator, and the most likely one to be flown in for real:
+     surveys of roofs, stock counts in a yard, thermal checks on a tank
+     farm. Everything in it is a rectangle and most of it is the same
+     grey, so finding a particular container among two hundred is a real
+     exercise rather than a formality.
+
+     It is also the only area with a genuine obstacle environment - a
+     52 m chimney and two 32 m cranes, both with collision. A student who
+     has only flown over empty desert has never had to think about
+     vertical obstructions.
+
+     WHERE IT IS. Tilbury, on the Thames estuary, 51.4600 N 0.3600 E,
+     5 m above sea level. Flat, like every other area in this set, for
+     the same reason: a PX4 VTOL behaves itself over level ground and
+     the station enforces a 120 m ceiling, so relief inside the range
+     limit would leave no airspace to fly in.
+
+     The ground is a plane rather than a heightmap. Everything that
+     makes this a place is scenery, added by tools/scenery_apply.py -
+     see scenery.py for what is in it and why.
+
+     NOT YET RUN. This world has not been loaded in Gazebo, and no
+     aircraft has been flown in it.
+     ================================================================ -->
+<sdf version="1.9">
+  <world name="training_area_estate">
+
+    <physics name="1ms" type="ignore">
+      <max_step_size>0.004</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+    <gravity>0 0 -9.8</gravity>
+    <!-- IGRF field at this world's own coordinates (51.4600N, 0.3600E,
+         5 m) for 2026-10-12, in tesla ENU per the SDF spec:
+         49128 nT, declination +1.36 deg, inclination +66.52 deg. Computed with ppigrf, the
+         same way tools/fix_magnetic_field.py does the older worlds -
+         NOT sdformat's placeholder, which would be several degrees out
+         in inclination here and would keep PX4's EKF from settling on
+         a heading. -->
+    <magnetic_field>4.648e-07 1.957e-05 -4.506e-05</magnetic_field>
+    <atmosphere type="adiabatic"/>
+    <spherical_coordinates>
+      <surface_model>EARTH_WGS84</surface_model>
+      <world_frame_orientation>ENU</world_frame_orientation>
+      <latitude_deg>51.46</latitude_deg>
+      <longitude_deg>0.36</longitude_deg>
+      <elevation>5</elevation>
+      <heading_deg>0</heading_deg>
+    </spherical_coordinates>
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"></plugin>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"></plugin>
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"></plugin>
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"></plugin>
+    <plugin filename="gz-sim-air-pressure-system" name="gz::sim::systems::AirPressure"></plugin>
+    <plugin filename="gz-sim-navsat-system" name="gz::sim::systems::NavSat"></plugin>
+    <plugin filename="gz-sim-contact-system" name="gz::sim::systems::Contact"></plugin>
+    <plugin filename="gz-sim-air-speed-system" name="gz::sim::systems::AirSpeed"></plugin>
+    <plugin filename="gz-sim-magnetometer-system" name="gz::sim::systems::Magnetometer"></plugin>
+    <plugin filename="gz-sim-apply-link-wrench-system" name="gz::sim::systems::ApplyLinkWrench"></plugin>
+
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 100 0 0 0</pose>
+      <diffuse>1.0 0.97 0.90 1</diffuse>
+      <specular>0.35 0.35 0.33 1</specular>
+      <direction>-0.55 0.35 -0.62</direction>
+    </light>
+
+    <scene>
+      <ambient>0.26 0.28 0.32 1</ambient>
+      <background>0.52 0.66 0.84 1</background>
+      <shadows>true</shadows>
+      <!-- A real skybox instead of one flat colour. gz-rendering8
+           applies it to every sensor camera too, so the chase and
+           nose feeds get it, not only the Gazebo window. Its
+           sdformat sub-elements (time, clouds, humidity) are
+           ignored by this renderer - it is on or off. -->
+      <!-- The built-in sky was removed 12 Oct 2026: it is one
+           bit in this renderer, with no gradient and no cloud. The
+           sky_dome model at the end of this file replaces it. -->
+    </scene>
+
+    <!-- Flat ground with its top surface at Z=0.
+
+         The collision is a very large BOX sunk 5 m, not a plane. PX4's own
+         working default.sdf does exactly this (box 100000 x 100000 x 10 at
+         pose 0 0 -5), and training_area's safety floor is a box too. A
+         <plane> collision was tried here first and the aircraft fell straight
+         through it - it appeared in the entity tree and in the model list
+         reported by gz, but was nowhere to be seen, because it was still
+         falling. Follow the
+         working reference rather than the tidier-looking geometry.
+
+         The visual stays a plane: 8 km square, large enough that the horizon
+         is never a visible boundary at training altitudes. -->
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="ground_link">
+        <collision name="ground_collision">
+          <pose>0 0 -5 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>220000 220000 10</size>
+            </box>
+          </geometry>
+          <surface>
+            <friction>
+              <ode/>
+            </friction>
+            <bounce/>
+            <contact/>
+          </surface>
+        </collision>
+        <visual name="ground_visual">
+          <pose>0 0 -1.000 0 0 0</pose>
+          <geometry>
+            <box><size>220000 220000 2</size></box>
+          </geometry>
+          <material>
+            <!-- Hardstanding and worn tarmac, which is most of what an estate is. -->
+            <ambient>0.26 0.26 0.25 1</ambient>
+            <diffuse>0.33 0.33 0.32 1</diffuse>
+            <specular>0.05 0.05 0.05 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- A grid of markers every 100 m, so drift and distance are visible by
+         eye rather than only on the instruments. Collision-free. -->
+    <model name="distance_markers">
+      <static>true</static>
+      <link name="markers_link">
+        <visual name="marker_n100"><pose>100 0 0.5 0 0 0</pose>
+          <geometry><box><size>2 0.4 1</size></box></geometry>
+          <material><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="marker_n200"><pose>200 0 0.5 0 0 0</pose>
+          <geometry><box><size>2 0.4 1</size></box></geometry>
+          <material><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="marker_e100"><pose>0 100 0.5 0 0 0</pose>
+          <geometry><box><size>0.4 2 1</size></box></geometry>
+          <material><diffuse>0.9 0.6 0.2 1</diffuse></material></visual>
+        <visual name="marker_e200"><pose>0 200 0.5 0 0 0</pose>
+          <geometry><box><size>0.4 2 1</size></box></geometry>
+          <material><diffuse>0.9 0.6 0.2 1</diffuse></material></visual>
+      </link>
+    </model>
+
+    <!-- Wind: speed/direction are set at runtime by the instructor station over
+         /world/NAME/wind (gz.msgs.Wind). Zero here so an untouched sim
+         flies exactly as it did before wind was added. -->
+    <wind>
+      <linear_velocity>0 0 0</linear_velocity>
+    </wind>
+    <plugin filename="gz-sim-wind-effects-system" name="gz::sim::systems::WindEffects">
+      <force_approximation_scaling_factor>1</force_approximation_scaling_factor>
+      <horizontal>
+        <magnitude>
+          <time_for_rise>10</time_for_rise>
+          <sin>
+            <amplitude_percent>0.05</amplitude_percent>
+            <period>60</period>
+          </sin>
+          <noise type="gaussian">
+            <mean>0</mean>
+            <stddev>0.0002</stddev>
+          </noise>
+        </magnitude>
+        <direction>
+          <time_for_rise>30</time_for_rise>
+          <sin>
+            <amplitude>5</amplitude>
+            <period>20</period>
+          </sin>
+          <noise type="gaussian">
+            <mean>0</mean>
+            <stddev>0.03</stddev>
+          </noise>
+        </direction>
+      </horizontal>
+      <vertical>
+        <noise type="gaussian">
+          <mean>0</mean>
+          <stddev>0.03</stddev>
+        </noise>
+      </vertical>
+    </plugin>
+    <!-- Weather cell. Switched on at runtime by the instructor station over
+         /weather/fog and /weather/rain (gz.msgs.ParticleEmitter);
+         both start off, so an untouched sim looks exactly as it did before.
+         Rendering only - this does not change how the aircraft flies.
+         Added by tools/weather_apply.py. -->
+    <plugin filename="gz-sim-particle-emitter-system"
+            name="gz::sim::systems::ParticleEmitter">
+    </plugin>
+    <model name="weather_cell">
+      <static>true</static>
+      <!-- At this world's own ground height; emitter heights below are
+           relative to it, so the cell sits over the ground in every world. -->
+      <pose>0 0 0.3 0 0 0</pose>
+      <link name="weather_link">
+        <particle_emitter name="fog" type="box">
+          <topic>/weather/fog</topic>
+          <emitting>false</emitting>
+          <!-- Tighter than the first attempt (was 240 x 240): the same
+               particle budget spread over a quarter of the area is four times
+               the obscuration. -->
+          <pose>0 0 45 0 0 0</pose>
+          <size>120 120 30</size>
+          <!-- X and Y only; Z is ignored (see the rain emitter below). -->
+          <particle_size>18 18 0</particle_size>
+          <lifetime>25</lifetime>
+          <min_velocity>0.1</min_velocity>
+          <max_velocity>0.5</max_velocity>
+          <scale_rate>0.5</scale_rate>
+          <rate>160</rate>
+          <particle_scatter_ratio>0.9</particle_scatter_ratio>
+          <!-- The texture is what makes a particle a shape rather than a
+               square. Without an albedo map Ogre draws a flat, hard-edged
+               quad, which is what the first fog test looked like: pale
+               rectangles stacked in the sky. -->
+          <material>
+            <diffuse>0.85 0.87 0.90</diffuse>
+            <specular>0.85 0.87 0.90</specular>
+            <pbr>
+              <metal>
+                <albedo_map>file://media/particle_soft.png</albedo_map>
+              </metal>
+            </pbr>
+          </material>
+        </particle_emitter>
+        <!-- Pitched 90 degrees about Y so the emitter's local +X, which is the
+             only direction Ogre2ParticleEmitter ever emits along, points at
+             world -Z. Without this, rain falls sideways. -->
+        <particle_emitter name="rain" type="box">
+          <topic>/weather/rain</topic>
+          <emitting>false</emitting>
+          <!-- 45 m, not 95: the fall time sets the lifetime, the lifetime sets
+               the rate ceiling (quota/lifetime), and the rate sets how much
+               rain you can actually see. Halving the drop roughly trebles the
+               rain. 45 m at 12-16 m/s is ~3.2 s, inside the 4 s lifetime. -->
+          <pose>0 0 45 0 1.5707963 0</pose>
+          <size>70 70 0</size>
+          <!-- Only X and Y are read - Ogre2ParticleEmitter passes them to
+               setDefaultDimensions(width, height) and ignores Z. 0.12 x 2.0 is
+               a falling streak; the first attempt put the length in Z and so
+               rendered 8 cm squares, which is why heavy rain looked like
+               almost nothing. -->
+          <particle_size>0.12 2.0 0</particle_size>
+          <lifetime>4</lifetime>
+          <min_velocity>12</min_velocity>
+          <max_velocity>16</max_velocity>
+          <scale_rate>0</scale_rate>
+          <rate>450</rate>
+          <particle_scatter_ratio>0.4</particle_scatter_ratio>
+          <material>
+            <diffuse>0.60 0.68 0.78</diffuse>
+            <specular>0.60 0.68 0.78</specular>
+            <pbr>
+              <metal>
+                <albedo_map>file://media/particle_streak.png</albedo_map>
+              </metal>
+            </pbr>
+          </material>
+        </particle_emitter>
+      </link>
+    </model>
+      <!-- SCENERY: added by tools/scenery_apply.py.
+         125 features, laid out deterministically from the world's
+         own name - see scenery.py for what is here and why. The
+         first 90 m around the launch point is left clear. Payload
+         targets 1-3 are at 1: 035 deg / 260 m, 2: 160 deg / 430 m, 3: 285 deg / 700 m. -->
+    <model name="scenery_0">
+      <static>true</static>
+      <pose>0 0 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 0.03 0 0 0</pose><geometry><box><size>2600 9 0.06</size></box></geometry><material><ambient>0.0935 0.0935 0.099 1</ambient><diffuse>0.17 0.17 0.18 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_1">
+      <static>true</static>
+      <pose>0 0 0 0 0 1.5708</pose>
+      <link name="l"><visual name="p0"><pose>0 0 0.03 0 0 0</pose><geometry><box><size>2000 7 0.06</size></box></geometry><material><ambient>0.0935 0.0935 0.099 1</ambient><diffuse>0.17 0.17 0.18 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_2">
+      <static>true</static>
+      <pose>320 180 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 4.5 0 0 0</pose><geometry><box><size>44 24 9</size></box></geometry><material><ambient>0.385 0.3905 0.396 1</ambient><diffuse>0.7 0.71 0.72 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 4.5 0 0 0</pose><geometry><box><size>44 24 9</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision><visual name="p1"><pose>0 0 9.25 0 0 0</pose><geometry><box><size>45.32 24.72 0.5</size></box></geometry><material><ambient>0.231 0.242 0.253 1</ambient><diffuse>0.42 0.44 0.46 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p2"><pose>-17.6 -12.1 2.2 0 0 0</pose><geometry><box><size>4.88889 0.2 4.4</size></box></geometry><material><ambient>0.165 0.176 0.187 1</ambient><diffuse>0.3 0.32 0.34 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p3"><pose>-8.8 -12.1 2.2 0 0 0</pose><geometry><box><size>4.88889 0.2 4.4</size></box></geometry><material><ambient>0.165 0.176 0.187 1</ambient><diffuse>0.3 0.32 0.34 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p4"><pose>0 -12.1 2.2 0 0 0</pose><geometry><box><size>4.88889 0.2 4.4</size></box></geometry><material><ambient>0.165 0.176 0.187 1</ambient><diffuse>0.3 0.32 0.34 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p5"><pose>8.8 -12.1 2.2 0 0 0</pose><geometry><box><size>4.88889 0.2 4.4</size></box></geometry><material><ambient>0.165 0.176 0.187 1</ambient><diffuse>0.3 0.32 0.34 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p6"><pose>17.6 -12.1 2.2 0 0 0</pose><geometry><box><size>4.88889 0.2 4.4</size></box></geometry><material><ambient>0.165 0.176 0.187 1</ambient><diffuse>0.3 0.32 0.34 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_3">
+      <static>true</static>
+      <pose>320 260 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 4.5 0 0 0</pose><geometry><box><size>44 24 9</size></box></geometry><material><ambient>0.385 0.3905 0.396 1</ambient><diffuse>0.7 0.71 0.72 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 4.5 0 0 0</pose><geometry><box><size>44 24 9</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision><visual name="p1"><pose>0 0 9.25 0 0 0</pose><geometry><box><size>45.32 24.72 0.5</size></box></geometry><material><ambient>0.231 0.242 0.253 1</ambient><diffuse>0.42 0.44 0.46 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p2"><pose>-17.6 -12.1 2.2 0 0 0</pose><geometry><box><size>4.88889 0.2 4.4</size></box></geometry><material><ambient>0.165 0.176 0.187 1</ambient><diffuse>0.3 0.32 0.34 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p3"><pose>-8.8 -12.1 2.2 0 0 0</pose><geometry><box><size>4.88889 0.2 4.4</size></box></geometry><material><ambient>0.165 0.176 0.187 1</ambient><diffuse>0.3 0.32 0.34 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p4"><pose>0 -12.1 2.2 0 0 0</pose><geometry><box><size>4.88889 0.2 4.4</size></box></geometry><material><ambient>0.165 0.176 0.187 1</ambient><diffuse>0.3 0.32 0.34 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p5"><pose>8.8 -12.1 2.2 0 0 0</pose><geometry><box><size>4.88889 0.2 4.4</size></box></geometry><material><ambient>0.165 0.176 0.187 1</ambient><diffuse>0.3 0.32 0.34 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p6"><pose>17.6 -12.1 2.2 0 0 0</pose><geometry><box><size>4.88889 0.2 4.4</size></box></geometry><material><ambient>0.165 0.176 0.187 1</ambient><diffuse>0.3 0.32 0.34 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_4">
+      <static>true</static>
+      <pose>420 180 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 4.5 0 0 0</pose><geometry><box><size>44 24 9</size></box></geometry><material><ambient>0.385 0.3905 0.396 1</ambient><diffuse>0.7 0.71 0.72 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 4.5 0 0 0</pose><geometry><box><size>44 24 9</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision><visual name="p1"><pose>0 0 9.25 0 0 0</pose><geometry><box><size>45.32 24.72 0.5</size></box></geometry><material><ambient>0.231 0.242 0.253 1</ambient><diffuse>0.42 0.44 0.46 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p2"><pose>-17.6 -12.1 2.2 0 0 0</pose><geometry><box><size>4.88889 0.2 4.4</size></box></geometry><material><ambient>0.165 0.176 0.187 1</ambient><diffuse>0.3 0.32 0.34 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p3"><pose>-8.8 -12.1 2.2 0 0 0</pose><geometry><box><size>4.88889 0.2 4.4</size></box></geometry><material><ambient>0.165 0.176 0.187 1</ambient><diffuse>0.3 0.32 0.34 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p4"><pose>0 -12.1 2.2 0 0 0</pose><geometry><box><size>4.88889 0.2 4.4</size></box></geometry><material><ambient>0.165 0.176 0.187 1</ambient><diffuse>0.3 0.32 0.34 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p5"><pose>8.8 -12.1 2.2 0 0 0</pose><geometry><box><size>4.88889 0.2 4.4</size></box></geometry><material><ambient>0.165 0.176 0.187 1</ambient><diffuse>0.3 0.32 0.34 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p6"><pose>17.6 -12.1 2.2 0 0 0</pose><geometry><box><size>4.88889 0.2 4.4</size></box></geometry><material><ambient>0.165 0.176 0.187 1</ambient><diffuse>0.3 0.32 0.34 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_5">
+      <static>true</static>
+      <pose>420 260 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 4.5 0 0 0</pose><geometry><box><size>44 24 9</size></box></geometry><material><ambient>0.385 0.3905 0.396 1</ambient><diffuse>0.7 0.71 0.72 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 4.5 0 0 0</pose><geometry><box><size>44 24 9</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision><visual name="p1"><pose>0 0 9.25 0 0 0</pose><geometry><box><size>45.32 24.72 0.5</size></box></geometry><material><ambient>0.231 0.242 0.253 1</ambient><diffuse>0.42 0.44 0.46 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p2"><pose>-17.6 -12.1 2.2 0 0 0</pose><geometry><box><size>4.88889 0.2 4.4</size></box></geometry><material><ambient>0.165 0.176 0.187 1</ambient><diffuse>0.3 0.32 0.34 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p3"><pose>-8.8 -12.1 2.2 0 0 0</pose><geometry><box><size>4.88889 0.2 4.4</size></box></geometry><material><ambient>0.165 0.176 0.187 1</ambient><diffuse>0.3 0.32 0.34 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p4"><pose>0 -12.1 2.2 0 0 0</pose><geometry><box><size>4.88889 0.2 4.4</size></box></geometry><material><ambient>0.165 0.176 0.187 1</ambient><diffuse>0.3 0.32 0.34 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p5"><pose>8.8 -12.1 2.2 0 0 0</pose><geometry><box><size>4.88889 0.2 4.4</size></box></geometry><material><ambient>0.165 0.176 0.187 1</ambient><diffuse>0.3 0.32 0.34 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p6"><pose>17.6 -12.1 2.2 0 0 0</pose><geometry><box><size>4.88889 0.2 4.4</size></box></geometry><material><ambient>0.165 0.176 0.187 1</ambient><diffuse>0.3 0.32 0.34 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_6">
+      <static>true</static>
+      <pose>520 220 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 4.5 0 0 0</pose><geometry><box><size>44 24 9</size></box></geometry><material><ambient>0.385 0.3905 0.396 1</ambient><diffuse>0.7 0.71 0.72 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 4.5 0 0 0</pose><geometry><box><size>44 24 9</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision><visual name="p1"><pose>0 0 9.25 0 0 0</pose><geometry><box><size>45.32 24.72 0.5</size></box></geometry><material><ambient>0.231 0.242 0.253 1</ambient><diffuse>0.42 0.44 0.46 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p2"><pose>-17.6 -12.1 2.2 0 0 0</pose><geometry><box><size>4.88889 0.2 4.4</size></box></geometry><material><ambient>0.165 0.176 0.187 1</ambient><diffuse>0.3 0.32 0.34 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p3"><pose>-8.8 -12.1 2.2 0 0 0</pose><geometry><box><size>4.88889 0.2 4.4</size></box></geometry><material><ambient>0.165 0.176 0.187 1</ambient><diffuse>0.3 0.32 0.34 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p4"><pose>0 -12.1 2.2 0 0 0</pose><geometry><box><size>4.88889 0.2 4.4</size></box></geometry><material><ambient>0.165 0.176 0.187 1</ambient><diffuse>0.3 0.32 0.34 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p5"><pose>8.8 -12.1 2.2 0 0 0</pose><geometry><box><size>4.88889 0.2 4.4</size></box></geometry><material><ambient>0.165 0.176 0.187 1</ambient><diffuse>0.3 0.32 0.34 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p6"><pose>17.6 -12.1 2.2 0 0 0</pose><geometry><box><size>4.88889 0.2 4.4</size></box></geometry><material><ambient>0.165 0.176 0.187 1</ambient><diffuse>0.3 0.32 0.34 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_7">
+      <static>true</static>
+      <pose>250 220 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 0.03 0 0 0</pose><geometry><box><size>400 18 0.06</size></box></geometry><material><ambient>0.0935 0.0935 0.099 1</ambient><diffuse>0.17 0.17 0.18 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_8">
+      <static>true</static>
+      <pose>150 -120 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.33 0.0825 0.0825 1</ambient><diffuse>0.6 0.15 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_9">
+      <static>true</static>
+      <pose>150 -126 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.0825 0.1925 0.3025 1</ambient><diffuse>0.15 0.35 0.55 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_10">
+      <static>true</static>
+      <pose>150 -129 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.11 0.2475 0.1375 1</ambient><diffuse>0.2 0.45 0.25 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_11">
+      <static>true</static>
+      <pose>150 -129 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 3.95 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.33 0.0825 0.0825 1</ambient><diffuse>0.6 0.15 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 3.95 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_12">
+      <static>true</static>
+      <pose>150 -132 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.0825 0.1925 0.3025 1</ambient><diffuse>0.15 0.35 0.55 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_13">
+      <static>true</static>
+      <pose>150 -132 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 3.95 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.5225 0.231 0.0275 1</ambient><diffuse>0.95 0.42 0.05 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 3.95 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_14">
+      <static>true</static>
+      <pose>150 -132 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 6.6 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.33 0.0825 0.0825 1</ambient><diffuse>0.6 0.15 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 6.6 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_15">
+      <static>true</static>
+      <pose>150 -138 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.5225 0.231 0.0275 1</ambient><diffuse>0.95 0.42 0.05 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_16">
+      <static>true</static>
+      <pose>150 -138 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 3.95 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.5225 0.231 0.0275 1</ambient><diffuse>0.95 0.42 0.05 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 3.95 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_17">
+      <static>true</static>
+      <pose>150 -138 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 6.6 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.385 0.385 0.374 1</ambient><diffuse>0.7 0.7 0.68 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 6.6 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_18">
+      <static>true</static>
+      <pose>164 -120 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.385 0.385 0.374 1</ambient><diffuse>0.7 0.7 0.68 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_19">
+      <static>true</static>
+      <pose>164 -120 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 3.95 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.0825 0.1925 0.3025 1</ambient><diffuse>0.15 0.35 0.55 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 3.95 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_20">
+      <static>true</static>
+      <pose>164 -123 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.385 0.385 0.374 1</ambient><diffuse>0.7 0.7 0.68 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_21">
+      <static>true</static>
+      <pose>164 -126 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.385 0.385 0.374 1</ambient><diffuse>0.7 0.7 0.68 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_22">
+      <static>true</static>
+      <pose>164 -129 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.33 0.0825 0.0825 1</ambient><diffuse>0.6 0.15 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_23">
+      <static>true</static>
+      <pose>164 -132 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.5225 0.231 0.0275 1</ambient><diffuse>0.95 0.42 0.05 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_24">
+      <static>true</static>
+      <pose>164 -132 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 3.95 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.33 0.0825 0.0825 1</ambient><diffuse>0.6 0.15 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 3.95 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_25">
+      <static>true</static>
+      <pose>164 -132 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 6.6 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.11 0.2475 0.1375 1</ambient><diffuse>0.2 0.45 0.25 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 6.6 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_26">
+      <static>true</static>
+      <pose>164 -135 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.33 0.0825 0.0825 1</ambient><diffuse>0.6 0.15 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_27">
+      <static>true</static>
+      <pose>164 -135 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 3.95 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.11 0.2475 0.1375 1</ambient><diffuse>0.2 0.45 0.25 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 3.95 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_28">
+      <static>true</static>
+      <pose>164 -135 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 6.6 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.385 0.385 0.374 1</ambient><diffuse>0.7 0.7 0.68 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 6.6 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_29">
+      <static>true</static>
+      <pose>164 -141 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.33 0.0825 0.0825 1</ambient><diffuse>0.6 0.15 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_30">
+      <static>true</static>
+      <pose>178 -120 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.385 0.385 0.374 1</ambient><diffuse>0.7 0.7 0.68 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_31">
+      <static>true</static>
+      <pose>178 -126 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.5225 0.231 0.0275 1</ambient><diffuse>0.95 0.42 0.05 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_32">
+      <static>true</static>
+      <pose>178 -126 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 3.95 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.0825 0.1925 0.3025 1</ambient><diffuse>0.15 0.35 0.55 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 3.95 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_33">
+      <static>true</static>
+      <pose>178 -129 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.0825 0.1925 0.3025 1</ambient><diffuse>0.15 0.35 0.55 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_34">
+      <static>true</static>
+      <pose>178 -129 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 3.95 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.33 0.0825 0.0825 1</ambient><diffuse>0.6 0.15 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 3.95 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_35">
+      <static>true</static>
+      <pose>178 -129 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 6.6 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.33 0.0825 0.0825 1</ambient><diffuse>0.6 0.15 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 6.6 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_36">
+      <static>true</static>
+      <pose>178 -132 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.5225 0.231 0.0275 1</ambient><diffuse>0.95 0.42 0.05 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_37">
+      <static>true</static>
+      <pose>178 -132 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 3.95 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.5225 0.231 0.0275 1</ambient><diffuse>0.95 0.42 0.05 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 3.95 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_38">
+      <static>true</static>
+      <pose>178 -135 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.33 0.0825 0.0825 1</ambient><diffuse>0.6 0.15 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_39">
+      <static>true</static>
+      <pose>178 -138 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.11 0.2475 0.1375 1</ambient><diffuse>0.2 0.45 0.25 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_40">
+      <static>true</static>
+      <pose>178 -138 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 3.95 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.11 0.2475 0.1375 1</ambient><diffuse>0.2 0.45 0.25 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 3.95 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_41">
+      <static>true</static>
+      <pose>178 -138 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 6.6 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.0825 0.1925 0.3025 1</ambient><diffuse>0.15 0.35 0.55 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 6.6 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_42">
+      <static>true</static>
+      <pose>192 -123 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.33 0.0825 0.0825 1</ambient><diffuse>0.6 0.15 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_43">
+      <static>true</static>
+      <pose>192 -129 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.33 0.0825 0.0825 1</ambient><diffuse>0.6 0.15 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_44">
+      <static>true</static>
+      <pose>192 -129 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 3.95 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.11 0.2475 0.1375 1</ambient><diffuse>0.2 0.45 0.25 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 3.95 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_45">
+      <static>true</static>
+      <pose>192 -129 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 6.6 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.11 0.2475 0.1375 1</ambient><diffuse>0.2 0.45 0.25 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 6.6 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_46">
+      <static>true</static>
+      <pose>192 -132 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.33 0.0825 0.0825 1</ambient><diffuse>0.6 0.15 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_47">
+      <static>true</static>
+      <pose>192 -132 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 3.95 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.0825 0.1925 0.3025 1</ambient><diffuse>0.15 0.35 0.55 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 3.95 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_48">
+      <static>true</static>
+      <pose>192 -132 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 6.6 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.11 0.2475 0.1375 1</ambient><diffuse>0.2 0.45 0.25 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 6.6 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_49">
+      <static>true</static>
+      <pose>192 -135 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.0825 0.1925 0.3025 1</ambient><diffuse>0.15 0.35 0.55 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_50">
+      <static>true</static>
+      <pose>192 -135 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 3.95 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.33 0.0825 0.0825 1</ambient><diffuse>0.6 0.15 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 3.95 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_51">
+      <static>true</static>
+      <pose>192 -141 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.33 0.0825 0.0825 1</ambient><diffuse>0.6 0.15 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_52">
+      <static>true</static>
+      <pose>192 -141 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 3.95 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.0825 0.1925 0.3025 1</ambient><diffuse>0.15 0.35 0.55 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 3.95 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_53">
+      <static>true</static>
+      <pose>192 -141 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 6.6 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.11 0.2475 0.1375 1</ambient><diffuse>0.2 0.45 0.25 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 6.6 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_54">
+      <static>true</static>
+      <pose>206 -120 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.11 0.2475 0.1375 1</ambient><diffuse>0.2 0.45 0.25 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_55">
+      <static>true</static>
+      <pose>206 -120 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 3.95 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.385 0.385 0.374 1</ambient><diffuse>0.7 0.7 0.68 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 3.95 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_56">
+      <static>true</static>
+      <pose>206 -123 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.385 0.385 0.374 1</ambient><diffuse>0.7 0.7 0.68 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_57">
+      <static>true</static>
+      <pose>206 -126 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.0825 0.1925 0.3025 1</ambient><diffuse>0.15 0.35 0.55 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_58">
+      <static>true</static>
+      <pose>206 -129 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.0825 0.1925 0.3025 1</ambient><diffuse>0.15 0.35 0.55 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_59">
+      <static>true</static>
+      <pose>206 -129 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 3.95 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.33 0.0825 0.0825 1</ambient><diffuse>0.6 0.15 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 3.95 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_60">
+      <static>true</static>
+      <pose>206 -129 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 6.6 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.33 0.0825 0.0825 1</ambient><diffuse>0.6 0.15 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 6.6 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_61">
+      <static>true</static>
+      <pose>206 -132 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.5225 0.231 0.0275 1</ambient><diffuse>0.95 0.42 0.05 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_62">
+      <static>true</static>
+      <pose>206 -135 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.5225 0.231 0.0275 1</ambient><diffuse>0.95 0.42 0.05 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_63">
+      <static>true</static>
+      <pose>206 -138 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.5225 0.231 0.0275 1</ambient><diffuse>0.95 0.42 0.05 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_64">
+      <static>true</static>
+      <pose>206 -138 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 3.95 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.33 0.0825 0.0825 1</ambient><diffuse>0.6 0.15 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 3.95 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_65">
+      <static>true</static>
+      <pose>206 -138 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 6.6 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.385 0.385 0.374 1</ambient><diffuse>0.7 0.7 0.68 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 6.6 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_66">
+      <static>true</static>
+      <pose>206 -141 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.385 0.385 0.374 1</ambient><diffuse>0.7 0.7 0.68 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_67">
+      <static>true</static>
+      <pose>206 -141 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 3.95 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.33 0.0825 0.0825 1</ambient><diffuse>0.6 0.15 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 3.95 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_68">
+      <static>true</static>
+      <pose>206 -141 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 6.6 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.11 0.2475 0.1375 1</ambient><diffuse>0.2 0.45 0.25 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 6.6 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_69">
+      <static>true</static>
+      <pose>220 -120 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.0825 0.1925 0.3025 1</ambient><diffuse>0.15 0.35 0.55 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_70">
+      <static>true</static>
+      <pose>220 -120 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 3.95 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.33 0.0825 0.0825 1</ambient><diffuse>0.6 0.15 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 3.95 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_71">
+      <static>true</static>
+      <pose>220 -120 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 6.6 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.385 0.385 0.374 1</ambient><diffuse>0.7 0.7 0.68 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 6.6 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_72">
+      <static>true</static>
+      <pose>220 -123 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.5225 0.231 0.0275 1</ambient><diffuse>0.95 0.42 0.05 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_73">
+      <static>true</static>
+      <pose>220 -126 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.0825 0.1925 0.3025 1</ambient><diffuse>0.15 0.35 0.55 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_74">
+      <static>true</static>
+      <pose>220 -129 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.385 0.385 0.374 1</ambient><diffuse>0.7 0.7 0.68 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_75">
+      <static>true</static>
+      <pose>220 -132 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.5225 0.231 0.0275 1</ambient><diffuse>0.95 0.42 0.05 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_76">
+      <static>true</static>
+      <pose>220 -135 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.385 0.385 0.374 1</ambient><diffuse>0.7 0.7 0.68 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_77">
+      <static>true</static>
+      <pose>220 -135 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 3.95 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.5225 0.231 0.0275 1</ambient><diffuse>0.95 0.42 0.05 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 3.95 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_78">
+      <static>true</static>
+      <pose>220 -135 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 6.6 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.11 0.2475 0.1375 1</ambient><diffuse>0.2 0.45 0.25 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 6.6 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_79">
+      <static>true</static>
+      <pose>220 -138 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.385 0.385 0.374 1</ambient><diffuse>0.7 0.7 0.68 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_80">
+      <static>true</static>
+      <pose>220 -138 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 3.95 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.0825 0.1925 0.3025 1</ambient><diffuse>0.15 0.35 0.55 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 3.95 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_81">
+      <static>true</static>
+      <pose>220 -138 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 6.6 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.0825 0.1925 0.3025 1</ambient><diffuse>0.15 0.35 0.55 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 6.6 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_82">
+      <static>true</static>
+      <pose>220 -141 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.5225 0.231 0.0275 1</ambient><diffuse>0.95 0.42 0.05 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 1.3 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_83">
+      <static>true</static>
+      <pose>220 -141 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 3.95 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><material><ambient>0.11 0.2475 0.1375 1</ambient><diffuse>0.2 0.45 0.25 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 3.95 0 0 0</pose><geometry><box><size>12.2 2.44 2.6</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision></link>
+    </model>
+    <model name="scenery_84">
+      <static>true</static>
+      <pose>120 -180 0 0 0 1.5708</pose>
+      <link name="l"><visual name="p0"><pose>-4 0 1 0 0 0</pose><geometry><box><size>10 10 2</size></box></geometry><material><ambient>0.4675 0.3025 0.055 1</ambient><diffuse>0.85 0.55 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>-4 0 1 0 0 0</pose><geometry><box><size>10 10 2</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision><visual name="p1"><pose>0 0 16 0 0 0</pose><geometry><cylinder><radius>1.1</radius><length>32</length></cylinder></geometry><material><ambient>0.4675 0.3025 0.055 1</ambient><diffuse>0.85 0.55 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p1_c"><pose>0 0 16 0 0 0</pose><geometry><cylinder><radius>1.1</radius><length>32</length></cylinder></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision><visual name="p2"><pose>9 0 32 0 0 0</pose><geometry><box><size>26 1.6 1.6</size></box></geometry><material><ambient>0.4675 0.3025 0.055 1</ambient><diffuse>0.85 0.55 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p3"><pose>-8 0 30.5 0 0 0</pose><geometry><box><size>7 3 3</size></box></geometry><material><ambient>0.165 0.176 0.187 1</ambient><diffuse>0.3 0.32 0.34 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_85">
+      <static>true</static>
+      <pose>120 -260 0 0 0 1.5708</pose>
+      <link name="l"><visual name="p0"><pose>-4 0 1 0 0 0</pose><geometry><box><size>10 10 2</size></box></geometry><material><ambient>0.4675 0.3025 0.055 1</ambient><diffuse>0.85 0.55 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>-4 0 1 0 0 0</pose><geometry><box><size>10 10 2</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision><visual name="p1"><pose>0 0 16 0 0 0</pose><geometry><cylinder><radius>1.1</radius><length>32</length></cylinder></geometry><material><ambient>0.4675 0.3025 0.055 1</ambient><diffuse>0.85 0.55 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p1_c"><pose>0 0 16 0 0 0</pose><geometry><cylinder><radius>1.1</radius><length>32</length></cylinder></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision><visual name="p2"><pose>9 0 32 0 0 0</pose><geometry><box><size>26 1.6 1.6</size></box></geometry><material><ambient>0.4675 0.3025 0.055 1</ambient><diffuse>0.85 0.55 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p3"><pose>-8 0 30.5 0 0 0</pose><geometry><box><size>7 3 3</size></box></geometry><material><ambient>0.165 0.176 0.187 1</ambient><diffuse>0.3 0.32 0.34 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_86">
+      <static>true</static>
+      <pose>-220 260 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 6.5 0 0 0</pose><geometry><cylinder><radius>11</radius><length>13</length></cylinder></geometry><material><ambient>0.462 0.462 0.451 1</ambient><diffuse>0.84 0.84 0.82 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 6.5 0 0 0</pose><geometry><cylinder><radius>11</radius><length>13</length></cylinder></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision><visual name="p1"><pose>0 0 13.3 0 0 0</pose><geometry><cylinder><radius>11.22</radius><length>0.6</length></cylinder></geometry><material><ambient>0.396 0.396 0.385 1</ambient><diffuse>0.72 0.72 0.7 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p2"><pose>11.4 0 6.5 0 0 0</pose><geometry><cylinder><radius>0.18</radius><length>13</length></cylinder></geometry><material><ambient>0.3025 0.3025 0.297 1</ambient><diffuse>0.55 0.55 0.54 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_87">
+      <static>true</static>
+      <pose>-190 260 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 6.5 0 0 0</pose><geometry><cylinder><radius>11</radius><length>13</length></cylinder></geometry><material><ambient>0.462 0.462 0.451 1</ambient><diffuse>0.84 0.84 0.82 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 6.5 0 0 0</pose><geometry><cylinder><radius>11</radius><length>13</length></cylinder></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision><visual name="p1"><pose>0 0 13.3 0 0 0</pose><geometry><cylinder><radius>11.22</radius><length>0.6</length></cylinder></geometry><material><ambient>0.396 0.396 0.385 1</ambient><diffuse>0.72 0.72 0.7 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p2"><pose>11.4 0 6.5 0 0 0</pose><geometry><cylinder><radius>0.18</radius><length>13</length></cylinder></geometry><material><ambient>0.3025 0.3025 0.297 1</ambient><diffuse>0.55 0.55 0.54 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_88">
+      <static>true</static>
+      <pose>-160 260 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 6.5 0 0 0</pose><geometry><cylinder><radius>11</radius><length>13</length></cylinder></geometry><material><ambient>0.462 0.462 0.451 1</ambient><diffuse>0.84 0.84 0.82 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 6.5 0 0 0</pose><geometry><cylinder><radius>11</radius><length>13</length></cylinder></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision><visual name="p1"><pose>0 0 13.3 0 0 0</pose><geometry><cylinder><radius>11.22</radius><length>0.6</length></cylinder></geometry><material><ambient>0.396 0.396 0.385 1</ambient><diffuse>0.72 0.72 0.7 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p2"><pose>11.4 0 6.5 0 0 0</pose><geometry><cylinder><radius>0.18</radius><length>13</length></cylinder></geometry><material><ambient>0.3025 0.3025 0.297 1</ambient><diffuse>0.55 0.55 0.54 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_89">
+      <static>true</static>
+      <pose>-220 290 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 6.5 0 0 0</pose><geometry><cylinder><radius>11</radius><length>13</length></cylinder></geometry><material><ambient>0.462 0.462 0.451 1</ambient><diffuse>0.84 0.84 0.82 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 6.5 0 0 0</pose><geometry><cylinder><radius>11</radius><length>13</length></cylinder></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision><visual name="p1"><pose>0 0 13.3 0 0 0</pose><geometry><cylinder><radius>11.22</radius><length>0.6</length></cylinder></geometry><material><ambient>0.396 0.396 0.385 1</ambient><diffuse>0.72 0.72 0.7 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p2"><pose>11.4 0 6.5 0 0 0</pose><geometry><cylinder><radius>0.18</radius><length>13</length></cylinder></geometry><material><ambient>0.3025 0.3025 0.297 1</ambient><diffuse>0.55 0.55 0.54 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_90">
+      <static>true</static>
+      <pose>-190 290 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 6.5 0 0 0</pose><geometry><cylinder><radius>11</radius><length>13</length></cylinder></geometry><material><ambient>0.462 0.462 0.451 1</ambient><diffuse>0.84 0.84 0.82 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 6.5 0 0 0</pose><geometry><cylinder><radius>11</radius><length>13</length></cylinder></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision><visual name="p1"><pose>0 0 13.3 0 0 0</pose><geometry><cylinder><radius>11.22</radius><length>0.6</length></cylinder></geometry><material><ambient>0.396 0.396 0.385 1</ambient><diffuse>0.72 0.72 0.7 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p2"><pose>11.4 0 6.5 0 0 0</pose><geometry><cylinder><radius>0.18</radius><length>13</length></cylinder></geometry><material><ambient>0.3025 0.3025 0.297 1</ambient><diffuse>0.55 0.55 0.54 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_91">
+      <static>true</static>
+      <pose>-160 290 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 6.5 0 0 0</pose><geometry><cylinder><radius>11</radius><length>13</length></cylinder></geometry><material><ambient>0.462 0.462 0.451 1</ambient><diffuse>0.84 0.84 0.82 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 6.5 0 0 0</pose><geometry><cylinder><radius>11</radius><length>13</length></cylinder></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision><visual name="p1"><pose>0 0 13.3 0 0 0</pose><geometry><cylinder><radius>11.22</radius><length>0.6</length></cylinder></geometry><material><ambient>0.396 0.396 0.385 1</ambient><diffuse>0.72 0.72 0.7 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p2"><pose>11.4 0 6.5 0 0 0</pose><geometry><cylinder><radius>0.18</radius><length>13</length></cylinder></geometry><material><ambient>0.3025 0.3025 0.297 1</ambient><diffuse>0.55 0.55 0.54 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_92">
+      <static>true</static>
+      <pose>-300 200 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 26 0 0 0</pose><geometry><cylinder><radius>2.2</radius><length>52</length></cylinder></geometry><material><ambient>0.396 0.374 0.341 1</ambient><diffuse>0.72 0.68 0.62 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 26 0 0 0</pose><geometry><cylinder><radius>2.2</radius><length>52</length></cylinder></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision><visual name="p1"><pose>0 0 18.2 0 0 0</pose><geometry><cylinder><radius>2.35</radius><length>1.2</length></cylinder></geometry><material><ambient>0.2475 0.143 0.0825 1</ambient><diffuse>0.45 0.26 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p2"><pose>0 0 29.64 0 0 0</pose><geometry><cylinder><radius>2.35</radius><length>1.2</length></cylinder></geometry><material><ambient>0.2475 0.143 0.0825 1</ambient><diffuse>0.45 0.26 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p3"><pose>0 0 41.08 0 0 0</pose><geometry><cylinder><radius>2.35</radius><length>1.2</length></cylinder></geometry><material><ambient>0.2475 0.143 0.0825 1</ambient><diffuse>0.45 0.26 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_93">
+      <static>true</static>
+      <pose>-160 300 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 2.5 0 0 0</pose><geometry><box><size>16 10 5</size></box></geometry><material><ambient>0.341 0.33 0.308 1</ambient><diffuse>0.62 0.6 0.56 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 2.5 0 0 0</pose><geometry><box><size>16 10 5</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision><visual name="p1"><pose>0 0 5.1 0 0 0</pose><geometry><box><size>16.96 10.6 0.2</size></box></geometry><material><ambient>0.165 0.1705 0.1815 1</ambient><diffuse>0.3 0.31 0.33 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_94">
+      <static>true</static>
+      <pose>240 40 0 0 0 1.5708</pose>
+      <link name="l"><visual name="p0"><pose>0 0 0.75 0 0 0</pose><geometry><box><size>5.2 2 1</size></box></geometry><material><ambient>0.11 0.22 0.3575 1</ambient><diffuse>0.2 0.4 0.65 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.38</roughness><metalness>0.85</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 0.75 0 0 0</pose><geometry><box><size>5.2 2 1</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision><visual name="p1"><pose>-0.4 0 1.5 0 0 0</pose><geometry><box><size>2.4 1.9 0.9</size></box></geometry><material><ambient>0.11 0.121 0.1375 1</ambient><diffuse>0.2 0.22 0.25 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.1</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p2"><pose>1.7 1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p3"><pose>1.7 -1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p4"><pose>-1.7 1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p5"><pose>-1.7 -1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_95">
+      <static>true</static>
+      <pose>256 40 0 0 0 1.5708</pose>
+      <link name="l"><visual name="p0"><pose>0 0 0.75 0 0 0</pose><geometry><box><size>5.2 2 1</size></box></geometry><material><ambient>0.11 0.22 0.3575 1</ambient><diffuse>0.2 0.4 0.65 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.38</roughness><metalness>0.85</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 0.75 0 0 0</pose><geometry><box><size>5.2 2 1</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision><visual name="p1"><pose>-0.4 0 1.5 0 0 0</pose><geometry><box><size>2.4 1.9 0.9</size></box></geometry><material><ambient>0.11 0.121 0.1375 1</ambient><diffuse>0.2 0.22 0.25 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.1</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p2"><pose>1.7 1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p3"><pose>1.7 -1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p4"><pose>-1.7 1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p5"><pose>-1.7 -1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_96">
+      <static>true</static>
+      <pose>272 40 0 0 0 1.5708</pose>
+      <link name="l"><visual name="p0"><pose>0 0 0.75 0 0 0</pose><geometry><box><size>5.2 2 1</size></box></geometry><material><ambient>0.11 0.22 0.3575 1</ambient><diffuse>0.2 0.4 0.65 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.38</roughness><metalness>0.85</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 0.75 0 0 0</pose><geometry><box><size>5.2 2 1</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision><visual name="p1"><pose>-0.4 0 1.5 0 0 0</pose><geometry><box><size>2.4 1.9 0.9</size></box></geometry><material><ambient>0.11 0.121 0.1375 1</ambient><diffuse>0.2 0.22 0.25 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.1</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p2"><pose>1.7 1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p3"><pose>1.7 -1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p4"><pose>-1.7 1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p5"><pose>-1.7 -1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_97">
+      <static>true</static>
+      <pose>288 40 0 0 0 1.5708</pose>
+      <link name="l"><visual name="p0"><pose>0 0 0.75 0 0 0</pose><geometry><box><size>5.2 2 1</size></box></geometry><material><ambient>0.4675 0.4675 0.4675 1</ambient><diffuse>0.85 0.85 0.85 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.38</roughness><metalness>0.85</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 0.75 0 0 0</pose><geometry><box><size>5.2 2 1</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision><visual name="p1"><pose>-0.4 0 1.5 0 0 0</pose><geometry><box><size>2.4 1.9 0.9</size></box></geometry><material><ambient>0.11 0.121 0.1375 1</ambient><diffuse>0.2 0.22 0.25 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.1</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p2"><pose>1.7 1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p3"><pose>1.7 -1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p4"><pose>-1.7 1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p5"><pose>-1.7 -1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_98">
+      <static>true</static>
+      <pose>240 44 0 0 0 1.5708</pose>
+      <link name="l"><visual name="p0"><pose>0 0 0.75 0 0 0</pose><geometry><box><size>5.2 2 1</size></box></geometry><material><ambient>0.385 0.11 0.099 1</ambient><diffuse>0.7 0.2 0.18 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.38</roughness><metalness>0.85</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 0.75 0 0 0</pose><geometry><box><size>5.2 2 1</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision><visual name="p1"><pose>-0.4 0 1.5 0 0 0</pose><geometry><box><size>2.4 1.9 0.9</size></box></geometry><material><ambient>0.11 0.121 0.1375 1</ambient><diffuse>0.2 0.22 0.25 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.1</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p2"><pose>1.7 1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p3"><pose>1.7 -1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p4"><pose>-1.7 1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p5"><pose>-1.7 -1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_99">
+      <static>true</static>
+      <pose>256 44 0 0 0 1.5708</pose>
+      <link name="l"><visual name="p0"><pose>0 0 0.75 0 0 0</pose><geometry><box><size>5.2 2 1</size></box></geometry><material><ambient>0.11 0.22 0.3575 1</ambient><diffuse>0.2 0.4 0.65 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.38</roughness><metalness>0.85</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 0.75 0 0 0</pose><geometry><box><size>5.2 2 1</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision><visual name="p1"><pose>-0.4 0 1.5 0 0 0</pose><geometry><box><size>2.4 1.9 0.9</size></box></geometry><material><ambient>0.11 0.121 0.1375 1</ambient><diffuse>0.2 0.22 0.25 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.1</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p2"><pose>1.7 1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p3"><pose>1.7 -1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p4"><pose>-1.7 1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p5"><pose>-1.7 -1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_100">
+      <static>true</static>
+      <pose>272 44 0 0 0 1.5708</pose>
+      <link name="l"><visual name="p0"><pose>0 0 0.75 0 0 0</pose><geometry><box><size>5.2 2 1</size></box></geometry><material><ambient>0.11 0.22 0.3575 1</ambient><diffuse>0.2 0.4 0.65 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.38</roughness><metalness>0.85</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 0.75 0 0 0</pose><geometry><box><size>5.2 2 1</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision><visual name="p1"><pose>-0.4 0 1.5 0 0 0</pose><geometry><box><size>2.4 1.9 0.9</size></box></geometry><material><ambient>0.11 0.121 0.1375 1</ambient><diffuse>0.2 0.22 0.25 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.1</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p2"><pose>1.7 1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p3"><pose>1.7 -1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p4"><pose>-1.7 1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p5"><pose>-1.7 -1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_101">
+      <static>true</static>
+      <pose>288 44 0 0 0 1.5708</pose>
+      <link name="l"><visual name="p0"><pose>0 0 0.75 0 0 0</pose><geometry><box><size>5.2 2 1</size></box></geometry><material><ambient>0.4675 0.4675 0.4675 1</ambient><diffuse>0.85 0.85 0.85 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.38</roughness><metalness>0.85</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 0.75 0 0 0</pose><geometry><box><size>5.2 2 1</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision><visual name="p1"><pose>-0.4 0 1.5 0 0 0</pose><geometry><box><size>2.4 1.9 0.9</size></box></geometry><material><ambient>0.11 0.121 0.1375 1</ambient><diffuse>0.2 0.22 0.25 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.1</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p2"><pose>1.7 1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p3"><pose>1.7 -1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p4"><pose>-1.7 1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p5"><pose>-1.7 -1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_102">
+      <static>true</static>
+      <pose>240 48 0 0 0 1.5708</pose>
+      <link name="l"><visual name="p0"><pose>0 0 0.75 0 0 0</pose><geometry><box><size>5.2 2 1</size></box></geometry><material><ambient>0.385 0.11 0.099 1</ambient><diffuse>0.7 0.2 0.18 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.38</roughness><metalness>0.85</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 0.75 0 0 0</pose><geometry><box><size>5.2 2 1</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision><visual name="p1"><pose>-0.4 0 1.5 0 0 0</pose><geometry><box><size>2.4 1.9 0.9</size></box></geometry><material><ambient>0.11 0.121 0.1375 1</ambient><diffuse>0.2 0.22 0.25 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.1</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p2"><pose>1.7 1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p3"><pose>1.7 -1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p4"><pose>-1.7 1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p5"><pose>-1.7 -1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_103">
+      <static>true</static>
+      <pose>256 48 0 0 0 1.5708</pose>
+      <link name="l"><visual name="p0"><pose>0 0 0.75 0 0 0</pose><geometry><box><size>5.2 2 1</size></box></geometry><material><ambient>0.11 0.22 0.3575 1</ambient><diffuse>0.2 0.4 0.65 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.38</roughness><metalness>0.85</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 0.75 0 0 0</pose><geometry><box><size>5.2 2 1</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision><visual name="p1"><pose>-0.4 0 1.5 0 0 0</pose><geometry><box><size>2.4 1.9 0.9</size></box></geometry><material><ambient>0.11 0.121 0.1375 1</ambient><diffuse>0.2 0.22 0.25 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.1</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p2"><pose>1.7 1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p3"><pose>1.7 -1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p4"><pose>-1.7 1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p5"><pose>-1.7 -1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_104">
+      <static>true</static>
+      <pose>272 48 0 0 0 1.5708</pose>
+      <link name="l"><visual name="p0"><pose>0 0 0.75 0 0 0</pose><geometry><box><size>5.2 2 1</size></box></geometry><material><ambient>0.385 0.11 0.099 1</ambient><diffuse>0.7 0.2 0.18 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.38</roughness><metalness>0.85</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 0.75 0 0 0</pose><geometry><box><size>5.2 2 1</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision><visual name="p1"><pose>-0.4 0 1.5 0 0 0</pose><geometry><box><size>2.4 1.9 0.9</size></box></geometry><material><ambient>0.11 0.121 0.1375 1</ambient><diffuse>0.2 0.22 0.25 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.1</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p2"><pose>1.7 1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p3"><pose>1.7 -1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p4"><pose>-1.7 1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p5"><pose>-1.7 -1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_105">
+      <static>true</static>
+      <pose>288 48 0 0 0 1.5708</pose>
+      <link name="l"><visual name="p0"><pose>0 0 0.75 0 0 0</pose><geometry><box><size>5.2 2 1</size></box></geometry><material><ambient>0.385 0.11 0.099 1</ambient><diffuse>0.7 0.2 0.18 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.38</roughness><metalness>0.85</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 0.75 0 0 0</pose><geometry><box><size>5.2 2 1</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision><visual name="p1"><pose>-0.4 0 1.5 0 0 0</pose><geometry><box><size>2.4 1.9 0.9</size></box></geometry><material><ambient>0.11 0.121 0.1375 1</ambient><diffuse>0.2 0.22 0.25 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.1</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p2"><pose>1.7 1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p3"><pose>1.7 -1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p4"><pose>-1.7 1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p5"><pose>-1.7 -1 0.38 0 1.5708 0</pose><geometry><cylinder><radius>0.38</radius><length>0.25</length></cylinder></geometry><material><ambient>0.055 0.055 0.055 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_106">
+      <static>true</static>
+      <pose>525.453 -1105.96 0 0 0 2.95514</pose>
+      <link name="l"><visual name="p0"><pose>0 0 2.1431 0 0 0</pose><geometry><cylinder><radius>0.382697</radius><length>4.2862</length></cylinder></geometry><material><ambient>0.143 0.11 0.077 1</ambient><diffuse>0.26 0.2 0.14 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p1"><pose>0 0 5.51083 0 0 0</pose><geometry><ellipsoid><radii>1.99002 1.99002 1.63182</radii></ellipsoid></geometry><material><ambient>0.0935 0.1815 0.0825 1</ambient><diffuse>0.17 0.33 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.82</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p2"><pose>0.796009 0 4.43928 0 0 0</pose><geometry><ellipsoid><radii>1.43282 1.43282 1.14625</radii></ellipsoid></geometry><material><ambient>0.0935 0.1815 0.0825 1</ambient><diffuse>0.17 0.33 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.82</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_107">
+      <static>true</static>
+      <pose>-866.624 -411.444 0 0 0 4.4334</pose>
+      <link name="l"><visual name="p0"><pose>0 0 1.99261 0 0 0</pose><geometry><cylinder><radius>0.355824</radius><length>3.98523</length></cylinder></geometry><material><ambient>0.143 0.11 0.077 1</ambient><diffuse>0.26 0.2 0.14 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p1"><pose>0 0 5.12386 0 0 0</pose><geometry><ellipsoid><radii>1.85028 1.85028 1.51723</radii></ellipsoid></geometry><material><ambient>0.0935 0.1815 0.0825 1</ambient><diffuse>0.17 0.33 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.82</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p2"><pose>0.740113 0 4.12756 0 0 0</pose><geometry><ellipsoid><radii>1.3322 1.3322 1.06576</radii></ellipsoid></geometry><material><ambient>0.0935 0.1815 0.0825 1</ambient><diffuse>0.17 0.33 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.82</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_108">
+      <static>true</static>
+      <pose>-474.04 -633.716 0 0 0 4.03016</pose>
+      <link name="l"><visual name="p0"><pose>0 0 2.89041 0 0 0</pose><geometry><cylinder><radius>0.516144</radius><length>5.78081</length></cylinder></geometry><material><ambient>0.143 0.11 0.077 1</ambient><diffuse>0.26 0.2 0.14 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p1"><pose>0 0 7.43248 0 0 0</pose><geometry><ellipsoid><radii>2.68395 2.68395 2.20084</radii></ellipsoid></geometry><material><ambient>0.0935 0.1815 0.0825 1</ambient><diffuse>0.17 0.33 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.82</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p2"><pose>1.07358 0 5.98727 0 0 0</pose><geometry><ellipsoid><radii>1.93244 1.93244 1.54595</radii></ellipsoid></geometry><material><ambient>0.0935 0.1815 0.0825 1</ambient><diffuse>0.17 0.33 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.82</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_109">
+      <static>true</static>
+      <pose>-909.788 680.06 0 0 0 3.77484</pose>
+      <link name="l"><visual name="p0"><pose>0 0 2.31136 0 0 0</pose><geometry><cylinder><radius>0.412743</radius><length>4.62272</length></cylinder></geometry><material><ambient>0.143 0.11 0.077 1</ambient><diffuse>0.26 0.2 0.14 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p1"><pose>0 0 5.94349 0 0 0</pose><geometry><ellipsoid><radii>2.14626 2.14626 1.75993</radii></ellipsoid></geometry><material><ambient>0.0935 0.1815 0.0825 1</ambient><diffuse>0.17 0.33 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.82</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p2"><pose>0.858505 0 4.78781 0 0 0</pose><geometry><ellipsoid><radii>1.54531 1.54531 1.23625</radii></ellipsoid></geometry><material><ambient>0.0935 0.1815 0.0825 1</ambient><diffuse>0.17 0.33 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.82</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_110">
+      <static>true</static>
+      <pose>-914.944 644.711 0 0 0 2.64811</pose>
+      <link name="l"><visual name="p0"><pose>0 0 2.95119 0 0 0</pose><geometry><cylinder><radius>0.526998</radius><length>5.90238</length></cylinder></geometry><material><ambient>0.143 0.11 0.077 1</ambient><diffuse>0.26 0.2 0.14 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p1"><pose>0 0 7.58877 0 0 0</pose><geometry><ellipsoid><radii>2.74039 2.74039 2.24712</radii></ellipsoid></geometry><material><ambient>0.0935 0.1815 0.0825 1</ambient><diffuse>0.17 0.33 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.82</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p2"><pose>1.09616 0 6.11318 0 0 0</pose><geometry><ellipsoid><radii>1.97308 1.97308 1.57846</radii></ellipsoid></geometry><material><ambient>0.0935 0.1815 0.0825 1</ambient><diffuse>0.17 0.33 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.82</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_111">
+      <static>true</static>
+      <pose>310.839 1056.96 0 0 0 3.3164</pose>
+      <link name="l"><visual name="p0"><pose>0 0 2.61517 0 0 0</pose><geometry><cylinder><radius>0.466995</radius><length>5.23035</length></cylinder></geometry><material><ambient>0.143 0.11 0.077 1</ambient><diffuse>0.26 0.2 0.14 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p1"><pose>0 0 6.72473 0 0 0</pose><geometry><ellipsoid><radii>2.42838 2.42838 1.99127</radii></ellipsoid></geometry><material><ambient>0.0935 0.1815 0.0825 1</ambient><diffuse>0.17 0.33 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.82</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p2"><pose>0.97135 0 5.41715 0 0 0</pose><geometry><ellipsoid><radii>1.74843 1.74843 1.39874</radii></ellipsoid></geometry><material><ambient>0.0935 0.1815 0.0825 1</ambient><diffuse>0.17 0.33 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.82</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_112">
+      <static>true</static>
+      <pose>-780.647 666.349 0 0 0 3.6556</pose>
+      <link name="l"><visual name="p0"><pose>0 0 2.3465 0 0 0</pose><geometry><cylinder><radius>0.419018</radius><length>4.693</length></cylinder></geometry><material><ambient>0.143 0.11 0.077 1</ambient><diffuse>0.26 0.2 0.14 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p1"><pose>0 0 6.03386 0 0 0</pose><geometry><ellipsoid><radii>2.17889 2.17889 1.78669</radii></ellipsoid></geometry><material><ambient>0.0935 0.1815 0.0825 1</ambient><diffuse>0.17 0.33 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.82</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p2"><pose>0.871557 0 4.86061 0 0 0</pose><geometry><ellipsoid><radii>1.5688 1.5688 1.25504</radii></ellipsoid></geometry><material><ambient>0.0935 0.1815 0.0825 1</ambient><diffuse>0.17 0.33 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.82</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_113">
+      <static>true</static>
+      <pose>-1288.56 -170.487 0 0 0 5.36309</pose>
+      <link name="l"><visual name="p0"><pose>0 0 3.15365 0 0 0</pose><geometry><cylinder><radius>0.563151</radius><length>6.3073</length></cylinder></geometry><material><ambient>0.143 0.11 0.077 1</ambient><diffuse>0.26 0.2 0.14 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p1"><pose>0 0 8.10938 0 0 0</pose><geometry><ellipsoid><radii>2.92839 2.92839 2.40128</radii></ellipsoid></geometry><material><ambient>0.0935 0.1815 0.0825 1</ambient><diffuse>0.17 0.33 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.82</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p2"><pose>1.17135 0 6.53256 0 0 0</pose><geometry><ellipsoid><radii>2.10844 2.10844 1.68675</radii></ellipsoid></geometry><material><ambient>0.0935 0.1815 0.0825 1</ambient><diffuse>0.17 0.33 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.82</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_114">
+      <static>true</static>
+      <pose>-67.4711 -1123.79 0 0 0 4.41381</pose>
+      <link name="l"><visual name="p0"><pose>0 0 2.64617 0 0 0</pose><geometry><cylinder><radius>0.47253</radius><length>5.29233</length></cylinder></geometry><material><ambient>0.143 0.11 0.077 1</ambient><diffuse>0.26 0.2 0.14 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p1"><pose>0 0 6.80442 0 0 0</pose><geometry><ellipsoid><radii>2.45715 2.45715 2.01487</radii></ellipsoid></geometry><material><ambient>0.0935 0.1815 0.0825 1</ambient><diffuse>0.17 0.33 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.82</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p2"><pose>0.982861 0 5.48134 0 0 0</pose><geometry><ellipsoid><radii>1.76915 1.76915 1.41532</radii></ellipsoid></geometry><material><ambient>0.0935 0.1815 0.0825 1</ambient><diffuse>0.17 0.33 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.82</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_115">
+      <static>true</static>
+      <pose>757.136 -106.078 0 0 0 5.08423</pose>
+      <link name="l"><visual name="p0"><pose>0 0 3.23822 0 0 0</pose><geometry><cylinder><radius>0.578254</radius><length>6.47645</length></cylinder></geometry><material><ambient>0.143 0.11 0.077 1</ambient><diffuse>0.26 0.2 0.14 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p1"><pose>0 0 8.32686 0 0 0</pose><geometry><ellipsoid><radii>3.00692 3.00692 2.46568</radii></ellipsoid></geometry><material><ambient>0.0935 0.1815 0.0825 1</ambient><diffuse>0.17 0.33 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.82</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p2"><pose>1.20277 0 6.70775 0 0 0</pose><geometry><ellipsoid><radii>2.16498 2.16498 1.73199</radii></ellipsoid></geometry><material><ambient>0.0935 0.1815 0.0825 1</ambient><diffuse>0.17 0.33 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.82</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_116">
+      <static>true</static>
+      <pose>811.62 632.591 0 0 0 0.308559</pose>
+      <link name="l"><visual name="p0"><pose>0 0 3.32932 0 0 0</pose><geometry><cylinder><radius>0.594521</radius><length>6.65864</length></cylinder></geometry><material><ambient>0.143 0.11 0.077 1</ambient><diffuse>0.26 0.2 0.14 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p1"><pose>0 0 8.56111 0 0 0</pose><geometry><ellipsoid><radii>3.09151 3.09151 2.53504</radii></ellipsoid></geometry><material><ambient>0.0935 0.1815 0.0825 1</ambient><diffuse>0.17 0.33 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.82</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p2"><pose>1.2366 0 6.89645 0 0 0</pose><geometry><ellipsoid><radii>2.22589 2.22589 1.78071</radii></ellipsoid></geometry><material><ambient>0.0935 0.1815 0.0825 1</ambient><diffuse>0.17 0.33 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.82</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_117">
+      <static>true</static>
+      <pose>-1222.17 -85.2003 0 0 0 0.932218</pose>
+      <link name="l"><visual name="p0"><pose>0 0 2.02149 0 0 0</pose><geometry><cylinder><radius>0.360981</radius><length>4.04299</length></cylinder></geometry><material><ambient>0.143 0.11 0.077 1</ambient><diffuse>0.26 0.2 0.14 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p1"><pose>0 0 5.19813 0 0 0</pose><geometry><ellipsoid><radii>1.8771 1.8771 1.53922</radii></ellipsoid></geometry><material><ambient>0.0935 0.1815 0.0825 1</ambient><diffuse>0.17 0.33 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.82</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p2"><pose>0.75084 0 4.18738 0 0 0</pose><geometry><ellipsoid><radii>1.35151 1.35151 1.08121</radii></ellipsoid></geometry><material><ambient>0.0935 0.1815 0.0825 1</ambient><diffuse>0.17 0.33 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.82</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_118">
+      <static>true</static>
+      <pose>868.611 -921.047 0 0 0 3.21937</pose>
+      <link name="l"><visual name="p0"><pose>0 0 2.08246 0 0 0</pose><geometry><cylinder><radius>0.371868</radius><length>4.16492</length></cylinder></geometry><material><ambient>0.143 0.11 0.077 1</ambient><diffuse>0.26 0.2 0.14 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p1"><pose>0 0 5.3549 0 0 0</pose><geometry><ellipsoid><radii>1.93371 1.93371 1.58564</radii></ellipsoid></geometry><material><ambient>0.0935 0.1815 0.0825 1</ambient><diffuse>0.17 0.33 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.82</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p2"><pose>0.773485 0 4.31367 0 0 0</pose><geometry><ellipsoid><radii>1.39227 1.39227 1.11382</radii></ellipsoid></geometry><material><ambient>0.0935 0.1815 0.0825 1</ambient><diffuse>0.17 0.33 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.82</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_119">
+      <static>true</static>
+      <pose>459.781 485.405 0 0 0 5.45409</pose>
+      <link name="l"><visual name="p0"><pose>0 0 3.214 0 0 0</pose><geometry><cylinder><radius>0.573928</radius><length>6.42799</length></cylinder></geometry><material><ambient>0.143 0.11 0.077 1</ambient><diffuse>0.26 0.2 0.14 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p1"><pose>0 0 8.26456 0 0 0</pose><geometry><ellipsoid><radii>2.98442 2.98442 2.44723</radii></ellipsoid></geometry><material><ambient>0.0935 0.1815 0.0825 1</ambient><diffuse>0.17 0.33 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.82</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p2"><pose>1.19377 0 6.65756 0 0 0</pose><geometry><ellipsoid><radii>2.14879 2.14879 1.71903</radii></ellipsoid></geometry><material><ambient>0.0935 0.1815 0.0825 1</ambient><diffuse>0.17 0.33 0.15 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.82</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_120">
+      <static>true</static>
+      <pose>-500 -400 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 34 0 0 0</pose><geometry><cylinder><radius>1.6</radius><length>68</length></cylinder></geometry><material><ambient>0.506 0.506 0.506 1</ambient><diffuse>0.92 0.92 0.92 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 34 0 0 0</pose><geometry><cylinder><radius>1.6</radius><length>68</length></cylinder></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision><visual name="p1"><pose>0 0 69.2 0 0 0</pose><geometry><box><size>6 2.2 2.2</size></box></geometry><material><ambient>0.506 0.506 0.506 1</ambient><diffuse>0.92 0.92 0.92 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p2"><pose>0 18 69.2 0 0 0</pose><geometry><box><size>0.5 37 1</size></box></geometry><material><ambient>0.5225 0.5225 0.5225 1</ambient><diffuse>0.95 0.95 0.95 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p3"><pose>0 -9 84.7885 0 0 0</pose><geometry><box><size>0.5 19 32.1769</size></box></geometry><material><ambient>0.5225 0.5225 0.5225 1</ambient><diffuse>0.95 0.95 0.95 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p4"><pose>0 -9 53.6115 0 0 0</pose><geometry><box><size>0.5 19 32.1769</size></box></geometry><material><ambient>0.5225 0.5225 0.5225 1</ambient><diffuse>0.95 0.95 0.95 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_121">
+      <static>true</static>
+      <pose>-620 -260 0 0 0 0</pose>
+      <link name="l"><visual name="p0"><pose>0 0 34 0 0 0</pose><geometry><cylinder><radius>1.6</radius><length>68</length></cylinder></geometry><material><ambient>0.506 0.506 0.506 1</ambient><diffuse>0.92 0.92 0.92 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 34 0 0 0</pose><geometry><cylinder><radius>1.6</radius><length>68</length></cylinder></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision><visual name="p1"><pose>0 0 69.2 0 0 0</pose><geometry><box><size>6 2.2 2.2</size></box></geometry><material><ambient>0.506 0.506 0.506 1</ambient><diffuse>0.92 0.92 0.92 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p2"><pose>0 18 69.2 0 0 0</pose><geometry><box><size>0.5 37 1</size></box></geometry><material><ambient>0.5225 0.5225 0.5225 1</ambient><diffuse>0.95 0.95 0.95 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p3"><pose>0 -9 84.7885 0 0 0</pose><geometry><box><size>0.5 19 32.1769</size></box></geometry><material><ambient>0.5225 0.5225 0.5225 1</ambient><diffuse>0.95 0.95 0.95 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p4"><pose>0 -9 53.6115 0 0 0</pose><geometry><box><size>0.5 19 32.1769</size></box></geometry><material><ambient>0.5225 0.5225 0.5225 1</ambient><diffuse>0.95 0.95 0.95 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_122">
+      <static>true</static>
+      <pose>212.98 149.13 0 0 0 2.18166</pose>
+      <link name="l"><visual name="p0"><pose>0 0 1.6 0 0 0</pose><geometry><box><size>0.3 6 3.2</size></box></geometry><material><ambient>0.5225 0.5225 0.5225 1</ambient><diffuse>0.95 0.95 0.95 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 1.6 0 0 0</pose><geometry><box><size>0.3 6 3.2</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision><visual name="p1"><pose>0.2 -2 0.8 0 0 0</pose><geometry><box><size>0.05 2 1.6</size></box></geometry><material><ambient>0.0275 0.0275 0.0275 1</ambient><diffuse>0.05 0.05 0.05 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p2"><pose>0.2 0 2.4 0 0 0</pose><geometry><box><size>0.05 2 1.6</size></box></geometry><material><ambient>0.0275 0.0275 0.0275 1</ambient><diffuse>0.05 0.05 0.05 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p3"><pose>0.2 2 0.8 0 0 0</pose><geometry><box><size>0.05 2 1.6</size></box></geometry><material><ambient>0.0275 0.0275 0.0275 1</ambient><diffuse>0.05 0.05 0.05 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p4"><pose>0 0 0.3 0 0 0</pose><geometry><cylinder><radius>0.3</radius><length>0.6</length></cylinder></geometry><material><ambient>0.5225 0.231 0.0275 1</ambient><diffuse>0.95 0.42 0.05 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p5"><pose>0.25 -1 3.5 0 0 0</pose><geometry><box><size>0.1 0.5 0.5</size></box></geometry><material><ambient>0.5225 0.231 0.0275 1</ambient><diffuse>0.95 0.42 0.05 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_123">
+      <static>true</static>
+      <pose>-404.068 147.069 0 0 0 4.36332</pose>
+      <link name="l"><visual name="p0"><pose>0 0 1.6 0 0 0</pose><geometry><box><size>0.3 6 3.2</size></box></geometry><material><ambient>0.5225 0.5225 0.5225 1</ambient><diffuse>0.95 0.95 0.95 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 1.6 0 0 0</pose><geometry><box><size>0.3 6 3.2</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision><visual name="p1"><pose>0.2 -2 0.8 0 0 0</pose><geometry><box><size>0.05 2 1.6</size></box></geometry><material><ambient>0.0275 0.0275 0.0275 1</ambient><diffuse>0.05 0.05 0.05 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p2"><pose>0.2 0 2.4 0 0 0</pose><geometry><box><size>0.05 2 1.6</size></box></geometry><material><ambient>0.0275 0.0275 0.0275 1</ambient><diffuse>0.05 0.05 0.05 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p3"><pose>0.2 2 0.8 0 0 0</pose><geometry><box><size>0.05 2 1.6</size></box></geometry><material><ambient>0.0275 0.0275 0.0275 1</ambient><diffuse>0.05 0.05 0.05 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p4"><pose>0 0 0.3 0 0 0</pose><geometry><cylinder><radius>0.3</radius><length>0.6</length></cylinder></geometry><material><ambient>0.5225 0.231 0.0275 1</ambient><diffuse>0.95 0.42 0.05 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p5"><pose>0.25 -1 3.5 0 0 0</pose><geometry><box><size>0.1 0.5 0.5</size></box></geometry><material><ambient>0.5225 0.231 0.0275 1</ambient><diffuse>0.95 0.42 0.05 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p6"><pose>0.25 0 3.5 0 0 0</pose><geometry><box><size>0.1 0.5 0.5</size></box></geometry><material><ambient>0.5225 0.231 0.0275 1</ambient><diffuse>0.95 0.42 0.05 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <model name="scenery_124">
+      <static>true</static>
+      <pose>181.173 -676.148 0 0 0 6.54498</pose>
+      <link name="l"><visual name="p0"><pose>0 0 1.6 0 0 0</pose><geometry><box><size>0.3 6 3.2</size></box></geometry><material><ambient>0.5225 0.5225 0.5225 1</ambient><diffuse>0.95 0.95 0.95 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><collision name="p0_c"><pose>0 0 1.6 0 0 0</pose><geometry><box><size>0.3 6 3.2</size></box></geometry><surface><friction><ode/></friction><bounce/><contact/></surface></collision><visual name="p1"><pose>0.2 -2 0.8 0 0 0</pose><geometry><box><size>0.05 2 1.6</size></box></geometry><material><ambient>0.0275 0.0275 0.0275 1</ambient><diffuse>0.05 0.05 0.05 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p2"><pose>0.2 0 2.4 0 0 0</pose><geometry><box><size>0.05 2 1.6</size></box></geometry><material><ambient>0.0275 0.0275 0.0275 1</ambient><diffuse>0.05 0.05 0.05 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p3"><pose>0.2 2 0.8 0 0 0</pose><geometry><box><size>0.05 2 1.6</size></box></geometry><material><ambient>0.0275 0.0275 0.0275 1</ambient><diffuse>0.05 0.05 0.05 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p4"><pose>0 0 0.3 0 0 0</pose><geometry><cylinder><radius>0.3</radius><length>0.6</length></cylinder></geometry><material><ambient>0.5225 0.231 0.0275 1</ambient><diffuse>0.95 0.42 0.05 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p5"><pose>0.25 -1 3.5 0 0 0</pose><geometry><box><size>0.1 0.5 0.5</size></box></geometry><material><ambient>0.5225 0.231 0.0275 1</ambient><diffuse>0.95 0.42 0.05 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p6"><pose>0.25 0 3.5 0 0 0</pose><geometry><box><size>0.1 0.5 0.5</size></box></geometry><material><ambient>0.5225 0.231 0.0275 1</ambient><diffuse>0.95 0.42 0.05 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual><visual name="p7"><pose>0.25 1 3.5 0 0 0</pose><geometry><box><size>0.1 0.5 0.5</size></box></geometry><material><ambient>0.5225 0.231 0.0275 1</ambient><diffuse>0.95 0.42 0.05 1</diffuse><specular>0.04 0.04 0.04 1</specular><pbr><metal><roughness>0.9</roughness><metalness>0</metalness></metal></pbr></material></visual></link>
+    </model>
+    <!-- GROUND WITHIN THE TRAINING AREA, added 12 Oct 2026 by
+         tools/plane_ground_texture.py.
+    
+         A MESH, from tools/make_ground_mesh.py, carrying UV coordinates
+         that repeat the texture every 16 m. A <plane> visual cannot tile -
+         it stretches one image across its whole size - which is why this
+         world used to stand on one flat colour.
+    
+         IT WAS A FLAT HEIGHTMAP FIRST, AND THAT DID NOT WORK. SDF's only
+         built-in way to tile is <heightmap><texture><size>, so a dead-flat
+         heightmap was tried on 12 Oct 2026. Loaded in Gazebo on 13 Oct it
+         rendered with no texture at all and a different colour from every
+         camera - white from the payload, near-black from the chase - while
+         the valley world's heightmap, same <texture> block but 240 m of
+         relief, rendered correctly. Giving the image a real height range
+         and adding an explicit material both changed nothing. A mesh needs
+         no terrain code and is exactly flat, which matters: the collision
+         is a separate box at z=0, and relief in the visual would show the
+         aircraft sunk into the ground or hovering over it.
+    
+         VISUAL ONLY. The 220 km collision box in ground_plane still
+         carries every landing; a second collision here would be two
+         surfaces arguing over the same contact.
+    
+         Eight kilometres covers the 500 m student envelope many times
+         over. Beyond it the far plane takes over, which at that distance
+         is what haze does anyway. -->
+    <model name="ground_near">
+      <static>true</static>
+      <pose>0 0 0.02 0 0 0</pose>
+      <link name="ground_near_link">
+        <visual name="ground_near_visual">
+          <geometry>
+            <mesh>
+              <uri>file://media/ground_tile.obj</uri>
+            </mesh>
+          </geometry>
+          <!-- PLAIN COLOUR, NO TEXTURE MAPS. Measured in Gazebo on 13 Oct
+               2026, by spawning boxes side by side into the running world -
+               same light, same texture file, one variable each:
+    
+                 plain <diffuse> colour        lit and shaded, correct
+                 <albedo_map>                  near-black
+                 <albedo_map> + normal + rough near-black
+                 <albedo_map>, absolute path   near-black
+                 <emissive_map>, same file     renders the texture
+    
+               PBR albedo_map does not render in this Gazebo Harmonic /
+               ogre2 build. That is why the flat heightmap, the height
+               range, the mesh and the material were each blamed in turn and
+               no change made any difference: every one of them ended on the
+               same broken path.
+    
+               This is the one configuration proven to render, and it is
+               what the 220 km far plane has always used. The cost is no
+               surface detail. The alternative is a ground that is black. -->
+          <material>
+            <ambient>0.30 0.34 0.24 1</ambient>
+            <diffuse>0.42 0.50 0.30 1</diffuse>
+            <specular>0.04 0.04 0.04 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <!-- THE SKY, added 12 Oct 2026 by tools/sky_dome_apply.py.
+    
+         An inside-out dome at 7000 m - inside the cameras' 8000 m clip
+         plane - carrying the sky image from tools/make_sky_dome.py. It
+         replaces <sky></sky>, which in this renderer is a flat near-white
+         ceiling with no gradient and no cloud.
+    
+         EMISSIVE, ALBEDO BLACK. A sky is not a surface the sun falls on.
+         The image is the emissive map and nothing else lights the dome, so
+         it shows exactly what was painted. plugins/time_of_day.py dims it
+         for dusk and night over /world/NAME/material_color.
+    
+         NO SHADOWS, NO COLLISION. It is 7 km of geometry around everything;
+         either one would be a disaster. -->
+    <model name="sky_dome">
+      <static>true</static>
+      <pose>0 0 0 0 0 0</pose>
+      <link name="sky_dome_link">
+        <visual name="sky_dome_visual">
+          <cast_shadows>false</cast_shadows>
+          <geometry>
+            <mesh>
+              <uri>file://media/sky_dome.obj</uri>
+              <scale>7000 7000 7000</scale>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0 0 0 1</ambient>
+            <diffuse>0 0 0 1</diffuse>
+            <specular>0 0 0 1</specular>
+            <emissive>1 1 1 1</emissive>
+            <pbr>
+              <metal>
+                <roughness>1.0</roughness>
+                <metalness>0.0</metalness>
+                <emissive_map>file://media/sky_day.png</emissive_map>
+              </metal>
+            </pbr>
+          </material>
+        </visual>
+      </link>
+    </model>
+</world>
+</sdf>

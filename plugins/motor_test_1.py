@@ -39,7 +39,18 @@ mention Gazebo Harmonic either way. Please treat this as needing live
 confirmation, the same as several other features in this project.
 """
 
-from simulator_link import master
+import struct
+
+from simulator_link import master, send_command_and_wait
+
+# FIXED 11 Oct 2026: this sent the float 1.0 while declaring the parameter as
+# MAV_PARAM_TYPE_INT32, so PX4 reinterpreted the float's bit pattern and stored
+# COM_MOT_TEST_EN as 1065353216 - visible in `param show -c` on the machine.
+# An integer parameter has to be sent as its bit pattern packed into
+# PARAM_SET's float field.
+def _as_int32(value):
+    return struct.unpack("<f", struct.pack("<i", int(value)))[0]
+
 
 MAV_CMD_ACTUATOR_TEST = 310
 MAV_PARAM_TYPE_INT32 = 6
@@ -51,12 +62,20 @@ TEST_DURATION_S = 2  # PX4 caps this at 3s regardless; self-stopping
 def test_motor_1():
     master.mav.param_set_send(
         master.target_system, master.target_component,
-        b"COM_MOT_TEST_EN", 1.0, MAV_PARAM_TYPE_INT32)
-    master.mav.command_long_send(
-        master.target_system, master.target_component,
+        b"COM_MOT_TEST_EN", _as_int32(1), MAV_PARAM_TYPE_INT32)
+    # FIXED 11 Oct 2026: fired blind and always claimed success. PX4 denies
+    # this command outright while armed, which is the single most likely
+    # reason a motor test appears to do nothing - so report what it said.
+    result, text = send_command_and_wait(
         MAV_CMD_ACTUATOR_TEST,
-        0, TEST_VALUE, TEST_DURATION_S, 0, 0, MOTOR_FUNCTION, 0, 0)
-    return "Motor 1 test sent (aircraft must be DISARMED for this to work). Watch Gazebo - runs for up to 2s automatically."
+        TEST_VALUE, TEST_DURATION_S, 0, 0, MOTOR_FUNCTION, 0, 0)
+    if result == 0:  # MAV_RESULT_ACCEPTED
+        return ("Motor 1 test running - watch Gazebo. Stops itself after "
+                f"{TEST_DURATION_S}s.")
+    if result is None:
+        return "No acknowledgement from PX4 - is the simulator running?"
+    return (f"PX4 refused the motor test ({text}). It rejects actuator tests "
+            "while armed - disarm first.")
 
 
 PLUGIN = {

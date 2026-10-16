@@ -1,2 +1,27 @@
 __pycache__/
 *.pyc
+satellite/
+
+# World-file backups made by the tools under tools/. The world files
+# themselves are tracked, so git history is the real backup; these exist
+# only so --revert works on a machine mid-session.
+*.sdf.prescenery
+*.sdf.premag
+*.sdf.prespawn
+*.sdf.prefarground
+*.sdf.prenormal
+*.sdf.preground
+*.sdf.presky
+*.sdf.predomeless
+
+# World-file backups written by the five tools that edit worlds. They are
+# snapshots of a local machine's state, not part of the project, and one
+# of them being committed would make a later --revert restore somebody
+# else's world. Swept in by a `git add -A sim/worlds` on 14 Oct 2026.
+*.preweather
+*.prefarground
+*.preground
+*.prescene
+*.preinstall
+*.premag
+*.prelivery

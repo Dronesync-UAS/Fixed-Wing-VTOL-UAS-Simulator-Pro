@@ -19,6 +19,14 @@ above its button that the instructor fills in first:
     "inputs": [{"name": "radius_m", "label": "Radius (m)", "default": 150,
                 "min": 10, "step": 10}],
 
+An input may instead be a drop-down, for a choice from a fixed set rather
+than a quantity (added 11 Oct 2026 for the external-view plugin):
+
+    "inputs": [{"name": "view", "label": "Viewpoint", "type": "select",
+                "default": "rear_above",
+                "options": [{"value": "rear_above", "label": "Rear and above"},
+                            {"value": "top_down", "label": "Top-down"}]}],
+
 Each input's value is passed to the handler as a keyword argument of the
 same name (as a string), e.g. handler(radius_m="150"). Handlers with
 inputs should validate/convert those values themselves.
@@ -38,6 +46,13 @@ import os
 PLUGIN_DIR = os.path.join(os.path.dirname(__file__), "plugins")
 
 
+# The plugins that were loaded, so one control can act on the others.
+# "New session" needs it: clearing a failure injection means pressing that
+# plugin's own toggle, and a plugin cannot import the station (the station
+# runs as __main__, so importing it would load a second copy of it).
+LOADED = []
+
+
 def load_plugins():
     plugins = []
     for filename in sorted(os.listdir(PLUGIN_DIR)):
@@ -51,4 +66,5 @@ def load_plugins():
             plugin = module.PLUGIN
             plugin["_module"] = module
             plugins.append(plugin)
+    LOADED[:] = plugins
     return plugins
